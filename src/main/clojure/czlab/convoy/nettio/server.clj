@@ -17,13 +17,13 @@
 
   (:use [czlab.convoy.nettio.aggregate]
         [czlab.convoy.nettio.http11]
+        [czlab.convoy.nettio.core]
+        [czlab.convoy.net.server]
+        [czlab.convoy.net.routes]
         [czlab.basal.core]
         [czlab.basal.str]
-        [czlab.convoy.net.routes]
         [czlab.basal.consts]
-        [czlab.basal.io]
-        [czlab.convoy.net.server]
-        [czlab.convoy.nettio.core])
+        [czlab.basal.io])
 
   (:import [javax.net.ssl KeyManagerFactory TrustManagerFactory]
            [io.netty.handler.logging LogLevel LoggingHandler]

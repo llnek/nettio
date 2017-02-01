@@ -516,9 +516,9 @@
    (h1send* conn method uri data nil))
   ([^ClientConnect conn method uri data args]
    (let
-     [args (merge {:isKeepAlive? true}
-                  args
-                  {:host (.host conn)})]
+     [args (merge args
+                  {:isKeepAlive? true
+                   :host (.host conn)})]
      (send1 (.channel conn) method uri data args))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -531,9 +531,9 @@
   ([target method data args]
    (let
      [url (io/as-url target)
-      args (merge {:isKeepAlive? false}
-                  args
+      args (merge args
                   {:scheme (.getProtocol url)
+                   :isKeepAlive? false
                    :host (.getHost url)})
       cc (h1connect<> (.getHost url)
                       (.getPort url) args)]

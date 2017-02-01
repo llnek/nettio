@@ -29,7 +29,7 @@
            [java.io IOException File InputStream]
            [io.netty.util ReferenceCountUtil]
            [clojure.lang APersistentVector]
-           [czlab.convoy.net HttpInvoke MvcUtils HttpResult]
+           [czlab.convoy.net MvcUtils HttpResult]
            [czlab.convoy.nettio HttpRanges]
            [java.nio.charset Charset]
            [java.net HttpCookie URL]
