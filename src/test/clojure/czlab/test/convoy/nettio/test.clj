@@ -250,7 +250,7 @@
                        res (httpResult<> ch g)]
                    (reset! out (.content b))
                    (.setContent res "hello joe")
-                   (replyResult ch res))))}))
+                   (replyResult res))))}))
         ch (startServer bs
                         {:port 5555 :host lhost-name})
         po (h1post (str "http://" lhost-name ":5555/form")

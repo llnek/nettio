@@ -124,6 +124,7 @@
       (setHeader [_ nm v] (.set headers nm v))
       (isEmpty [_] (nil? (.getv impl :body)))
       (content [_] (.getv impl :body))
+      (socket [_] ch)
       (setContent [_ data]
         (.setv impl :body data)))))
 
@@ -292,9 +293,10 @@
 ;;
 (defmethod replyResult
   Channel
-  [^Channel ch ^HttpResult res]
+  [^HttpResult res]
   (let
-    [gist (.msgGist res)
+    [^Channel ch (.socket res)
+     gist (.msgGist res)
      method (:method gist)
      {:keys [headers
              lastMod

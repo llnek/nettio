@@ -932,6 +932,7 @@
         :isKeepAlive? (HttpUtil/isKeepAlive msg)
         :version (.. msg protocolVersion text)
         :framework :netty
+        :ssl? (maybeSSL? ctx)
         :parameters (getUriParams msg)
         :headers (.headers msg)
         :uri2 (str (some-> req (.uri )))
