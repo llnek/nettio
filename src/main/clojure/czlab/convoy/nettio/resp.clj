@@ -39,6 +39,7 @@
             HttpResponseStatus
             DefaultHttpHeaders
             FullHttpResponse
+            HttpChunkedInput
             HttpVersion
             Cookie
             HttpUtil
@@ -340,14 +341,21 @@
      [body clen]
      (cond
        (inst? InputStream body)
-       [(ChunkedStream. ^InputStream body) -1]
+       [(HttpChunkedInput.
+          (ChunkedStream. ^InputStream body)) -1]
+
        (inst? HttpRanges body)
-       [body (.length ^HttpRanges body)]
+       [(HttpChunkedInput. ^HttpRanges body)
+        (.length ^HttpRanges body)]
+
        (instBytes? body)
        [body (alength ^bytes body)]
+
        (inst? File body)
-       [(ChunkedNioFile. ^File body)
+       [(HttpChunkedInput.
+          (ChunkedNioFile. ^File body))
         (.length ^File body)]
+
        (nil? body)
        [nil 0]
        :else

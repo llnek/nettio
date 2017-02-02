@@ -388,7 +388,7 @@
     (configDiskFiles true tempFileDir)
     (doseq [[k v] options] (.option bs k v))
     ;;assign generic attributes for all channels
-    ;;(.attr bs chcfg-key args)
+    (.attr bs chcfg-key args)
     (.attr bs
            dfac-key
            (H1DataFactory. (int maxInMemory)))
