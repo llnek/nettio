@@ -22,6 +22,7 @@
         [czlab.basal.core])
 
   (:import [io.netty.util AttributeKey ReferenceCountUtil]
+           [czlab.convoy.net ULFormItems ULFileItem]
            [io.netty.handler.codec.http.multipart
             AbstractDiskHttpData
             HttpDataFactory
@@ -51,7 +52,6 @@
            [io.netty.handler.codec
             DecoderResult
             DecoderResultProvider]
-           [czlab.convoy.net ULFormItems ULFileItem]
            [czlab.convoy.nettio
             WholeMessage
             WholeRequest
@@ -109,9 +109,11 @@
 ;;
 (defn- parsePost
   ""
-  [^HttpPostRequestDecoder decoder]
+  [^HttpPostRequestDecoder deco]
   (let [bag (ULFormItems.)]
-    (doseq [^HttpData x (.getBodyHttpDatas decoder)]
+    (doseq [^HttpData
+            x
+            (.getBodyHttpDatas deco)]
       (when-some
         [z (cond
              (inst? FileUpload x)
@@ -127,7 +129,7 @@
                    c (getHttpData a)]
                (fileItem<> true "" nil (.getName a) "" c)))]
         (if (inst? FileUpload x)
-          (.removeHttpDataFromClean decoder x))
+          (.removeHttpDataFromClean deco x))
         ;;no need to release since we will call destroy on the decoder
         ;;(.release x)
         (.add bag z)))

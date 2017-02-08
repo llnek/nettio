@@ -8,12 +8,8 @@
   :description ""
   :url "https://github.com/llnek/nettio"
 
-  :dependencies [;;[commons-fileupload/commons-fileupload "1.3.2"]
-                 ;;[commons-net/commons-net "3.5"]
-                 ;;[javax.servlet/javax.servlet-api "3.1.0"]
+  :dependencies [[org.javassist/javassist "3.21.0-GA"]
                  [io.netty/netty-all "4.1.8.Final"]
-                 ;;[net.sourceforge.jregex/jregex "1.2_01"]
-                 [org.javassist/javassist "3.21.0-GA"]
                  [io.czlab/convoy "1.0.0"]]
 
   :plugins [[lein-codox "0.10.2"]
