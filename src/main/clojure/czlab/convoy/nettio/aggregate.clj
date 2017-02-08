@@ -140,26 +140,27 @@
 (defn- h11res<>
   ""
   ^WholeResponse
-  [^ChannelHandlerContext ctx ^HttpResponse rsp]
-  (let [^HttpDataFactory dfac (getAKey ctx dfac-key)
-        gist (scanMsgGist ctx rsp)]
+  [ctx rsp]
+  (let [gist (scanMsgGist ctx rsp)]
     (doto
       (proxy [WholeResponse][rsp]
         (prepareBody [df msg]
-          (.createAttribute ^HttpDataFactory df
-                            ^HttpRequest msg "__body__"))
-        (endContent [c] (getHttpData c))
+          (. ^HttpDataFactory
+             df
+             createAttribute
+             ^HttpRequest msg "__body__"))
+        (endContent [_] (getHttpData _))
         (msgGist [] gist))
-      (.init dfac))))
+      (. init
+         ^HttpDataFactory (getAKey ctx dfac-key)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- h11req<>
   ""
   ^WholeRequest
-  [^ChannelHandlerContext ctx ^HttpRequest req]
-  (let [^HttpDataFactory dfac (getAKey ctx dfac-key)
-        gist (scanMsgGist ctx req)]
+  [ctx req]
+  (let [gist (scanMsgGist ctx req)]
     (doto
       (proxy [WholeRequest][req]
         (prepareBody [df msg]
@@ -168,8 +169,9 @@
             (->> (getMsgCharset msg)
                  (HttpPostRequestDecoder.
                    ^HttpDataFactory df ^HttpRequest msg))
-            (.createAttribute ^HttpDataFactory df
-                              ^HttpRequest msg "__body__")))
+            (. ^HttpDataFactory df
+               createAttribute
+               ^HttpRequest msg "__body__")))
         (endContent [c]
           (cond
             (inst? HttpPostRequestDecoder c)
@@ -177,7 +179,7 @@
             (inst? Attribute c)
             (getHttpData c)))
         (msgGist [] gist))
-      (.init dfac))))
+      (. init ^HttpDataFactory (getAKey ctx dfac-key)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -199,28 +201,28 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- readChunk "" [^ChannelHandlerContext ctx
-                     ^HttpContent part
-                     pipelining?]
+(defn- readChunk
+  ""
+  [ctx part pipelining?]
   ;;(log/debug "received chunk for msg")
   (let
-    [^WholeMessage msg (getAKey ctx h1pipe-M-key)
-     last? (inst? LastHttpContent part)]
+    [last? (inst? LastHttpContent part)
+     msg (getAKey ctx h1pipe-M-key)]
     (try
       (if-not (decoderSuccess? part)
         (if (inst? HttpRequest msg)
           (replyStatus ctx
                        (.code HttpResponseStatus/BAD_REQUEST))
-          (.close ctx))
-        (.appendContent msg part last?))
+          (. ^ChannelHandlerContext ctx close))
+        (. ^WholeMessage msg appendContent ^HttpContent part last?))
       (finally
         (ReferenceCountUtil/release part)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- readLastChunk "" [^ChannelHandlerContext ctx
-                         ^LastHttpContent part
-                         pipelining?]
+(defn- readLastChunk
+  ""
+  [ctx part pipelining?]
   (readChunk ctx part pipelining?)
   (let
     [^List q (getAKey ctx h1pipe-Q-key)
@@ -241,9 +243,9 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- readMessage "" [^ChannelHandlerContext ctx
-                       ^HttpMessage msg
-                       pipelining?]
+(defn- readMessage
+  ""
+  [ctx msg pipelining?]
   ;;no need to release msg -> request or response
   (let [{:keys [maxContentSize maxInMemory]}
         (getAKey ctx chcfg-key)]
@@ -253,7 +255,7 @@
       (if (inst? HttpRequest msg)
         (replyStatus ctx
                      (.code HttpResponseStatus/BAD_REQUEST))
-        (.close ctx))
+        (. ^ChannelHandlerContext ctx close))
       (not (handleExpect? ctx msg))
       nil
       :else
@@ -264,9 +266,9 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- aggRead "" [^ChannelHandlerContext ctx
-                   msg
-                   pipelining?]
+(defn- aggRead
+  ""
+  [ctx msg pipelining?]
   (cond
     (inst? HttpMessage msg)
     (readMessage ctx msg pipelining?)
@@ -279,11 +281,10 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn h1reqAggregator<> "A handler which aggregates chunks into
-                        a full request.  For http-header-expect,
-                        returns 100-continue if the payload size
-                        is below limit.  Also optionally handle
-                        http 1.1 pipelining by default"
+(defn h1reqAggregator<>
+  "A handler which aggregates chunks into a full request.  For http-header-expect,
+  returns 100-continue if the payload size is below limit.  Also optionally handle
+  http 1.1 pipelining by default"
   {:tag ChannelHandler}
 
   ([] (h1reqAggregator<> true))
@@ -319,8 +320,8 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn h1resAggregator<> "A handler which aggregates chunks into
-                        a full response"
+(defn h1resAggregator<>
+  "A handler which aggregates chunks into a full response"
   ^ChannelHandler
   []
   (proxy [H1ResAggregator][]

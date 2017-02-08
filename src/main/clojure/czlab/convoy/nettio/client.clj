@@ -101,7 +101,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(def ^:private ^ChannelHandler msg-agg (h1reqAggregator<> false))
+(def ^:private ^ChannelHandler msg-agg (h1resAggregator<>))
 (def ^:private ^AttributeKey rsp-key  (akey<> "rsp-result"))
 (def ^:private ^AttributeKey cf-key  (akey<> "wsock-future"))
 
@@ -115,25 +115,27 @@
              (hgl? serverCert))
     (let
       [p (if (OpenSsl/isAlpnSupported)
-           SslProvider/OPENSSL SslProvider/JDK)
-       pms (java.util.ArrayList.)
+           SslProvider/OPENSSL
+           SslProvider/JDK)
        #^"[Ljava.security.cert.X509Certificate;"
        cs (->> (convCerts (io/as-url serverCert))
-               (vargs X509Certificate))]
-      (.add pms ApplicationProtocolNames/HTTP_2)
-      (.add pms ApplicationProtocolNames/HTTP_1_1)
+               (vargs X509Certificate))
+       pms (doto (java.util.ArrayList.)
+             (.add ApplicationProtocolNames/HTTP_2)
+             (.add ApplicationProtocolNames/HTTP_1_1))
+       cfg
+       (ApplicationProtocolConfig.
+         ApplicationProtocolConfig$Protocol/ALPN
+         ApplicationProtocolConfig$SelectorFailureBehavior/NO_ADVERTISE
+         ApplicationProtocolConfig$SelectedListenerFailureBehavior/ACCEPT
+         pms)]
       (-> (SslContextBuilder/forClient)
           (.ciphers Http2SecurityUtil/CIPHERS
                     SupportedCipherSuiteFilter/INSTANCE)
           (.trustManager cs)
           (.sslProvider  ^SslProvider p)
-          (.applicationProtocolConfig
-            (ApplicationProtocolConfig.
-              ApplicationProtocolConfig$Protocol/ALPN
-              ApplicationProtocolConfig$SelectorFailureBehavior/NO_ADVERTISE
-              ApplicationProtocolConfig$SelectedListenerFailureBehavior/ACCEPT
-              pms))
-          (.build)))))
+          (.applicationProtocolConfig cfg)
+          .build))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -145,14 +147,15 @@
              (hgl? serverCert))
     (let
       [p  (if (OpenSsl/isAlpnSupported)
-            SslProvider/OPENSSL SslProvider/JDK)
+            SslProvider/OPENSSL
+            SslProvider/JDK)
        #^"[Ljava.security.cert.X509Certificate;"
        cs (->> (convCerts (io/as-url serverCert))
                (vargs X509Certificate))]
       (-> (SslContextBuilder/forClient)
           (.sslProvider ^SslProvider p)
           (.trustManager cs)
-          (.build)))))
+          .build))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -168,7 +171,7 @@
   ""
   [^Channel ch op ^URI uri data args]
   (let
-    [mt (HttpMethod/valueOf (ucase (name op)))
+    [mt (HttpMethod/valueOf (ucase (strKW op)))
      cs (stror (:encoding args) "utf-8")
      headers (:headers args)
      body (coerceToByteBuf data ch cs)
@@ -180,8 +183,8 @@
               (str path "?" qy) path)
      clen
      (cond
-       (inst? ByteBuf body) (.readableBytes ^ByteBuf body)
-       (inst? File body) (.length ^File body)
+       (inst? ByteBuf body) (. ^ByteBuf body readableBytes)
+       (inst? File body) (. ^File body length)
        (inst? InputStream body) -1
        (nil? body) 0
        :else (throwIOE "bad type %s" (class body)))
@@ -190,11 +193,12 @@
              (inst? ByteBuf body))
        (httpReq<+> mt uriStr body)
        (httpReq<> mt uriStr))]
-    (doseq [[k v] (seq headers)]
+    (doseq [[k v] (seq headers)
+            :let [kw (strKW k)]]
       (if (seq? v)
         (doseq [vv (seq v)]
-          (addHeader req (name k) vv))
-        (setHeader req (name k) v)))
+          (addHeader req kw vv))
+        (setHeader req kw v)))
     (setHeader req HttpHeaderNames/HOST (:host args))
     (setHeader req
                HttpHeaderNames/CONNECTION
@@ -218,14 +222,17 @@
     (log/debug "Netty client: content has length %s" clen)
     (let [out (setAKey ch rsp-key (promise))
           cf (.write ch req)
-          cf (cond
-               (inst? File body)
-               (.write ch (HttpChunkedInput.
-                            (ChunkedFile. ^File body)))
-               (inst? InputStream body)
-               (.write ch (HttpChunkedInput.
-                            (ChunkedStream. ^InputStream body)))
-               :else cf)]
+          cf (condp instance? body
+               File
+               (->> (ChunkedFile. ^File body)
+                    HttpChunkedInput.
+                    (.write ch))
+               InputStream
+               (->> (ChunkedStream.
+                      ^InputStream body)
+                    HttpChunkedInput.
+                    (.write ch))
+               cf)]
       (.flush ch)
       out)))
 
@@ -257,7 +264,7 @@
       (when-some [p (getAKey ctx rsp-key)]
         (delAKey ctx rsp-key)
         (deliver p err))
-      (.close ^ChannelHandlerContext ctx))
+      (. ^ChannelHandlerContext ctx close))
     (channelRead0 [ctx msg]
       (when-some [p (getAKey ctx rsp-key)]
         (delAKey ctx rsp-key)
@@ -271,26 +278,24 @@
   [^WebSocketClientHandshaker handshaker cb user args]
   (proxy [InboundHandler][]
     (handlerAdded [ctx]
-      (let [p (.newPromise ^ChannelHandlerContext ctx)]
+      (let [p (. ^ChannelHandlerContext ctx newPromise)]
         (setAKey ctx cf-key p)
-        (.addListener p (cfop<> cb))
+        (. p addListener (cfop<> cb))
         (log/debug "wsc handler-added")))
     (channelActive [ctx]
       (log/debug "wsc handshaker start hand-shake")
-      (.handshake handshaker
-                  (.channel ^ChannelHandlerContext ctx)))
+      (. handshaker handshake (ch?? ctx)))
     (exceptionCaught [ctx err]
-      (if-some [^ChannelPromise
-                f (getAKey ctx cf-key)]
+      (if-some [^ChannelPromise f (getAKey ctx cf-key)]
         (if-not (.isDone f)
-          (.setFailure f ^Throwable err)))
+          (. f setFailure ^Throwable err)))
       (log/warn err "")
-      (.close ^ChannelHandlerContext ctx))
+      (. ^ChannelHandlerContext ctx close))
     (channelRead0 [ctx msg]
-      (let [ch (.channel ^ChannelHandlerContext ctx)
-            ^ChannelPromise f (getAKey ctx cf-key)]
+      (let [^ChannelPromise f (getAKey ctx cf-key)
+            ch (ch?? ctx)]
         (cond
-          (not (.isHandshakeComplete handshaker))
+          (not (. handshaker isHandshakeComplete))
           (do
             (log/debug "attempt to finz the hand-shake...")
             (.finishHandshake handshaker ch ^FullHttpResponse msg)
@@ -312,7 +317,7 @@
           (do
             (log/debug "received close frame")
             (user ch msg)
-            (.close ^ChannelHandlerContext ctx))
+            (. ^ChannelHandlerContext ctx close))
           :else nil)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -349,7 +354,7 @@
              (.addLast (cpipe ch) "ssl")))
       (doto (cpipe ch)
         (.addLast "codec" (HttpClientCodec.))
-        (.addLast "agg" (HttpObjectAggregator. 64000))
+        (.addLast "agg" (HttpObjectAggregator. 96000))
         (.addLast "wcc" WebSocketClientCompressionHandler/INSTANCE)
         (.addLast "wsh"
                   (wsh<>
@@ -446,7 +451,7 @@
     (futureCB (.closeFuture c)
               (fn [_]
                 (log/debug "shutdown: netty client")
-                (some-> f (.cleanAllHttpData))
+                (some-> f .cleanAllHttpData)
                 (try! (.. bs config group shutdownGracefully))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -462,7 +467,7 @@
     (futureCB (.closeFuture c)
               (fn [_]
                 (log/debug "shutdown: netty client")
-                (some-> f (.cleanAllHttpData))
+                (some-> f .cleanAllHttpData)
                 (try! (.. bs config group shutdownGracefully))))
     (reify ClientConnect
       (dispose [_]
@@ -482,9 +487,8 @@
    (wsconnect<> host port uri cb nil))
   ([host port uri cb args]
    (let
-     [pfx (if (some? (:serverCert args)) "wss" "ws")
-      uriStr (format "%s://%s:%d%s"
-                     pfx host port uri)
+     [pfx (if (:serverCert args) "wss" "ws")
+      uriStr (format "%s://%s:%d%s" pfx host port uri)
       rc (promise)]
      (wsBootAndConn rc
                     host

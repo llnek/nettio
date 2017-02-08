@@ -104,7 +104,7 @@
         (assert (some? (HttpResponseStatus/valueOf status)))
         (.setv impl :code status))
       (setLastModified [_ d]
-        (->> (.getTime (gcal<gmt> d))
+        (->> (.getTime (gmt<> d))
              (.setv impl :lastmod )))
       (setLastDate [_ d] (.setv impl :lastmod d))
       (status [_] (.getv impl :code))

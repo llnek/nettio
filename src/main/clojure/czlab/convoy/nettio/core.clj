@@ -202,7 +202,8 @@
          ChannelHandlerContext
          (.id (.channel ^ChannelHandlerContext c))
          Channel
-         (.id ^Channel c))))
+         (.id ^Channel c)
+         nil)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -239,7 +240,7 @@
   ""
   ^DecoderResult
   [msg]
-  (some-> (cast? DecoderResultProvider msg) (.decoderResult)))
+  (some-> (cast? DecoderResultProvider msg) .decoderResult))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -256,7 +257,7 @@
   [msg]
   (if-some
     [r (some-> (cast? DecoderResultProvider msg)
-               (.decoderResult))]
+               .decoderResult)]
     (if-not (.isSuccess r) (.cause r))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -280,7 +281,8 @@
     Channel
     (.pipeline ^Channel c)
     ChannelHandlerContext
-    (.pipeline ^ChannelHandlerContext c)))
+    (.pipeline ^ChannelHandlerContext c)
+    nil))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -291,7 +293,8 @@
   (condp instance? arg
     ChannelHandlerContext
     (.channel ^ChannelHandlerContext arg)
-    Channel arg))
+    Channel arg
+    nil))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -322,7 +325,7 @@
 (defn getAKey
   ""
   [arg ^AttributeKey akey]
-  (some-> (ch?? arg) (.attr akey) (.get)))
+  (some-> (ch?? arg) (.attr akey) .get))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -330,7 +333,7 @@
   ""
   ^String
   [^ChannelPipeline pp ^ChannelHandler h]
-  (some-> pp (.context h) (.name)))
+  (some-> pp (.context h) .name))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -341,7 +344,8 @@
     Channel
     (.close ^Channel c)
     ChannelHandlerContext
-    (.close ^ChannelHandlerContext c)))
+    (.close ^ChannelHandlerContext c)
+    nil))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -410,7 +414,7 @@
   [^ByteBuf buf
    ^OutputStream out]
   (if-some [len (some-> buf
-                        (.readableBytes))]
+                        .readableBytes)]
     (when (> len 0)
       (.readBytes buf out (int len))
       (.flush out)
@@ -434,15 +438,15 @@
   ^ByteBuf
   [^Channel ch arg encoding]
   (let [buf (some-> ch
-                    (.alloc) (.directBuffer))
+                    .alloc .directBuffer)
         cs (Charset/forName encoding)]
     (cond
       (instBytes? arg)
-      (if (some? buf)
+      (if buf
         (.writeBytes buf ^bytes arg)
         (Unpooled/wrappedBuffer ^bytes arg))
       (string? arg)
-      (if (some? buf)
+      (if buf
         (doto buf (.writeCharSequence  ^CharSequence arg cs))
         (Unpooled/copiedBuffer ^CharSequence arg cs))
       :else (throwIOE "bad type"))))
@@ -543,7 +547,7 @@
 
   ([cf] (closeCF cf false))
   ([^ChannelFuture cf keepAlive?]
-    (if (and (some? cf)
+    (if (and cf
              (not (boolean keepAlive?)))
       (.addListener cf ChannelFutureListener/CLOSE))))
 
@@ -616,7 +620,7 @@
        (DefaultFullHttpResponse. ver code)
        :else
        (let [bb (some-> alloc
-                        (.directBuffer))]
+                        .directBuffer)]
          (cond
            (nil? bb)
            (trap! IOException "No bytebuf")
@@ -669,7 +673,7 @@
             (if perm?
               (.code HttpResponseStatus/MOVED_PERMANENTLY)
               (.code HttpResponseStatus/TEMPORARY_REDIRECT))
-            (httpFullReply<> ))
+            httpFullReply<> )
       ka? false]
      (log/debug "redirecting to -> %s" location)
      (setHeader rsp
@@ -687,8 +691,8 @@
   [^ChannelOutboundInvoker inv]
   (->
     (->> HttpResponseStatus/CONTINUE
-         (.code )
-         (httpFullReply<> )
+         .code
+         httpFullReply<>
          (.writeAndFlush inv ))
     (.addListener (cfop<e>))))
 
@@ -776,7 +780,7 @@
            rsp (->> (if error
                       (.code HttpResponseStatus/EXPECTATION_FAILED)
                       (.code HttpResponseStatus/CONTINUE))
-                    (httpFullReply<> ))]
+                    httpFullReply<> )]
        (-> (.writeAndFlush inv rsp)
            (futureCB (if error (cfop<z>))))
        (not error))
@@ -848,7 +852,7 @@
   ^String
   [^HttpMessage msg]
   (if-some [req (cast? HttpRequest msg)]
-    (.path (QueryStringDecoder. (.uri req))) ""))
+    (. (QueryStringDecoder. (.uri req)) path) ""))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -859,7 +863,7 @@
   (if-some
     [req (cast? HttpRequest msg)]
     (-> (.uri req)
-        (QueryStringDecoder. ) (.parameters))
+        QueryStringDecoder.  .parameters)
     nil))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -904,7 +908,7 @@
         rc
         (if (inst? HttpRequest msg)
           (let [^RouteCracker c (getAKey ctx routes-key)]
-            (if (and (some? c)
+            (if (and c
                      (.hasRoutes c))
               (.crack c {:method (getMethod msg)
                          :uri (getUriPath msg)}))))]
@@ -924,10 +928,8 @@
              redirect] :as ro}
      (matchRoute ctx msg)
      ri
-     (if (and status?
-              (some? routeInfo)
-              (some? matcher))
-       (.collect ^RouteInfo routeInfo ^Matcher matcher))
+     (if (and status? routeInfo matcher)
+       (. ^RouteInfo routeInfo collect ^Matcher matcher))
      m {:chunked? (HttpUtil/isTransferEncodingChunked msg)
         :isKeepAlive? (HttpUtil/isKeepAlive msg)
         :version (.. msg protocolVersion text)
@@ -935,15 +937,14 @@
         :ssl? (maybeSSL? ctx)
         :parameters (getUriParams msg)
         :headers (.headers msg)
-        :uri2 (str (some-> req (.uri )))
+        :uri2 (str (some-> req .uri))
         :uri (getUriPath msg)
         :charset (getMsgCharset msg)
         :route (merge {:info routeInfo}
                       (dissoc ro :routeInfo) ri)
         :method (getMethod msg)
         :cookies (crackCookies msg)}]
-    (if-some [s (some-> (cast? HttpResponse msg)
-                        (.status))]
+    (if-some [s (some-> (cast? HttpResponse msg) .status)]
       (merge m {:status {:code (.code s)
                          :reason (.reasonPhrase s)}})
       m)))
@@ -1003,13 +1004,13 @@
   ^APersistentVector
   [arg]
   (let
-    [[del ^InputStream inp] (coerceToInputStream arg)]
+    [[del? ^InputStream inp] (coerceToInputStream arg)]
     (try
      (-> (CertificateFactory/getInstance "X.509")
          (.generateCertificates inp)
-         (vec))
+         vec)
      (finally
-       (if del (closeQ inp))))))
+       (if del? (closeQ inp))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF
