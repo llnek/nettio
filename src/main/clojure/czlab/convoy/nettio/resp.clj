@@ -403,7 +403,8 @@
        :else
        [(httpReply<> code) body])
      hds (writeHeaders rsp headers)]
-    (->> (and (not (inst? FullHttpResponse rsp)) body)
+    (->> (and (not (inst? FullHttpResponse rsp))
+              (some? body))
          (HttpUtil/setTransferEncodingChunked rsp ))
     (if-not (neg? clen)
       (HttpUtil/setContentLength rsp clen))
