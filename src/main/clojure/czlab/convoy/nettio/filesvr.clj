@@ -76,9 +76,9 @@
     (log/debug "Flushing file of %s bytes to client" clen)
     (.write ctx res)
     (->
-      (->> (.fileRef xdata)
-           (ChunkedFile. )
-           (HttpChunkedInput. )
+      (->> (. xdata fileRef)
+           ChunkedFile.
+           HttpChunkedInput.
            ;;test non chunk
            ;;(.javaBytes xdata)
            ;;(Unpooled/wrappedBuffer )
@@ -126,11 +126,11 @@
       (let
         [^WholeRequest msg msg
          uri (.uri msg)
-         mtd (.name (.method msg))
-         pos (.lastIndexOf uri (int \/))
+         mtd (.. msg method name)
+         pos (. uri lastIndexOf (int \/))
          p (if (< pos 0)
              uri
-             (.substring uri (inc pos)))
+             (. uri substring (inc pos)))
          nm (stror p (str (juid) ".dat"))]
         (log/debug "%s: uri= %s, file= %s" mtd uri nm)
         (log/debug "args= %s" args)
@@ -157,14 +157,18 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; filesvr host port vdir
-(defn finxServer "" []
+(defn finzServer "" []
   (stopServer @svrchan)
   (reset! svrboot nil)
   (reset! svrchan nil))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; filesvr host port vdir
-(defn -main "Start a basic file server" [& args]
+(defn -main
+
+  "Start a basic file server"
+  [& args]
+
   (cond
     (< (count args) 3)
     (println "usage: filesvr host port <rootdir>")

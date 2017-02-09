@@ -70,25 +70,21 @@
       (assert (inst? WholeRequest msg))
       (let [^WholeRequest req msg
             c (.. req content getBytes)
-            ch (.channel ^ChannelHandlerContext ctx)
+            ch (ch?? ctx)
             gist (.msgGist req)
             r (httpFullReply<>
                 (.code HttpResponseStatus/OK) c (.alloc ch))]
-        (.writeAndFlush ^ChannelHandlerContext ctx r)))))
+        (. ^ChannelHandlerContext ctx writeAndFlush r)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- bbuf
-  ""
-  ^ByteBuf
+(defn- bbuf "" ^ByteBuf
   [^Channel ch ^String s]
   (Unpooled/wrappedBuffer (bytesify s)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- testPipelining
-  ""
-  []
+(defn- testPipelining "" []
   (let [ec (EmbeddedChannel.
              #^"[Lio.netty.channel.ChannelHandler;"
              (vargs* ChannelHandler
@@ -123,9 +119,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- testPipe
-  ""
-  [pipe?]
+(defn- testPipe "" [pipe?]
   (let [ec (EmbeddedChannel.
              #^"[Lio.netty.channel.ChannelHandler;"
              (vargs* ChannelHandler
@@ -154,9 +148,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- testDiscarder
-  ""
-  []
+(defn- testDiscarder "" []
   (let [bs (discardHTTPD<> rand)
         ch (startServer bs
                         {:port 5555 :host lhost-name})
@@ -165,14 +157,11 @@
                        ":5555/test/discarder?a=1&b=john%27smith"))
         ^WholeResponse rc (deref po 3000 nil)]
     (stopServer ch)
-    (and (some? rc)
-         (== 0 (.. rc content size)))))
+    (and rc (== 0 (.. rc content size)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- testSnooper
-  ""
-  []
+(defn- testSnooper "" []
   (let [bs (snoopHTTPD<>)
         ch (startServer bs
                         {:port 5555 :host lhost-name})
@@ -181,14 +170,11 @@
                        ":5555/test/snooper?a=1&b=john%27smith"))
         ^WholeResponse rc (deref po 3000 nil)]
     (stopServer ch)
-    (and (some? rc)
-         (.. rc content hasContent))))
+    (and rc (.. rc content hasContent))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- testFileSvrGet
-  ""
-  []
+(defn- testFileSvrGet "" []
   (let [bs (memFileServer<> *tempfile-repo*)
         s "test content"
         tn "testget.txt"
@@ -200,15 +186,13 @@
         po (h1get (format "http://%s:%d/%s" lhost-name port tn))
         ^WholeResponse rc (deref po 5000 nil)]
     (stopServer ch)
-    (and (some? rc)
+    (and rc
          (> (.. rc content size) 0)
          (= s (.. rc content stringify)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- testFileSvrPut
-  ""
-  []
+(defn- testFileSvrPut "" []
   (let [bs (memFileServer<> *tempfile-repo*)
         src (tempFile)
         s "test content"
@@ -224,16 +208,14 @@
         ^WholeResponse rc (deref po 5000 nil)
         des (io/file *tempfile-repo* tn)]
     (stopServer ch)
-    (and (some? rc)
+    (and rc
          (== 0 (.. rc content size))
          (.exists des)
          (= s (slurp des)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- testFormPost
-  ""
-  []
+(defn- testFormPost "" []
   (let [out (atom nil)
         bs
         (createServer<>
@@ -259,7 +241,7 @@
                               "application/x-www-form-urlencoded"}})
         ^WholeResponse rc (deref po 5000 nil)
         rmap
-        (when (some? @out)
+        (when @out
           (preduce<map>
             #(let [^ULFileItem i %2]
                (if (.isFormField i)
@@ -269,7 +251,7 @@
                  %1))
             (.intern ^ULFormItems @out)))]
     (stopServer ch)
-    (and (some? rc)
+    (and rc
          (= "hello joe" (.. rc content stringify))
          (= (:a rmap) "b")
          (= (:c rmap) "3 9")
@@ -307,9 +289,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- testFormMultipart
-  ""
-  []
+(defn- testFormMultipart "" []
   (let [out (atom nil)
         bs
         (createServer<>
@@ -331,7 +311,7 @@
                    {:headers {:content-type ctype }})
         ^WholeResponse rc (deref po 5000 nil)
         rmap
-        (when (some? @out)
+        (when @out
           (preduce<map>
             #(let [^ULFileItem i %2]
                (if (.isFormField i)
@@ -342,7 +322,7 @@
                  %1))
             (.intern ^ULFormItems @out)))
         fmap
-        (when (some? @out)
+        (when @out
           (preduce<map>
             #(let [^ULFileItem i %2]
                (if-not (.isFormField i)
@@ -353,7 +333,7 @@
                  %1))
             (.intern ^ULFormItems @out)))]
     (stopServer ch)
-    (and (some? rc)
+    (and rc
          (== 0 (.. rc content size))
          (= (:field+fieldValue rmap) "fieldValue")
          (= (:multi+value1 rmap) "value1")
@@ -363,15 +343,13 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- testFormUpload
-  ""
-  []
+(defn- testFormUpload "" []
   (let [cbody (bytesify FORM-MULTIPART)
         gist {:ctype "multipart/form-data; boundary=---1234"
               :clen (alength cbody)}
         out (parseFormPost gist (xdata<> cbody))
         rmap
-        (when (some? out)
+        (when out
           (preduce<map>
             #(let [^ULFileItem i %2]
                (if (.isFormField i)
@@ -382,7 +360,7 @@
                  %1))
             (.intern out)))
         fmap
-        (when (some? out)
+        (when out
           (preduce<map>
             #(let [^ULFileItem i %2]
                (if-not (.isFormField i)
@@ -420,9 +398,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- testRoutes1
-  ""
-  []
+(defn- testRoutes1 "" []
   (let [rc (.crack RC {:method "post" :uri "/hello/world"})
         ^Matcher m (:matcher rc)
         ^RouteInfo r (:routeInfo rc)
@@ -434,9 +410,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- testRoutes2
-  ""
-  []
+(defn- testRoutes2 "" []
   (let [rc (.crack RC {:method "get" :uri "/favicon.hello"})
         ^Matcher m (:matcher rc)
         ^RouteInfo r (:routeInfo rc)
@@ -448,9 +422,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- testRoutes3
-  ""
-  []
+(defn- testRoutes3 "" []
   (let [rc (.crack RC {:method "get" :uri "/A/zzz/B/c/D"})
         ^Matcher m (:matcher rc)
         ^RouteInfo r (:routeInfo rc)
@@ -467,9 +439,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- testRoutes4
-  ""
-  []
+(defn- testRoutes4 "" []
   (let [rc (.crack RC {:method "get" :uri "/4"})
         ^Matcher m (:matcher rc)
         ^RouteInfo r (:routeInfo rc)
@@ -480,9 +450,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- testRoutes5
-  ""
-  []
+(defn- testRoutes5 "" []
   (let [rc (.crack RC {:method "get" :uri "/1/1/1/1/1/1/14"})
         s (:status? rc)
         ^Matcher m (:matcher rc)
@@ -493,10 +461,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- testPreflightNotAllowed
-  ""
-  []
-
+(defn- testPreflightNotAllowed "" []
   (let [o (str "http://" lhost-name)
         port 5555
         bs
@@ -519,15 +484,11 @@
                    "OPTIONS" nil args)
         ^WholeResponse p (deref rc 3000 nil)]
     (stopServer ch)
-    (and (some? p)
-         (== 405 (:code (:status (.msgGist p)))))))
+    (and p (== 405 (:code (:status (.msgGist p)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- testPreflightStar
-  ""
-  []
-
+(defn- testPreflightStar "" []
   (let [o (str "http://" lhost-name)
         port 5555
         args
@@ -553,15 +514,11 @@
                    "OPTIONS" nil args)
         ^WholeResponse p (deref rc 3000 nil)]
     (stopServer ch)
-    (and (some? p)
-         (= "*" (getHeader p "access-control-allow-origin")))))
+    (and p (= "*" (getHeader p "access-control-allow-origin")))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- testPreflight
-  ""
-  []
-
+(defn- testPreflight "" []
   (let [o (str "http://" lhost-name)
         port 5555
         args
@@ -589,14 +546,11 @@
                    "OPTIONS" nil args)
         ^WholeResponse p (deref rc 3000 nil)]
     (stopServer ch)
-    (and (some? p)
-         (= o (getHeader p "access-control-allow-origin")))))
+    (and p (= o (getHeader p "access-control-allow-origin")))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- testWebsockClose
-  ""
-  []
+(defn- testWebsockClose "" []
   (let [args {:websockPath "/web/sock"}
         bs
         (createServer<>
@@ -622,9 +576,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- testWebsockBad
-  ""
-  []
+(defn- testWebsockBad "" []
   (let [args {:websockPath "/web/sock"}
         host lhost-name
         bs
@@ -648,9 +600,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- testWebsock
-  ""
-  []
+(defn- testWebsock "" []
   (let [args {:websockPath "/web/sock"}
         bs
         (createServer<>
@@ -669,14 +619,11 @@
                          (fn [_ _]))
         cc (deref rcp 5000 nil)]
     (stopServer ch)
-    (and (some? cc)
-         (== 5556 (.port ^ClientConnect cc)))))
+    (and cc (== 5556 (.port ^ClientConnect cc)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- testWebsockText
-  ""
-  []
+(defn- testWebsockText "" []
   (let [args {:websockPath "/web/sock"}
         out (atom nil)
         bs
@@ -709,9 +656,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- testWebsockBlob
-  ""
-  []
+(defn- testWebsockBlob "" []
   (let [args {:websockPath "/web/sock"}
         out (atom nil)
         bs
@@ -749,9 +694,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- testWebsockPing
-  ""
-  []
+(defn- testWebsockPing "" []
   (let [args {:websockPath "/web/sock"}
         pong (atom false)
         out (atom nil)

@@ -72,10 +72,12 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defmethod httpResult<>
+
   Channel
   [ch reqGist & [status]]
   {:pre [(or (nil? status)
              (number? status))]}
+
   (let
     [headers (DefaultHttpHeaders.)
      impl (muble<>
@@ -131,17 +133,26 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn eTagFromFile "ETag based on a file object" [^File f]
+(defn eTagFromFile
+
+  "ETag based on a file object"
+  [^File f]
+
   (format "\"%s-%s\""
           (.lastModified f) (.hashCode f)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defmacro ^:private codeOK? "" [c] `(and (>= ~c 200)(< ~c 300)))
+(defmacro ^:private codeOK? "" [c] `(let [c# ~c]
+                                      (and (>= c# 200)(< c# 300))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defmacro ^:private condErrCode "" [m]
+(defmacro ^:private condErrCode
+
+  ""
+  [m]
+
   `(if
      (eqAny? ~m ["GET" "HEAD"])
      (.code HttpResponseStatus/NOT_MODIFIED)
@@ -149,9 +160,12 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- ifNoneMatch? "Condition fails if the reply eTag
-                    matches, or if filter is a wildcard"
+(defn- ifNoneMatch?
+
+  "Condition fails if the reply eTag
+  matches, or if filter is a wildcard"
   [method eTag code body conds]
+
   (let
     [ec (condErrCode method)
      {:keys [value has?]}
@@ -171,10 +185,12 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- ifMatch? "Condition fails if reply eTag doesn't
-                match, or if filter is wildcard and no
-                eTag"
+(defn- ifMatch?
+
+  "Condition fails if reply eTag doesn't
+  match, or if filter is wildcard and no eTag"
   [method eTag code body conds]
+
   (let
     [ec (condErrCode method)
      {:keys [value has?]}
@@ -195,10 +211,12 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- ifUnmodSince? "Condition fails if the last-modified
-                     timestamp is greater than the given
-                     date"
+(defn- ifUnmodSince?
+
+  "Condition fails if the last-modified
+  timestamp is greater than the given date"
   [method lastMod code body conds]
+
   (let
     [rc (condErrCode method)
      {:keys [value has?]}
@@ -213,9 +231,12 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- ifModSince? "Condition fails if the last-modified
-                   time-stamp is less than the given date"
+(defn- ifModSince?
+
+  "Condition fails if the last-modified
+  time-stamp is less than the given date"
   [method lastMod code body conds]
+
   (let
     [rc (condErrCode method)
      {:keys [value has?]}
@@ -230,9 +251,12 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- ifRange? "Sort out the range if any, then apply
-                the if-range condition"
+(defn- ifRange?
+
+  "Sort out the range if any, then apply
+  the if-range condition"
   [eTag lastMod code cType body conds]
+
   (let
     [ec (.code HttpResponseStatus/REQUESTED_RANGE_NOT_SATISFIABLE)
      pc (.code HttpResponseStatus/PARTIAL_CONTENT)
@@ -266,7 +290,11 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn converge "" [^Charset cs body]
+(defn converge
+
+  ""
+  [^Charset cs body]
+
   (let [body (if (inst? XData body)
                (.content ^XData body) body)]
     (cond
@@ -278,7 +306,11 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- zmapHeaders "" [gist headers]
+(defn- zmapHeaders
+
+  ""
+  [gist headers]
+
   (zipmap (map #(let [[k v] %1] k) headers)
           (map #(let [[k v] %1]
                   {:has? (gistHeader? gist v)
@@ -288,7 +320,8 @@
 ;;
 (defn- writeHeaders
   ""
-  ^HttpHeaders [^HttpResponse rsp headers] (.set (.headers rsp) headers))
+  ^HttpHeaders
+  [^HttpResponse rsp headers] (.set (.headers rsp) headers))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -370,8 +403,7 @@
        :else
        [(httpReply<> code) body])
      hds (writeHeaders rsp headers)]
-    (->> (and (not (inst? FullHttpResponse rsp))
-              (some? body))
+    (->> (and (not (inst? FullHttpResponse rsp)) body)
          (HttpUtil/setTransferEncodingChunked rsp ))
     (if-not (neg? clen)
       (HttpUtil/setContentLength rsp clen))
@@ -392,12 +424,11 @@
              (not (get-in rhds [:etag :has?])))
       (.set hds HttpHeaderNames/ETAG eTag))
     (let [cf (.write ch rsp)
-          cf (if (some? body)
+          cf (if body
                (.writeAndFlush ch body)
                (do (.flush ch) cf))]
       (closeCF cf (HttpUtil/isKeepAlive rsp)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF
-
 

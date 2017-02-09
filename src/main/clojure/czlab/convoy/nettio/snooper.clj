@@ -62,20 +62,20 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- writeReply
+
   "Reply back a string"
   [^ChannelHandlerContext ctx ^WholeRequest curObj]
+
   (let [cookies (:cookies (.msgGist curObj))
         buf (getAKey ctx msg-buf)
         res (httpFullReply<>
               (.code HttpResponseStatus/OK) (str buf) (.alloc ctx))
         hds (.headers res)
-        clen (-> (.content res)
-                 (.readableBytes))]
+        clen (-> (.content res) .readableBytes)]
     (.set hds "Content-Length" (str clen))
     (.set hds "Content-Type"
               "text/plain; charset=UTF-8")
-    (.set hds "Connection"
-          (if (getAKey ctx keep-alive) "keep-alive" "close"))
+    (.set hds "Connection" (if (getAKey ctx keep-alive) "keep-alive" "close"))
     (if (empty? cookies)
       (doto hds
         (.add "Set-Cookie"
@@ -90,8 +90,10 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- handleReq
+
   "Introspect the inbound request"
   [^ChannelHandlerContext ctx ^WholeRequest req]
+
   (let [dc (QueryStringDecoder. (.uri req))
         ka? (HttpHeaders/isKeepAlive req)
         headers (.headers req)
@@ -140,8 +142,10 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- handleCnt
+
   "Handle the request content"
   [^ChannelHandlerContext ctx ^WholeRequest msg]
+
   (let [^StringBuilder buf (getAKey ctx msg-buf)
         ct (.content msg)]
     (when (.hasContent ct)
@@ -156,8 +160,10 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn snoopHTTPD<>
+
   "Sample Snooper HTTPD"
   {:tag ServerBootstrap}
+
   ([] (snoopHTTPD<> nil))
   ([args]
    (createServer<>
@@ -171,7 +177,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn finxServer "" []
+(defn finzServer "" []
   (stopServer @svrchan)
   (reset! svrboot nil)
   (reset! svrchan nil))
@@ -194,5 +200,4 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF
-
 

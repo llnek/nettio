@@ -87,8 +87,8 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;(set! *warn-on-reflection* true)
 
-(def ^:private ^ChannelHandler obj-agg (h1reqAggregator<> ))
-(def ^:private ^ChannelHandler req-hdr (h1reqHandler<> ))
+(def ^:private ^ChannelHandler obj-agg (h1reqAggregator<>))
+(def ^:private ^ChannelHandler req-hdr (h1reqHandler<>))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -100,45 +100,46 @@
     [keyUrl (str serverKey)]
     (let
       [t (-> (TrustManagerFactory/getDefaultAlgorithm)
-             (TrustManagerFactory/getInstance))
+             TrustManagerFactory/getInstance)
        k (-> (KeyManagerFactory/getDefaultAlgorithm)
-             (KeyManagerFactory/getInstance))
+             KeyManagerFactory/getInstance)
        ^String kt (if (.endsWith
                         keyUrl ".jks") "JKS" "PKCS12")
        ks (KeyStore/getInstance kt)
-       pms (java.util.ArrayList.)
-       pwd (some-> passwd
-                   str
-                   (.toCharArray ))
+       pms (doto (java.util.ArrayList.)
+             (.add ApplicationProtocolNames/HTTP_2)
+             (.add ApplicationProtocolNames/HTTP_1_1))
+       cfg
+       (ApplicationProtocolConfig.
+         ApplicationProtocolConfig$Protocol/ALPN
+         ApplicationProtocolConfig$SelectorFailureBehavior/NO_ADVERTISE
+         ApplicationProtocolConfig$SelectedListenerFailureBehavior/ACCEPT
+         pms)
+       pwd (some-> passwd str .toCharArray)
        ^SslProvider
        p (if (OpenSsl/isAlpnSupported)
-           SslProvider/OPENSSL SslProvider/JDK)]
-      (with-open [inp (-> (URL. keyUrl)
-                          (.openStream))]
+           SslProvider/OPENSSL
+           SslProvider/JDK)]
+      (with-open [inp (-> (URL. keyUrl) .openStream)]
         (.load ks inp pwd)
         (.init t ks)
         (.init k ks pwd))
-      (.add pms ApplicationProtocolNames/HTTP_2  )
-      (.add pms ApplicationProtocolNames/HTTP_1_1)
       (-> (SslContextBuilder/forServer k)
           (.ciphers Http2SecurityUtil/CIPHERS
                     SupportedCipherSuiteFilter/INSTANCE)
           (.trustManager t)
           (.sslProvider p)
-          (.applicationProtocolConfig
-            (ApplicationProtocolConfig.
-              ApplicationProtocolConfig$Protocol/ALPN
-              ApplicationProtocolConfig$SelectorFailureBehavior/NO_ADVERTISE
-              ApplicationProtocolConfig$SelectedListenerFailureBehavior/ACCEPT
-              pms))
-          (.build)))))
+          (.applicationProtocolConfig cfg)
+          .build))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- newH2Builder<>
+
   ""
   ^H2Connector
   [h2handler]
+
   (-> (proxy [H2Builder][]
         (build [dc ec ss]
           (doto->>
@@ -147,20 +148,22 @@
               ^Http2ConnectionEncoder ec
               ^Http2Settings ss)
             (.frameListener ^H2Builder this))))
-      (.build )))
+      .build))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- upgradeCodecFac'
+
   ""
   [h2handler]
+
   (reify
     HttpServerUpgradeHandler$UpgradeCodecFactory
     (newUpgradeCodec [_ pn]
       (if (-> Http2CodecUtil/HTTP_UPGRADE_PROTOCOL_NAME
               (AsciiString/contentEquals pn))
         (-> (newH2Builder<> h2handler)
-            (Http2ServerUpgradeCodec.))))))
+            Http2ServerUpgradeCodec.)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -169,9 +172,11 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- onH1'
+
   "No h2 upgrade, install standard h1 pipeline"
   [h1 args]
   {:pre [(inst? ChannelHandler h1)]}
+
   (proxy [InboundAdapter][]
     (channelRead [ctx msg]
       (let
@@ -223,11 +228,13 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;not-used!
 (defn- newH2H1
+
   "Handle http2 via http1 adapter"
   [^ChannelHandlerContext ctx
    {:keys [h2h1]}
    {:keys [maxContentSize]
     :or {maxContentSize (* 64 MegaBytes)} :as args}]
+
   (let
     [conn (DefaultHttp2Connection. true)
      pp (.pipeline ctx)
@@ -237,21 +244,23 @@
             (.maxContentLength (int maxContentSize))
             (.propagateSettings true)
             (.validateHttpHeaders false))
-          (.build ))]
+          .build)]
     (doto pp
       (.addLast "H1H2CH"
                 (-> (HttpToHttp2ConnectionHandlerBuilder.)
                     (.frameListener ln)
                     (.connection conn)
-                    (.build )))
+                    .build))
       (.addLast user-handler-id ^ChannelHandler h2h1))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- cfgSSLXXX
+
   ""
   [^ChannelPipeline pp h1 args]
   {:pre [(inst? ChannelHandler h1)]}
+
   (doto pp
     (.addLast (gczn HttpServerCodec) (HttpServerCodec.))
     (.addLast "HOA" obj-agg)
@@ -262,8 +271,10 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- onSSL
+
   ""
   [^ChannelPipeline cpp {:keys [h1 h2]} args]
+
   (if (inst? ChannelHandler h2)
     (->>
       (proxy [SSLNegotiator][]
@@ -286,9 +297,11 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn chanInitor<>
+
   ""
   ^ChannelHandler
   [deco args]
+
   (proxy [ChannelInitializer][]
     (initChannel [ch]
       (let [ch (cast? Channel ch)
@@ -306,8 +319,10 @@
 ;;{:keys [a] {:keys []} :b} - destruct nested
 ;;
 (defmethod createServer<>
+
   :netty/http
   [stype & cargs]
+
   (let
     [{:keys [threads routes rcvBuf backlog
              sharedGroup? tempFileDir
@@ -368,8 +383,10 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defmethod createServer<>
+
   :netty/udp
   [stype & cargs]
+
   (let
     [{:keys [maxMsgsPerRead threads rcvBuf options]
       :or {maxMsgsPerRead Integer/MAX_VALUE
@@ -399,38 +416,41 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- startsvr
+
   ""
   ^Channel
   [^AbstractBootstrap bs host port]
+
   (let [sbs (cast? ServerBootstrap bs)
         ^H1DataFactory
         dfac (some-> sbs
-                     (.config)
-                     (.childAttrs)
+                     .config
+                     .childAttrs
                      (.get dfac-key))
         ip (if (hgl? host)
              (InetAddress/getByName host)
              (InetAddress/getLocalHost))
         ch (-> (.bind bs ip (int port))
-               (.sync)
-               (.channel))
+               .sync
+               .channel)
         cf (.closeFuture ch)]
     (log/debug "netty-svr running on host %s:%s" ip port)
     (futureCB cf
               (fn [_]
                 (log/debug "shutdown: server bootstrap@ip %s" ip)
                 (try!
-                  (some-> dfac (.cleanAllHttpData))
+                  (some-> dfac .cleanAllHttpData)
                   (some-> sbs
-                          (.config)
-                          (.childGroup)
-                          (.shutdownGracefully))
+                          .config
+                          .childGroup
+                          .shutdownGracefully)
                   (.. bs config group shutdownGracefully))))
     ch))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defmethod startServer
+
   ServerBootstrap
   [bs {:keys [host
               port]
@@ -440,6 +460,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defmethod startServer
+
   Bootstrap
   [bs {:keys [host
               port]
@@ -449,11 +470,11 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defmethod stopServer
+
   Channel
   [^Channel ch]
-  (if (and (some? ch) (.isOpen ch)) (.close ch)))
+  (if (and ch (.isOpen ch)) (.close ch)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF
-
 
