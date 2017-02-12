@@ -48,6 +48,8 @@
            [java.net InetAddress URL HttpCookie]
            [io.netty.handler.codec.http.cookie
             ServerCookieDecoder
+            DefaultCookie
+            Cookie
             ServerCookieEncoder]
            [io.netty.channel.socket.nio
             NioDatagramChannel
@@ -60,8 +62,6 @@
             EpollSocketChannel
             EpollServerSocketChannel]
            [io.netty.handler.codec.http
-            DefaultCookie
-            Cookie
             HttpVersion
             HttpMethod
             HttpUtil
@@ -189,7 +189,7 @@
     (.setMaxAge (.getMaxAge c))
     (.setPath (.getPath c))
     ;;(.setDiscard (.getDiscard c))
-    (.setVersion 0)
+    ;;(.setVersion 0)
     (.setHttpOnly (.isHttpOnly c))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -874,13 +874,13 @@
   [^Cookie c]
   {:pre [(some? c)]}
 
-  (doto (HttpCookie. (.getName c)
-                     (.getValue c))
-    (.setComment (.getComment c))
-    (.setDomain (.getDomain c))
-    (.setMaxAge (.getMaxAge c))
-    (.setPath (.getPath c))
-    (.setVersion (.getVersion c))
+  (doto (HttpCookie. (.name c)
+                     (.value c))
+    ;;(.setComment (.comment c))
+    (.setDomain (.domain c))
+    (.setMaxAge (.maxAge c))
+    (.setPath (.path c))
+    ;;(.setVersion (.getVersion c))
     (.setHttpOnly (.isHttpOnly c))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -894,7 +894,7 @@
     [v (getHeader msg HttpHeaderNames/COOKIE)]
     (preduce<map>
       #(assoc! %1
-               (.getName ^Cookie %2)
+               (.name ^Cookie %2)
                (httpCookie<> %2))
       (.decode ServerCookieDecoder/STRICT v))
     {}))
