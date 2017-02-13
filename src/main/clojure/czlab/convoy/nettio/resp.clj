@@ -18,6 +18,7 @@
 
   (:use [czlab.convoy.nettio.core]
         [czlab.convoy.net.core]
+        [czlab.convoy.net.wess]
         [czlab.basal.dates]
         [czlab.basal.meta]
         [czlab.basal.str]
@@ -326,7 +327,7 @@
 ;;
 (defmethod replyResult
   Channel
-  [^HttpResult res & options]
+  [^HttpResult res & [options]]
 
   (downstream res options)
   (let

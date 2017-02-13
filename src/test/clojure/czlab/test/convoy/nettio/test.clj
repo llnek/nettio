@@ -60,7 +60,31 @@
             ChannelHandler
             Channel
             ChannelHandlerContext]
+           [czlab.convoy.net HttpRequest]
            [io.netty.channel.embedded EmbeddedChannel]))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(defn- mockRequest "" [ch ^WholeRequest w]
+  (reify HttpRequest
+    (cookie [_ n] )
+    (cookies [_] )
+    (body [_] (.content w))
+    (msgGist [_] (.msgGist w))
+    (localAddr [_] )
+    (localHost [_] )
+    (localPort [_] 0)
+    (remoteAddr [_] )
+    (remoteHost [_] )
+    (remotePort [_] 0)
+    (serverName [_] )
+    (serverPort [_] 0)
+    (scheme [_] )
+    (isSSL [_] false)
+    (session [_] )
+    (socket [_] ch)
+    (routeGist [_] )
+    (checkSession [_] )))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -229,7 +253,7 @@
                        ch (.channel ctx)
                        b (.content msg)
                        g (.msgGist msg)
-                       res (httpResult<> ch g)]
+                       res (httpResult<> (mockRequest ch msg))]
                    (reset! out (.content b))
                    (.setContent res "hello joe")
                    (replyResult res))))}))
@@ -381,13 +405,13 @@
 (def ^:private ROUTES
   [{:handler "p1"
     :uri "/([^/]+)/(.*)"
-    :verbs #{:post}
+    :verb :post
     :template  "t1.html"}
    {:mount "m1"
     :uri "/(favicon\\..+)"}
    {:handler "p2"
     :uri "/:a/([^/]+)/:b/c/:d"
-    :verbs #{:get}
+    :verb :get
     :template  "t2.html"}
    {:mount "m2"
     :uri "/4"}])
