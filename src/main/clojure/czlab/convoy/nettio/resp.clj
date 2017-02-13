@@ -74,7 +74,7 @@
 (defmethod httpResult<>
 
   Channel
-  [ch reqGist & [status]]
+  [theReq & [status]]
   {:pre [(or (nil? status)
              (number? status))]}
 
@@ -111,7 +111,6 @@
       (setLastDate [_ d] (.setv impl :lastmod d))
       (status [_] (.getv impl :code))
       (getx [_] impl)
-      (msgGist [_] reqGist)
       (addCookie [_ c]
         (if (some? c)
           (let [a (.getv impl :cookies)]
@@ -127,7 +126,7 @@
       (setHeader [_ nm v] (.set headers nm v))
       (isEmpty [_] (nil? (.getv impl :body)))
       (content [_] (.getv impl :body))
-      (socket [_] ch)
+      (request [_] theReq)
       (setContent [_ data]
         (.setv impl :body data)))))
 
@@ -327,10 +326,14 @@
 ;;
 (defmethod replyResult
   Channel
-  [^HttpResult res]
+  [^HttpResult res & options]
+
+  (downstream res options)
   (let
-    [^Channel ch (.socket res)
-     gist (.msgGist res)
+    [req (.request res)
+     ^Channel
+     ch (.socket req)
+     gist (.msgGist req)
      method (:method gist)
      {:keys [headers
              lastMod
