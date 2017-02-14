@@ -329,7 +329,7 @@
   Channel
   [^HttpResult res & [options]]
 
-  (downstream res options)
+  (downstream res)
   (let
     [req (.request res)
      ^Channel
