@@ -574,7 +574,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- testWebsockClose "" []
-  (let [args {:websockPath "/web/sock"}
+  (let [args {:wsockPath "/web/sock"}
         bs
         (createServer<>
           :netty/http
@@ -600,7 +600,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- testWebsockBad "" []
-  (let [args {:websockPath "/web/sock"}
+  (let [args {:wsockPath #{"/web/sock"}}
         host lhost-name
         bs
         (createServer<>
@@ -624,7 +624,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- testWebsock "" []
-  (let [args {:websockPath "/web/sock"}
+  (let [args {:wsockPath #{"/web/sock"}}
         bs
         (createServer<>
           :netty/http
@@ -647,7 +647,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- testWebsockText "" []
-  (let [args {:websockPath "/web/sock"}
+  (let [args {:wsockPath "/web/sock"}
         out (atom nil)
         bs
         (createServer<>
@@ -680,7 +680,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- testWebsockBlob "" []
-  (let [args {:websockPath "/web/sock"}
+  (let [args {:wsockPath "/web/sock"}
         out (atom nil)
         bs
         (createServer<>
@@ -718,7 +718,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- testWebsockPing "" []
-  (let [args {:websockPath "/web/sock"}
+  (let [args {:wsockPath #{"/web/sock"}}
         pong (atom false)
         out (atom nil)
         bs

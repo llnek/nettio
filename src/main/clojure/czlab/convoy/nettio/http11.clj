@@ -273,10 +273,13 @@
 
   (let [uri (.path (QueryStringDecoder. (.uri req)))
         r2 (mockFullRequest<> req)
-        {:keys [websockPath]}
+        {:keys [wsockPath]}
         (getAKey ctx chcfg-key)
-        pp (cpipe ctx)]
-    (if (not= uri websockPath)
+        pp (cpipe ctx)
+        uri? (if (set? wsockPath)
+               (contains? wsockPath uri)
+               (= wsockPath uri))]
+    (if-not uri?
       (replyStatus ctx (.code HttpResponseStatus/FORBIDDEN))
       (do
         (.addAfter pp
