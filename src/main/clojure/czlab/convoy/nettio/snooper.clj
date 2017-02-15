@@ -66,7 +66,7 @@
   "Reply back a string"
   [^ChannelHandlerContext ctx ^WholeRequest curObj]
 
-  (let [cookies (:cookies (.msgGist curObj))
+  (let [cookies (:cookies (.gist curObj))
         buf (getAKey ctx msg-buf)
         res (httpFullReply<>
               (.code HttpResponseStatus/OK) (str buf) (.alloc ctx))

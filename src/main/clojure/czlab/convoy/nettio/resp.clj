@@ -334,7 +334,7 @@
     [req (.request res)
      ^Channel
      ch (.socket req)
-     gist (.msgGist req)
+     gist (.gist req)
      method (:method gist)
      {:keys [headers
              lastMod

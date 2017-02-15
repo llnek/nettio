@@ -70,7 +70,7 @@
     (cookie [_ n] )
     (cookies [_] )
     (body [_] (.content w))
-    (msgGist [_] (.msgGist w))
+    (gist [_] (.gist w))
     (localAddr [_] )
     (localHost [_] )
     (localPort [_] 0)
@@ -94,7 +94,7 @@
       (let [^WholeRequest req msg
             c (.. req content getBytes)
             ch (ch?? ctx)
-            gist (.msgGist req)
+            gist (.gist req)
             r (httpFullReply<>
                 (.code HttpResponseStatus/OK) c (.alloc ch))]
         (. ^ChannelHandlerContext ctx writeAndFlush r)))))
@@ -251,7 +251,7 @@
                        ^WholeRequest msg msg
                        ch (.channel ctx)
                        b (.content msg)
-                       g (.msgGist msg)
+                       g (.gist msg)
                        res (httpResult<> (mockRequest ch msg))]
                    (reset! out (.content b))
                    (.setContent res "hello joe")
@@ -507,7 +507,7 @@
                    "OPTIONS" nil args)
         ^WholeResponse p (deref rc 3000 nil)]
     (stopServer ch)
-    (and p (== 405 (:code (:status (.msgGist p)))))))
+    (and p (== 405 (:code (:status (.gist p)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;

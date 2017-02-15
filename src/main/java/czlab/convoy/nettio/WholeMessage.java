@@ -65,7 +65,7 @@ public abstract class WholeMessage implements HttpMessage {
 
   /**
    */
-  public abstract Object msgGist();
+  public abstract Object gist();
 
   /**
    */

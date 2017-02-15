@@ -141,7 +141,7 @@
   ""
   ^WholeResponse
   [ctx rsp]
-  (let [gist (scanMsgGist ctx rsp)]
+  (let [gs (scanMsgGist ctx rsp)]
     (doto
       (proxy [WholeResponse][rsp]
         (prepareBody [df msg]
@@ -150,7 +150,7 @@
              createAttribute
              ^HttpRequest msg "__body__"))
         (endContent [_] (getHttpData _))
-        (msgGist [] gist))
+        (gist [] gs))
       (. init
          ^HttpDataFactory (getAKey ctx dfac-key)))))
 
@@ -160,7 +160,7 @@
   ""
   ^WholeRequest
   [ctx req]
-  (let [gist (scanMsgGist ctx req)]
+  (let [gs (scanMsgGist ctx req)]
     (doto
       (proxy [WholeRequest][req]
         (prepareBody [df msg]
@@ -178,7 +178,7 @@
             (parsePost c)
             (inst? Attribute c)
             (getHttpData c)))
-        (msgGist [] gist))
+        (gist [] gs))
       (. init ^HttpDataFactory (getAKey ctx dfac-key)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
