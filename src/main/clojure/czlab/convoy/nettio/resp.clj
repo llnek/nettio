@@ -329,7 +329,7 @@
   Channel
   [^HttpResult res & [options]]
 
-  (downstream res)
+  (downstream res options)
   (let
     [req (.request res)
      ^Channel
@@ -419,6 +419,7 @@
             (== clen 0))
       (.remove hds HttpHeaderNames/CONTENT_TYPE))
     (doseq [s (encodeJavaCookies (vals cookies))]
+      (log/debug "resp: setting cookie: %s" s)
       (.add hds HttpHeaderNames/SET_COOKIE s))
     (if (and (spos? lastMod)
              (not (get-in rhds [:last-mod :has?])))
