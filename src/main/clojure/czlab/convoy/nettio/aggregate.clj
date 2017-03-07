@@ -15,8 +15,8 @@
             [clojure.java.io :as io]
             [clojure.string :as cs])
 
-  (:use [czlab.convoy.net.upload]
-        [czlab.convoy.nettio.core]
+  (:use [czlab.convoy.nettio.core]
+        [czlab.convoy.net.upload]
         [czlab.basal.str]
         [czlab.basal.io]
         [czlab.basal.core])
@@ -77,46 +77,38 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;(set! *warn-on-reflection* false)
-
 (defonce ^:private ^AttributeKey h1pipe-Q-key (akey<> "h1pipe-q"))
 (defonce ^:private ^AttributeKey h1pipe-C-key (akey<> "h1pipe-c"))
 (defonce ^:private ^AttributeKey h1pipe-M-key (akey<> "h1pipe-m"))
+(def ^:private ^String body-attr-id "--body--")
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defmacro ^:private fireMsg
-  ""
-  [ctx msg]
-  `(some->>
-     ~msg
-     (.fireChannelRead ~(with-meta ctx {:tag 'ChannelHandlerContext}))))
+  "" [ctx msg] `(some->>
+                  ~msg
+                  (.fireChannelRead ~(with-meta ctx
+                                                {:tag 'ChannelHandlerContext}))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- getHttpData
-  ""
-  [^HttpData d]
-  (cond
-    (.isInMemory d)
+(defn- getHttpData "" [^HttpData d]
+
+  (if (.isInMemory d)
     (.get d)
-    :else
-    (let [f (.getFile d)]
-      ;; trick code to not delete the file
-      (.renameTo d f)
-      f)))
+    (doto->> (.getFile d) (.renameTo d ))))
+  ;; trick code to not delete the file
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- parsePost
-  ""
-  [^HttpPostRequestDecoder deco]
+  "" [^HttpPostRequestDecoder deco]
+
   (let [bag (ULFormItems.)]
-    (doseq [^HttpData
-            x
-            (.getBodyHttpDatas deco)]
+    (doseq [^HttpData x (.getBodyHttpDatas deco)]
       (when-some
         [z (cond
-             (inst? FileUpload x)
+             (ist? FileUpload x)
              (let [u (cast? FileUpload x)
                    c (getHttpData u)]
                (fileItem<> false
@@ -124,12 +116,13 @@
                            nil
                            (.getName u)
                            (.getFilename u) c))
-             (inst? Attribute x)
+             (ist? Attribute x)
              (let [a (cast? Attribute x)
                    c (getHttpData a)]
                (fileItem<> true "" nil (.getName a) "" c)))]
-        (if (inst? FileUpload x)
-          (.removeHttpDataFromClean deco x))
+        (if-some [d (cast? AbstractDiskHttpData x)]
+          (if-not (.isInMemory d)
+            (.removeHttpDataFromClean deco x)))
         ;;no need to release since we will call destroy on the decoder
         ;;(.release x)
         (.add bag z)))
@@ -138,79 +131,65 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- h11res<>
-  ""
-  ^WholeResponse
-  [ctx rsp]
-  (let [gs (scanMsgGist ctx rsp)]
+  "" ^WholeResponse [ctx rsp]
+
+  (let [gs (scanGist ctx rsp)]
     (doto
       (proxy [WholeResponse][rsp]
         (prepareBody [df msg]
-          (. ^HttpDataFactory
-             df
-             createAttribute
-             ^HttpRequest msg "__body__"))
+          (. ^HttpDataFactory df
+             createAttribute ^HttpRequest msg body-attr-id))
         (endContent [_] (getHttpData _))
         (gist [] gs))
-      (. init
-         ^HttpDataFactory (getAKey ctx dfac-key)))))
+      (. init ^HttpDataFactory (getAKey ctx dfac-key)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- h11req<>
-  ""
-  ^WholeRequest
-  [ctx req]
-  (let [gs (scanMsgGist ctx req)]
+  "" ^WholeRequest [ctx req]
+
+  (let [gs (scanGist ctx req)]
     (doto
       (proxy [WholeRequest][req]
         (prepareBody [df msg]
           (if (-> (chkFormPost msg)
                   (eqAny? ["multipart" "post"]))
-            (->> (getMsgCharset msg)
-                 (HttpPostRequestDecoder.
-                   ^HttpDataFactory df ^HttpRequest msg))
+            (HttpPostRequestDecoder.
+              ^HttpDataFactory df ^HttpRequest msg (getMsgCharset msg))
             (. ^HttpDataFactory df
-               createAttribute
-               ^HttpRequest msg "__body__")))
+               createAttribute ^HttpRequest msg body-attr-id)))
         (endContent [c]
           (cond
-            (inst? HttpPostRequestDecoder c)
+            (ist? HttpPostRequestDecoder c)
             (parsePost c)
-            (inst? Attribute c)
+            (ist? Attribute c)
             (getHttpData c)))
         (gist [] gs))
       (. init ^HttpDataFactory (getAKey ctx dfac-key)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- handleExpect?
-  ""
-  [ctx msg]
-  (let [{:keys [maxContentSize]}
-        (getAKey ctx chcfg-key)]
-    (maybeHandle100? ctx msg maxContentSize)))
+(defn- handleExpect? "" [ctx msg]
+  (let [{:keys
+         [maxContentSize]}
+        (getAKey ctx chcfg-key)] (maybeHandle100? ctx msg maxContentSize)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- h11Msg<>
-  ""
-  [ctx msg]
-  (if (inst? HttpRequest msg)
-    (h11req<> ctx msg)
-    (h11res<> ctx msg)))
+(defn- h11Msg<> "" [ctx msg]
+  (if (ist? HttpRequest msg) (h11req<> ctx msg) (h11res<> ctx msg)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- readChunk
-  ""
-  [ctx part pipelining?]
+  "" [ctx part pipelining?]
   ;;(log/debug "received chunk for msg")
   (let
-    [last? (inst? LastHttpContent part)
+    [last? (ist? LastHttpContent part)
      msg (getAKey ctx h1pipe-M-key)]
     (try
       (if-not (decoderSuccess? part)
-        (if (inst? HttpRequest msg)
+        (if (ist? HttpRequest msg)
           (replyStatus ctx
                        (.code HttpResponseStatus/BAD_REQUEST))
           (. ^ChannelHandlerContext ctx close))
@@ -221,14 +200,14 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- readLastChunk
-  ""
-  [ctx part pipelining?]
+  "" [ctx part pipelining?]
+
   (readChunk ctx part pipelining?)
   (let
     [^List q (getAKey ctx h1pipe-Q-key)
      msg (getAKey ctx h1pipe-M-key)
      cur (getAKey ctx h1pipe-C-key)]
-    (log/debug "received last chunk for msg %s" msg)
+    (log/debug "got last chunk for msg %s" msg)
     (delAKey ctx h1pipe-M-key)
     (if pipelining?
       (cond
@@ -244,15 +223,14 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- readMessage
-  ""
-  [ctx msg pipelining?]
+  "" [ctx msg pipelining?]
   ;;no need to release msg -> request or response
-  (let [{:keys [maxContentSize maxInMemory]}
-        (getAKey ctx chcfg-key)]
+  (let [{:keys [maxContentSize
+                maxInMemory]} (getAKey ctx chcfg-key)]
     (log/debug "reading message: %s" msg)
     (cond
       (not (decoderSuccess? msg))
-      (if (inst? HttpRequest msg)
+      (if (ist? HttpRequest msg)
         (replyStatus ctx
                      (.code HttpResponseStatus/BAD_REQUEST))
         (. ^ChannelHandlerContext ctx close))
@@ -261,20 +239,20 @@
       :else
       (let [wo (h11Msg<> ctx msg)]
         (setAKey ctx h1pipe-M-key wo)
-        (if (inst? LastHttpContent msg)
+        (if (ist? LastHttpContent msg)
           (readLastChunk ctx msg pipelining?))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- aggRead
-  ""
-  [ctx msg pipelining?]
+  "" [ctx msg pipelining?]
+
   (cond
-    (inst? HttpMessage msg)
+    (ist? HttpMessage msg)
     (readMessage ctx msg pipelining?)
-    (inst? LastHttpContent msg)
+    (ist? LastHttpContent msg)
     (readLastChunk ctx msg pipelining?)
-    (inst? HttpContent msg)
+    (ist? HttpContent msg)
     (readChunk ctx msg pipelining?)
     :else
     (fireMsg ctx msg)))
@@ -301,8 +279,8 @@
      (channelRead [ctx msg]
        (aggRead ctx msg pipelining?))
      (dequeue [ctx msg]
-       (when (and (or (inst? FullHttpResponse msg)
-                      (inst? LastHttpContent msg))
+       (when (and (or (ist? FullHttpResponse msg)
+                      (ist? LastHttpContent msg))
                   pipelining?)
          (let [^List q (getAKey ctx h1pipe-Q-key)
                cur (getAKey ctx h1pipe-C-key)]

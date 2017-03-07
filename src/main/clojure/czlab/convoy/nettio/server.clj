@@ -22,7 +22,6 @@
         [czlab.convoy.net.routes]
         [czlab.basal.core]
         [czlab.basal.str]
-        [czlab.basal.consts]
         [czlab.basal.io])
 
   (:import [javax.net.ssl KeyManagerFactory TrustManagerFactory]
@@ -93,11 +92,10 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- maybeCfgSSL
-  ""
-  ^SslContext
+  "" ^SslContext
   [{:keys [serverKey passwd] :as args}]
-  (when-some+
-    [keyUrl (str serverKey)]
+
+  (when-some+ [keyUrl (str serverKey)]
     (let
       [t (-> (TrustManagerFactory/getDefaultAlgorithm)
              TrustManagerFactory/getInstance)
@@ -135,10 +133,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- newH2Builder<>
-
-  ""
-  ^H2Connector
-  [h2handler]
+  "" ^H2Connector [h2handler]
 
   (-> (proxy [H2Builder][]
         (build [dc ec ss]
@@ -152,11 +147,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- upgradeCodecFac'
-
-  ""
-  [h2handler]
-
+(defn- upgradeCodecFac' "" [h2handler]
   (reify
     HttpServerUpgradeHandler$UpgradeCodecFactory
     (newUpgradeCodec [_ pn]
@@ -172,10 +163,8 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- onH1'
-
-  "No h2 upgrade, install standard h1 pipeline"
-  [h1 args]
-  {:pre [(inst? ChannelHandler h1)]}
+  "No h2 upgrade, use standard h1 pipeline"
+  [h1 args] {:pre [(ist? ChannelHandler h1)]}
 
   (proxy [InboundAdapter][]
     (channelRead [ctx msg]
@@ -183,7 +172,7 @@
         [^ChannelHandlerContext ctx ctx
          pp (.pipeline ctx)
          cur (.handler ctx)]
-        (when (inst? HttpMessage msg)
+        (when (ist? HttpMessage msg)
           (.replace pp cur "HOA" obj-agg)
           (.addAfter pp "HOA" "H1RH" req-hdr)
           (.addAfter pp "H1RH" "CWH" (ChunkedWriteHandler.))
@@ -199,14 +188,15 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- onH1Proto
-  "Maybe deal with possible http2 upgrade"
+  "Deal with possible http2 upgrade?"
   [^Channel ch {:keys [h1 h2 h2h1] :as funcs} args]
+
   (let
     [dft (HttpServerCodec.)
      pp (.pipeline ch)]
     (.addLast pp (gczn HttpServerCodec) dft)
     (cond
-      (inst? ChannelHandler h2)
+      (ist? ChannelHandler h2)
       (do
         (log/debug "http2 handler provided, implement h2 upgrader")
         (->> (upgradeCodecFac h2)
@@ -215,7 +205,7 @@
         (->> ^ChannelHandler
              (onH1 h1 args)
              (.addLast pp "H1Only" )))
-      (inst? ChannelHandler h1)
+      (ist? ChannelHandler h1)
       (do
         (log/debug "standard http1 pipeline only")
         (.addLast pp "HOA" obj-agg)
@@ -228,7 +218,6 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;not-used!
 (defn- newH2H1
-
   "Handle http2 via http1 adapter"
   [^ChannelHandlerContext ctx
    {:keys [h2h1]}
@@ -256,12 +245,10 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- cfgSSLXXX
+  "" [pp h1 args]
+  {:pre [(ist? ChannelHandler h1)]}
 
-  ""
-  [^ChannelPipeline pp h1 args]
-  {:pre [(inst? ChannelHandler h1)]}
-
-  (doto pp
+  (doto ^ChannelPipeline pp
     (.addLast (gczn HttpServerCodec) (HttpServerCodec.))
     (.addLast "HOA" obj-agg)
     (.addLast "H1RH" req-hdr)
@@ -271,11 +258,9 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- onSSL
+  "" [cpp {:keys [h1 h2]} args]
 
-  ""
-  [^ChannelPipeline cpp {:keys [h1 h2]} args]
-
-  (if (inst? ChannelHandler h2)
+  (if (ist? ChannelHandler h2)
     (->>
       (proxy [SSLNegotiator][]
         (configurePipeline [ctx pn]
@@ -291,16 +276,13 @@
               :else
               (trap! IllegalStateException
                      (str "unknown protocol: " pn))))))
-      (.addLast cpp (gczn SSLNegotiator)))
+      (. ^ChannelPipeline cpp addLast (gczn SSLNegotiator)))
     (cfgSSLXXX cpp h1 args)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn chanInitor<>
-
-  ""
-  ^ChannelHandler
-  [deco args]
+  "" ^ChannelHandler [deco args]
 
   (proxy [ChannelInitializer][]
     (initChannel [ch]
@@ -318,10 +300,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;{:keys [a] {:keys []} :b} - destruct nested
 ;;
-(defmethod createServer<>
-
-  :netty/http
-  [stype & cargs]
+(defmethod createServer<> :netty/http [stype & cargs]
 
   (let
     [{:keys [threads routes rcvBuf backlog
@@ -340,7 +319,7 @@
      p1 (first cargs)
      ci
      (cond
-       (inst? ChannelInitializer p1) p1
+       (ist? ChannelInitializer p1) p1
        (fn? p1) (chanInitor<> p1 args)
        :else (trap! ClassCastException "wrong input"))
      tempFileDir (fpath (or tempFileDir
@@ -382,10 +361,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defmethod createServer<>
-
-  :netty/udp
-  [stype & cargs]
+(defmethod createServer<> :netty/udp [stype & cargs]
 
   (let
     [{:keys [maxMsgsPerRead threads rcvBuf options]
@@ -397,7 +373,7 @@
      p1 (first cargs)
      ci
      (cond
-       (inst? ChannelInitializer p1) p1
+       (ist? ChannelInitializer p1) p1
        (fn? p1) (chanInitor<> p1 args)
        :else (trap! ClassCastException "wrong input"))
      [g z] (gAndC threads :udps)
@@ -416,9 +392,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- startsvr
-
-  ""
-  ^Channel
+  "" ^Channel
   [^AbstractBootstrap bs host port]
 
   (let [sbs (cast? ServerBootstrap bs)
@@ -450,7 +424,6 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defmethod startServer
-
   ServerBootstrap
   [bs {:keys [host
               port]
@@ -460,7 +433,6 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defmethod startServer
-
   Bootstrap
   [bs {:keys [host
               port]
@@ -470,7 +442,6 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defmethod stopServer
-
   Channel
   [^Channel ch]
   (if (and ch (.isOpen ch)) (.close ch)))

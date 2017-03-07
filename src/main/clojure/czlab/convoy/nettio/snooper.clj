@@ -62,7 +62,6 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- writeReply
-
   "Reply back a string"
   [^ChannelHandlerContext ctx ^WholeRequest curObj]
 
@@ -90,7 +89,6 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- handleReq
-
   "Introspect the inbound request"
   [^ChannelHandlerContext ctx ^WholeRequest req]
 
@@ -142,7 +140,6 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- handleCnt
-
   "Handle the request content"
   [^ChannelHandlerContext ctx ^WholeRequest msg]
 
@@ -160,9 +157,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn snoopHTTPD<>
-
-  "Sample Snooper HTTPD"
-  {:tag ServerBootstrap}
+  "Sample Snooper HTTPD" {:tag ServerBootstrap}
 
   ([] (snoopHTTPD<> nil))
   ([args]

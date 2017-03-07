@@ -13,13 +13,13 @@
 
   (:gen-class)
 
-  (:require [czlab.basal.core :refer [inst? try! convInt]]
-            [czlab.basal.process :refer [exitHook]]
-            [czlab.basal.str :refer [hgl?]]
+  (:require [czlab.basal.process :refer [exitHook]]
             [czlab.basal.logging :as log])
 
   (:use [czlab.convoy.nettio.server]
         [czlab.convoy.net.server]
+        [czlab.basal.core]
+        [czlab.basal.str]
         [czlab.convoy.nettio.core])
 
   (:import [io.netty.handler.codec.http HttpResponseStatus]
@@ -45,32 +45,24 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- h1proxy
-  ""
-  [cb]
+(defn- h1proxy "" [cb]
   (proxy [InboundHandler][]
     (channelRead0 [ctx msg]
-      (when (inst? WholeRequest msg)
-        (replyStatus ctx 200)
-        (try! (cb))))))
+      (when (ist? WholeRequest msg) (replyStatus ctx) (try! (cb))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn discardHTTPD<>
-  "Discards the request, just returns 200 OK"
+  "Drops the req and returns OK"
   {:tag ServerBootstrap}
-  ([cb]
-   (discardHTTPD<> cb nil))
+
+  ([cb] (discardHTTPD<> cb nil))
   ([cb args]
-   (createServer<>
-     :netty/http
-     (fn [_] {:h1 (h1proxy cb)}) args)))
+   (createServer<> :netty/http (fn [_] {:h1 (h1proxy cb)}) args)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn finzServer
-  ""
-  []
+(defn finzServer "" []
   (stopServer @svrchan)
   (reset! svrboot nil)
   (reset! svrchan nil))

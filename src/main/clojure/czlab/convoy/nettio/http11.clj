@@ -92,11 +92,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- corsPreflight?
-
-  ""
-  [req]
-
+(defn- corsPreflight? "" [req]
   (and (= (.name HttpMethod/OPTIONS)
           (getMethod req))
        (hasHeader? req HttpHeaderNames/ORIGIN)
@@ -104,11 +100,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- validOrigin?
-
-  ""
-  [ctx corsCfg]
-
+(defn- validOrigin? "" [ctx corsCfg]
   (let [req (getAKey ctx h1msg-key)
         origin (getHeader req HttpHeaderNames/ORIGIN)
         o? (hasHeader? req HttpHeaderNames/ORIGIN)
@@ -135,12 +127,13 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defmacro
-  ^:private echoRequestOrigin "" [rsp origin] `(setOrigin ~rsp ~origin))
+(defmacro ^:private
+  echoRequestOrigin "" [rsp origin] `(setOrigin ~rsp ~origin))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defmacro ^:private setVaryHeader "" [rsp]
+(defmacro ^:private
+  setVaryHeader "" [rsp]
   `(setHeader ~rsp HttpHeaderNames/VARY HttpHeaderNames/ORIGIN))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -153,11 +146,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- setAllowCredentials
-
-  ""
-  [rsp corsCfg]
-
+(defn- setAllowCredentials "" [rsp corsCfg]
   (if (and (:credentials? corsCfg)
            (not= "*"
                  (getHeader rsp
@@ -167,59 +156,38 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- setAllowMethods
-
-  ""
-  [rsp corsCfg]
-
+(defn- setAllowMethods "" [rsp corsCfg]
   (when-some+ [m (:allowedMethods corsCfg)]
     (setHeader rsp
                HttpHeaderNames/ACCESS_CONTROL_ALLOW_METHODS m)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- setAllowHeaders
-
-  ""
-  [rsp corsCfg]
-
+(defn- setAllowHeaders "" [rsp corsCfg]
   (when-some+ [h (:allowedHeaders corsCfg)]
     (setHeader rsp
                HttpHeaderNames/ACCESS_CONTROL_ALLOW_HEADERS h)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- setMaxAge
-
-  ""
-  [rsp corsCfg]
-
+(defn- setMaxAge "" [rsp corsCfg]
   (if (number? (:maxAge corsCfg))
     (setHeader rsp
                HttpHeaderNames/ACCESS_CONTROL_MAX_AGE (:maxAge corsCfg))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- setExposeHeaders
-
-  ""
-  [rsp corsCfg]
-
+(defn- setExposeHeaders "" [rsp corsCfg]
   (when-some+ [h (:exposedHeaders corsCfg)]
     (setHeader rsp
                HttpHeaderNames/ACCESS_CONTROL_EXPOSE_HEADERS h)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- setOrigin?
-
-  ""
-  [ctx rsp corsCfg]
-
-  (let
-    [req (getAKey ctx h1msg-key)
-     origin (getHeader req HttpHeaderNames/ORIGIN)
-     o? (hasHeader? req HttpHeaderNames/ORIGIN)]
+(defn- setOrigin? "" [ctx rsp corsCfg]
+  (let [req (getAKey ctx h1msg-key)
+        origin (getHeader req HttpHeaderNames/ORIGIN)
+        o? (hasHeader? req HttpHeaderNames/ORIGIN)]
     (if o?
       (cond
         (and (= "null" origin)
@@ -247,15 +215,10 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- replyPreflight
-
-  ""
-  [ctx req]
-
-  (let
-    [{:keys [corsCfg]} (getAKey ctx chcfg-key)
-     ka? (HttpUtil/isKeepAlive req)
-     rsp (httpFullReply<>)]
+(defn- replyPreflight "" [ctx req]
+  (let [{:keys [corsCfg]} (getAKey ctx chcfg-key)
+        ka? (HttpUtil/isKeepAlive req)
+        rsp (httpFullReply<>)]
     (when (setOrigin? ctx rsp corsCfg)
       (setAllowMethods rsp corsCfg)
       (setAllowHeaders rsp corsCfg)
@@ -267,9 +230,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- toggleToWebsock
-
-  ""
-  [ctx ^ChannelHandler this ^HttpRequest req]
+  "" [ctx ^ChannelHandler this ^HttpRequest req]
 
   (let [uri (.path (QueryStringDecoder. (.uri req)))
         r2 (mockFullRequest<> req)
@@ -300,9 +261,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- processRequest
-
-  ""
-  [^ChannelHandler this ctx ^HttpRequest req]
+  "" [^ChannelHandler this ctx ^HttpRequest req]
 
   (let
     [origin (getHeader req HttpHeaderNames/ORIGIN)
@@ -335,15 +294,11 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- processWrite
-
-  ""
-  [ctx msg _]
-
+(defn- processWrite "" [ctx msg _]
   (let [{:keys [corsCfg]}
         (getAKey ctx chcfg-key)]
     (if (and (:enabled? corsCfg)
-             (inst? HttpResponse msg))
+             (ist? HttpResponse msg))
       (when (setOrigin? ctx msg corsCfg)
         (setAllowCredentials msg corsCfg)
         (setExposeHeaders msg corsCfg)))
@@ -357,14 +312,11 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn h1reqHandler<>
-
-  ""
-  ^ChannelHandler
-  []
+  "" ^ChannelHandler []
 
   (proxy [DuplexHandler][]
     (channelRead [ctx msg]
-      (if (inst? HttpRequest msg)
+      (if (ist? HttpRequest msg)
         (processRequest this ctx msg)
         (processOther ctx msg)))
     (write [ctx msg _]

@@ -6,7 +6,7 @@
 ;; the terms of this license.
 ;; You must not remove this notice, or any other, from this software.
 
-(ns ^{:doc ""
+(ns ^{:doc "Http client using netty."
       :author "Kenneth Leung"}
 
   czlab.convoy.nettio.client
@@ -18,7 +18,6 @@
   (:use [czlab.convoy.nettio.aggregate]
         [czlab.convoy.nettio.core]
         [czlab.convoy.net.util]
-        [czlab.basal.consts]
         [czlab.basal.core]
         [czlab.basal.meta]
         [czlab.basal.str]
@@ -108,9 +107,9 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- maybeSSL2
-  ""
-  ^SslContext
+  "" ^SslContext
   [{:keys [serverCert scheme] :as args}]
+
   (when (and (not= "http" scheme)
              (hgl? serverCert))
     (let
@@ -140,9 +139,9 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- maybeSSL1
-  ""
-  ^SslContext
+  "" ^SslContext
   [{:keys [serverCert scheme] :as args}]
+
   (when (and (not= "http" scheme)
              (hgl? serverCert))
     (let
@@ -159,42 +158,37 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- send2
-  ""
-  ^ChannelFuture
-  [^Channel ch ^String op ^XData xs args]
-  )
+(defn- send2 "" ^ChannelFuture [^Channel ch ^String op ^XData xs args] nil)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- send1
-  ""
-  [^Channel ch op ^URI uri data args]
-  (let
-    [mt (HttpMethod/valueOf (ucase (strKW op)))
-     cs (stror (:encoding args) "utf-8")
-     headers (:headers args)
-     body (coerceToByteBuf data ch cs)
-     mo (stror (:override args) "")
-     ka? (:isKeepAlive? args)
-     path (.getPath uri)
-     qy (.getQuery uri)
-     uriStr (if (hgl? qy)
-              (str path "?" qy) path)
-     clen
-     (cond
-       (inst? ByteBuf body) (. ^ByteBuf body readableBytes)
-       (inst? File body) (. ^File body length)
-       (inst? InputStream body) -1
-       (nil? body) 0
-       :else (throwIOE "bad type %s" (class body)))
-     req
-     (if (or (nil? body)
-             (inst? ByteBuf body))
-       (httpReq<+> mt uriStr body)
-       (httpReq<> mt uriStr))]
+  "" [^Channel ch op ^URI uri data args]
+
+  (let [mt (HttpMethod/valueOf (ucase (name op)))
+        cs (stror (:encoding args) "utf-8")
+        headers (:headers args)
+        body (byteBuf?? data ch cs)
+        mo (stror (:override args) "")
+        ka? (:isKeepAlive? args)
+        path (.getPath uri)
+        qy (.getQuery uri)
+        uriStr (if (hgl? qy)
+                 (str path "?" qy) path)
+        clen
+        (cond
+          (ist? ByteBuf body) (. ^ByteBuf body readableBytes)
+          (ist? File body) (. ^File body length)
+          (ist? InputStream body) -1
+          (nil? body) 0
+          :else (throwIOE "bad type %s" (class body)))
+        req
+        (if (or (nil? body)
+                (ist? ByteBuf body))
+          (httpReq<+> mt uriStr body)
+          (httpReq<> mt uriStr))]
     (doseq [[k v] (seq headers)
-            :let [kw (strKW k)]]
+            :let [kw (name k)]]
       (if (seq? v)
         (doseq [vv (seq v)]
           (addHeader req kw vv))
@@ -210,7 +204,7 @@
     (if (== 0 clen)
       (HttpUtil/setContentLength req 0)
       (do
-        (if-not (inst? FullHttpRequest req)
+        (if-not (ist? FullHttpRequest req)
           (HttpUtil/setTransferEncodingChunked req true))
         (if-not (hasHeader? req "content-type")
           (setHeader req
@@ -239,17 +233,17 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- connect
-  ""
-  ^Channel
-  [^Bootstrap bs host port ssl?]
+  "" ^Channel [^Bootstrap bs host port ssl?]
+
   (log/debug "netty client about to connect")
   (let
     [port  (if (< port 0) (if ssl? 443 80) port)
-     sock (InetSocketAddress. (str host) (int port))
-     cf  (-> (.connect bs sock) (.sync))
-     ch (.channel cf)]
-    (if (or (not (.isSuccess cf))
-            (nil? ch))
+     sock (InetSocketAddress. (str host)
+                              (int port))
+     cf (some-> (.connect bs sock) .sync)
+     ch (some-> cf .channel)]
+    (if (or (nil? cf)
+            (not (.isSuccess cf)) (nil? ch))
       (throwIOE "Connect error: %s" (.cause cf)))
     ch))
 
@@ -273,9 +267,10 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- wsh<>
-  ""
-  ^ChannelHandler
-  [^WebSocketClientHandshaker handshaker cb user args]
+  "" ^ChannelHandler [^WebSocketClientHandshaker
+                      handshaker
+                      cb user args]
+
   (proxy [InboundHandler][]
     (handlerAdded [ctx]
       (let [p (. ^ChannelHandlerContext ctx newPromise)]
@@ -300,32 +295,30 @@
             (log/debug "attempt to finz the hand-shake...")
             (.finishHandshake handshaker ch ^FullHttpResponse msg)
             (.setSuccess f))
-          (inst? FullHttpResponse msg)
+          (ist? FullHttpResponse msg)
           (throw (IllegalStateException.
                    (str "Unexpected FullHttpResponse (status="
                         (.status ^FullHttpResponse msg))))
-          (or (inst? TextWebSocketFrame msg)
-              (inst? BinaryWebSocketFrame msg))
+          (or (ist? TextWebSocketFrame msg)
+              (ist? BinaryWebSocketFrame msg))
           (do
             (log/debug "got a test/bin frame: %s" msg)
             (user ch msg))
-          (inst? PongWebSocketFrame msg)
+          (ist? PongWebSocketFrame msg)
           (do
             (log/debug "received pong frame")
             (user ch msg))
-          (inst? CloseWebSocketFrame msg)
+          (ist? CloseWebSocketFrame msg)
           (do
             (log/debug "received close frame")
             (user ch msg)
-            (. ^ChannelHandlerContext ctx close))
-          :else nil)))))
+            (. ^ChannelHandlerContext ctx close)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- h1pipe
-  ""
-  ^ChannelHandler
-  [ctx args]
+  "" ^ChannelHandler [ctx args]
+
   (proxy [ChannelInitializer][]
     (initChannel [ch]
       (if-some
@@ -342,9 +335,8 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- wspipe
-  ""
-  ^ChannelHandler
-  [ctx cb user args]
+  "" ^ChannelHandler [ctx cb user args]
+
   (proxy [ChannelInitializer][]
     (initChannel [ch]
       (if-some
@@ -369,27 +361,26 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- boot!
-  ""
-  [{:keys [maxContentSize maxInMemory
-           version tempFileDir
-           threads rcvBuf options]
-    :or {maxContentSize Integer/MAX_VALUE
-         maxInMemory *membuf-limit*
-         version "1.1"
-         rcvBuf (* 2 MegaBytes)
-         threads 0}
-    :as args}]
-  (let
-    [tempFileDir (fpath (or tempFileDir
-                            *tempfile-repo*))
-     ctx (if (= version "1.1")
-           (maybeSSL1 args) (maybeSSL2 args))
-     [g z] (gAndC threads :tcpc)
-     bs (Bootstrap.)
-     options (or options
-                 [[ChannelOption/SO_RCVBUF (int rcvBuf)]
-                  [ChannelOption/SO_KEEPALIVE true]
-                  [ChannelOption/TCP_NODELAY true]])]
+  "" [{:keys [maxContentSize maxInMemory
+              version tempFileDir
+              threads rcvBuf options]
+       :or {maxContentSize Integer/MAX_VALUE
+            maxInMemory *membuf-limit*
+            version "1.1"
+            rcvBuf (* 2 MegaBytes)
+            threads 0}
+       :as args}]
+
+  (let [tempFileDir (fpath (or tempFileDir
+                               *tempfile-repo*))
+        ctx (if (= version "1.1")
+              (maybeSSL1 args) (maybeSSL2 args))
+        [g z] (gAndC threads :tcpc)
+        bs (Bootstrap.)
+        options (or options
+                    [[ChannelOption/SO_RCVBUF (int rcvBuf)]
+                     [ChannelOption/SO_KEEPALIVE true]
+                     [ChannelOption/TCP_NODELAY true]])]
     (configDiskFiles true tempFileDir)
     (doseq [[k v] options] (.option bs k v))
     ;;assign generic attributes for all channels
@@ -408,30 +399,26 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- wsconnCB
-  ""
-  [rcp bs host port]
+  "" [rcp bs host port]
+
   (fn [^ChannelFuture ff]
-    (cond
-      (.isSuccess ff)
-      (let
-        [ch (.channel ff)
-         cc
-         (reify ClientConnect
-           (dispose [_]
-             (try!
-               (if (.isOpen ch)
-                 (doto ch
-                   (.writeAndFlush
-                     (CloseWebSocketFrame.))
-                   (.close ))
-                 (.. (.config ^Bootstrap bs)
-                     group
-                     shutdownGracefully))))
-           (channel [_] ch)
-           (port [_] port)
-           (host [_] host))]
+    (if (.isSuccess ff)
+      (let [ch (.channel ff)
+            cc
+            (reify ClientConnect
+              (dispose [_]
+                (try!
+                  (if (.isOpen ch)
+                    (doto ch
+                      (.writeAndFlush
+                        (CloseWebSocketFrame.))
+                      (.close ))
+                    (.. (.config ^Bootstrap bs)
+                        group shutdownGracefully))))
+              (channel [_] ch)
+              (port [_] port)
+              (host [_] host))]
         (deliver rcp cc))
-      :else
       (let [err (or (.cause ff)
                     (Exception. "conn error"))]
         (log/warn err "")
@@ -440,14 +427,13 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- wsBootAndConn
-  ""
-  [rcp host port user args]
-  (let
-    [[^Bootstrap bs ctx] (boot! args)
-     cb (wsconnCB rcp bs host port)
-     _ (.handler bs (wspipe ctx cb user args))
-     c (connect bs host port (some? ctx))
-     ^H1DataFactory f (getAKey c dfac-key)]
+  "" [rcp host port user args]
+
+  (let [[^Bootstrap bs ctx] (boot! args)
+        cb (wsconnCB rcp bs host port)
+        _ (.handler bs (wspipe ctx cb user args))
+        c (connect bs host port (some? ctx))
+        ^H1DataFactory f (getAKey c dfac-key)]
     (futureCB (.closeFuture c)
               (fn [_]
                 (log/debug "shutdown: netty client")
@@ -457,13 +443,12 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- h1BootAndConn
-  ""
-  [host port args]
-  (let
-    [[^Bootstrap bs ctx] (boot! args)
-     _ (.handler bs (h1pipe ctx args))
-     c (connect bs host port (some? ctx))
-     ^H1DataFactory f (getAKey c dfac-key)]
+  "" [host port args]
+
+  (let [[^Bootstrap bs ctx] (boot! args)
+        _ (.handler bs (h1pipe ctx args))
+        c (connect bs host port (some? ctx))
+        ^H1DataFactory f (getAKey c dfac-key)]
     (futureCB (.closeFuture c)
               (fn [_]
                 (log/debug "shutdown: netty client")
@@ -481,15 +466,16 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn wsconnect<>
-  ""
-  {:tag ClientConnect}
+  "" {:tag ClientConnect}
+
   ([host port uri cb]
    (wsconnect<> host port uri cb nil))
+
   ([host port uri cb args]
-   (let
-     [pfx (if (:serverCert args) "wss" "ws")
-      uriStr (format "%s://%s:%d%s" pfx host port uri)
-      rc (promise)]
+   (let [pfx (if (:serverCert args) "wss" "ws")
+         uriStr (format "%s://%s:%d%s"
+                        pfx host port uri)
+         rc (promise)]
      (wsBootAndConn rc
                     host
                     port
@@ -503,60 +489,55 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn h1connect<>
-  ""
-  {:tag ClientConnect}
+  "" {:tag ClientConnect}
+
   ([host port] (h1connect<> host port nil))
   ([host port args]
-   (h1BootAndConn host
-                  port
-                  (merge args
-                         {:version "1.1"}))))
+   (h1BootAndConn host port (merge args {:version "1.1"}))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn h1send*
-  ""
+(defn h1send* ""
+
   ([conn method uri data]
    (h1send* conn method uri data nil))
+
   ([^ClientConnect conn method uri data args]
-   (let
-     [args (merge args
-                  {:isKeepAlive? true
-                   :host (.host conn)})]
+   (let [args (merge args
+                     {:isKeepAlive? true
+                      :host (.host conn)})]
      (send1 (.channel conn) method uri data args))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn h1send
-  "Gives back a promise"
-  {:tag IDeref}
+  "Gives back a promise" {:tag IDeref}
+
   ([target method data]
    (h1send target method data nil))
+
   ([target method data args]
-   (let
-     [url (io/as-url target)
-      args (merge args
-                  {:scheme (.getProtocol url)
-                   :isKeepAlive? false
-                   :host (.getHost url)})
-      cc (h1connect<> (.getHost url)
-                      (.getPort url) args)]
+   (let [url (io/as-url target)
+         args (merge args
+                     {:scheme (.getProtocol url)
+                      :isKeepAlive? false
+                      :host (.getHost url)})
+         cc (h1connect<> (.getHost url)
+                         (.getPort url) args)]
      (send1 (.channel cc)
             method (.toURI url) data args))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn h1post
-  "Gives back a promise"
-  {:tag IDeref}
+  "Gives back a promise" {:tag IDeref}
   ([target data] (h1post target data nil))
   ([target data args] (h1send target :post data args)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn h1get
-  "Gives back a promise"
-  {:tag IDeref}
+  "Gives back a promise" {:tag IDeref}
   ([target] (h1get target nil))
   ([target args] (h1send target :get nil args)))
 

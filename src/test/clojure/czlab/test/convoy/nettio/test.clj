@@ -90,7 +90,7 @@
 (defn- serverHandler<> "" []
   (proxy [InboundHandler][]
     (channelRead0 [ctx msg]
-      (assert (inst? WholeRequest msg))
+      (assert (ist? WholeRequest msg))
       (let [^WholeRequest req msg
             c (.. req content getBytes)
             ch (ch?? ctx)
@@ -594,7 +594,7 @@
     (when-some [c (cast? ClientConnect cc)] (.dispose c))
     (pause 1000)
     (stopServer ch)
-    (and (inst? ClientConnect cc)
+    (and (ist? ClientConnect cc)
          (not (.isOpen (.channel ^ClientConnect cc))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -619,7 +619,7 @@
                          (fn [_ _]))
         cc (deref rcp 3000 nil)]
     (stopServer ch)
-    (inst? Throwable cc)))
+    (ist? Throwable cc)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -666,7 +666,7 @@
                          port
                          "/web/sock"
                          (fn [^Channel ch msg]
-                           (when (inst? TextWebSocketFrame msg)
+                           (when (ist? TextWebSocketFrame msg)
                              (reset! out
                                      (.text ^TextWebSocketFrame msg))
                              (.writeAndFlush ch (CloseWebSocketFrame.)))))
@@ -736,7 +736,7 @@
                          port
                          "/web/sock"
                          (fn [ch msg]
-                           (when (inst? PongWebSocketFrame msg)
+                           (when (ist? PongWebSocketFrame msg)
                              (reset! pong true)
                              (.writeAndFlush ^Channel
                                              ch

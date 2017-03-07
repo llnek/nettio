@@ -57,12 +57,9 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- replyGetVFile
-
-  ""
+(defn- replyGetVFile ""
   [^ChannelHandlerContext ctx
-   ^WholeRequest req
-   ^XData xdata]
+   ^WholeRequest req ^XData xdata]
 
   (let [keep? (HttpUtil/isKeepAlive req)
         res (httpReply<>)
@@ -91,6 +88,7 @@
                    ^WholeRequest req
                    ^String fname
                    args]
+
   (log/debug "fPutter file= %s" (io/file (:vdir args) fname))
   (let [vdir (io/file (:vdir args))
         body (.content req)]
@@ -109,6 +107,7 @@
                    ^WholeRequest req
                    ^String fname
                    args]
+
   (log/debug "fGetter: file= %s" (io/file (:vdir args) fname))
   (let [vdir (io/file (:vdir args))
         xdata (getFile vdir fname)]
@@ -118,9 +117,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- h1proxy
-  ""
-  [args]
+(defn- h1proxy "" [args]
   (proxy [InboundHandler][]
     (channelRead0 [ctx msg]
       (let
@@ -131,7 +128,7 @@
          p (if (< pos 0)
              uri
              (. uri substring (inc pos)))
-         nm (stror p (str (juid) ".dat"))]
+         nm (stror p (str (jid<>) ".dat"))]
         (log/debug "%s: uri= %s, file= %s" mtd uri nm)
         (log/debug "args= %s" args)
         (cond
@@ -147,6 +144,7 @@
 ;; make a In memory File Server
 (defn memFileServer<>
   "A file server which can get/put files"
+
   ([vdir] (memFileServer<> vdir nil))
   ([vdir args]
    (let [args (merge args
@@ -164,10 +162,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; filesvr host port vdir
-(defn -main
-
-  "Start a basic file server"
-  [& args]
+(defn -main "" [& args]
 
   (cond
     (< (count args) 3)

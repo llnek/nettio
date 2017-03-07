@@ -73,20 +73,18 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defmethod httpResult<>
-
   Channel
   [theReq & [status]]
   {:pre [(or (nil? status)
              (number? status))]}
 
-  (let
-    [headers (DefaultHttpHeaders.)
-     impl (muble<>
-            {:code (or status (.code HttpResponseStatus/OK))
-             :ver (.text HttpVersion/HTTP_1_1)
-             :framework :netty
-             :cookies {}
-             :headers headers})]
+  (let [headers (DefaultHttpHeaders.)
+        impl (muble<>
+               {:code (or status (.code HttpResponseStatus/OK))
+                :ver (.text HttpVersion/HTTP_1_1)
+                :framework :netty
+                :cookies {}
+                :headers headers})]
     (reify HttpResult
       (setRedirect [_ url]
         (.setv impl :redirect url))
@@ -134,12 +132,8 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn eTagFromFile
-
-  "ETag based on a file object"
-  [^File f]
-
-  (format "\"%s-%s\""
-          (.lastModified f) (.hashCode f)))
+  "ETag based on a file object" [^File f]
+  (format "\"%s-%s\"" (.lastModified f) (.hashCode f)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -148,11 +142,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defmacro ^:private condErrCode
-
-  ""
-  [m]
-
+(defmacro ^:private condErrCode "" [m]
   `(if
      (eqAny? ~m ["GET" "HEAD"])
      (.code HttpResponseStatus/NOT_MODIFIED)
@@ -161,98 +151,89 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- ifNoneMatch?
-
   "Condition fails if the reply eTag
   matches, or if filter is a wildcard"
   [method eTag code body conds]
 
-  (let
-    [ec (condErrCode method)
-     {:keys [value has?]}
-     (:if-none-match conds)
-     value (strim value)
-     c (cond
-         (or (not has?)
-             (nichts? value))
-         code
-         (eqAny? value ["*" "\"*\""])
-         (if (hgl? eTag) ec code)
-         (eqAny? eTag (map #(strim %)
-                           (.split value ",")))
-         ec
-         :else code)]
+  (let [ec (condErrCode method)
+        {:keys [value has?]}
+        (:if-none-match conds)
+        value (strim value)
+        c (cond
+            (or (not has?)
+                (nichts? value))
+            code
+            (eqAny? value ["*" "\"*\""])
+            (if (hgl? eTag) ec code)
+            (eqAny? eTag (map #(strim %)
+                              (.split value ",")))
+            ec
+            :else code)]
     [c body]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- ifMatch?
-
   "Condition fails if reply eTag doesn't
   match, or if filter is wildcard and no eTag"
   [method eTag code body conds]
 
-  (let
-    [ec (condErrCode method)
-     {:keys [value has?]}
-     (:if-match conds)
-     value (strim value)
-     c (cond
-         (or (not has?)
-             (nichts? value))
-         code
-         (eqAny? value ["*" "\"*\""])
-         (if (hgl? eTag) code ec)
-         (not (eqAny? eTag
-                 (map #(strim %)
-                      (.split value ","))))
-         ec
-         :else code)]
+  (let [ec (condErrCode method)
+        {:keys [value has?]}
+        (:if-match conds)
+        value (strim value)
+        c (cond
+            (or (not has?)
+                (nichts? value))
+            code
+            (eqAny? value ["*" "\"*\""])
+            (if (hgl? eTag) code ec)
+            (not (eqAny? eTag
+                         (map #(strim %)
+                              (.split value ","))))
+            ec
+            :else code)]
     [c body]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- ifUnmodSince?
-
   "Condition fails if the last-modified
   timestamp is greater than the given date"
   [method lastMod code body conds]
 
-  (let
-    [rc (condErrCode method)
-     {:keys [value has?]}
-     (:if-unmod-since conds)
-     value (strim value)
-     t (MvcUtils/parseHttpDate value -1)
-     c (if (and (spos? lastMod)
-                (spos? t))
-         (if (< lastMod t) code rc)
-         code)]
+  (let [rc (condErrCode method)
+        {:keys [value has?]}
+        (:if-unmod-since conds)
+        value (strim value)
+        t (MvcUtils/parseHttpDate value -1)
+        c (if (and (spos? lastMod)
+                   (spos? t))
+            (if (< lastMod t) code rc)
+            code)]
     [c body]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- ifModSince?
-
   "Condition fails if the last-modified
   time-stamp is less than the given date"
   [method lastMod code body conds]
 
-  (let
-    [rc (condErrCode method)
-     {:keys [value has?]}
-     (:if-mod-since conds)
-     value (strim value)
-     t (MvcUtils/parseHttpDate value -1)
-     c (if (and (spos? lastMod)
-                (spos? t))
-         (if (> lastMod t) code rc)
-         code)]
+  (let [rc (condErrCode method)
+        {:keys [value has?]}
+        (:if-mod-since conds)
+        value (strim value)
+        t (MvcUtils/parseHttpDate value -1)
+        c (if (and (spos? lastMod)
+                   (spos? t))
+            (if (> lastMod t) code rc)
+            code)]
     [c body]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- ifRange?
-
   "Sort out the range if any, then apply
   the if-range condition"
   [eTag lastMod code cType body conds]
@@ -291,11 +272,9 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn converge
+  "" [^Charset cs body]
 
-  ""
-  [^Charset cs body]
-
-  (let [body (if (inst? XData body)
+  (let [body (if (ist? XData body)
                (.content ^XData body) body)]
     (cond
       (isBytes? body)
@@ -306,11 +285,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- zmapHeaders
-
-  ""
-  [gist headers]
-
+(defn- zmapHeaders "" [gist headers]
   (zipmap (map #(let [[k v] %1] k) headers)
           (map #(let [[k v] %1]
                   {:has? (gistHeader? gist v)
@@ -319,8 +294,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- writeHeaders
-  ""
-  ^HttpHeaders
+  "" ^HttpHeaders
   [^HttpResponse rsp headers] (.set (.headers rsp) headers))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -377,18 +351,18 @@
        [code body])
      [body clen]
      (cond
-       (inst? InputStream body)
+       (ist? InputStream body)
        [(HttpChunkedInput.
           (ChunkedStream. ^InputStream body)) -1]
 
-       (inst? HttpRanges body)
+       (ist? HttpRanges body)
        [(HttpChunkedInput. ^HttpRanges body)
         (.length ^HttpRanges body)]
 
        (instBytes? body)
        [body (alength ^bytes body)]
 
-       (inst? File body)
+       (ist? File body)
        [(HttpChunkedInput.
           (ChunkedNioFile. ^File body))
         (.length ^File body)]
@@ -407,7 +381,7 @@
        :else
        [(httpReply<> code) body])
      hds (writeHeaders rsp headers)]
-    (->> (and (not (inst? FullHttpResponse rsp))
+    (->> (and (not (ist? FullHttpResponse rsp))
               (some? body))
          (HttpUtil/setTransferEncodingChunked rsp ))
     (if-not (neg? clen)
