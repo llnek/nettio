@@ -74,60 +74,61 @@
 ;;
 (defmethod httpResult<>
   Channel
-  [theReq & [status]]
-  {:pre [(or (nil? status)
-             (number? status))]}
 
-  (let [headers (DefaultHttpHeaders.)
-        impl (muble<>
-               {:code (or status (.code HttpResponseStatus/OK))
-                :ver (.text HttpVersion/HTTP_1_1)
-                :framework :netty
-                :cookies {}
-                :headers headers})]
-    (reify HttpResult
-      (setRedirect [_ url]
-        (.setv impl :redirect url))
-      (setVersion [_ ver]
-        (assert (some? (HttpVersion/valueOf ver)))
-        (.setv impl :ver ver))
-      (setContentType [this c]
-        (.set headers HttpHeaderNames/CONTENT_TYPE c))
-      (contentType [_]
-        (gistHeader (.intern impl)
-                    HttpHeaderNames/CONTENT_TYPE))
-      (setCharset [_ cs]
-        (.setv impl :charset cs))
-      (charset [_] (.getv impl :charset))
-      (setETag [this e]
-        (.set headers HttpHeaderNames/ETAG e))
-      (setStatus [_ status]
-        (assert (some? (HttpResponseStatus/valueOf status)))
-        (.setv impl :code status))
-      (setLastModified [_ d]
-        (->> (.getTime (gmt<> d))
-             (.setv impl :lastmod )))
-      (setLastDate [_ d] (.setv impl :lastmod d))
-      (status [_] (.getv impl :code))
-      (getx [_] impl)
-      (addCookie [_ c]
-        (if (some? c)
-          (let [a (.getv impl :cookies)]
-            (.setv impl
-                   :cookies
-                   (assoc a (.getName c) c)))))
-      (containsHeader [_ nm] (.contains headers nm))
-      (removeHeader [_ nm] (.remove headers nm))
-      (clearHeaders [_] (.clear headers))
-      (clearCookies [_]
-        (.setv impl :cookies {}))
-      (addHeader [_ nm v] (.add headers nm v))
-      (setHeader [_ nm v] (.set headers nm v))
-      (isEmpty [_] (nil? (.getv impl :body)))
-      (content [_] (.getv impl :body))
-      (request [_] theReq)
-      (setContent [_ data]
-        (.setv impl :body data)))))
+  ([theReq] (httpResult<> theReq 200))
+  ([theReq status]
+   {:pre [(or (nil? status)
+             (number? status))]}
+   (let [headers (DefaultHttpHeaders.)
+         impl (muble<>
+                {:code (or status (.code HttpResponseStatus/OK))
+                 :ver (.text HttpVersion/HTTP_1_1)
+                 :framework :netty
+                 :cookies {}
+                 :headers headers})]
+     (reify HttpResult
+       (setRedirect [_ url]
+         (.setv impl :redirect url))
+       (setVersion [_ ver]
+         (assert (some? (HttpVersion/valueOf ver)))
+         (.setv impl :ver ver))
+       (setContentType [this c]
+         (.set headers HttpHeaderNames/CONTENT_TYPE c))
+       (contentType [_]
+         (gistHeader (.intern impl)
+                     HttpHeaderNames/CONTENT_TYPE))
+       (setCharset [_ cs]
+         (.setv impl :charset cs))
+       (charset [_] (.getv impl :charset))
+       (setETag [this e]
+         (.set headers HttpHeaderNames/ETAG e))
+       (setStatus [_ status]
+         (assert (some? (HttpResponseStatus/valueOf status)))
+         (.setv impl :code status))
+       (setLastModified [_ d]
+         (->> (.getTime (gmt<> d))
+              (.setv impl :lastmod )))
+       (setLastDate [_ d] (.setv impl :lastmod d))
+       (status [_] (.getv impl :code))
+       (getx [_] impl)
+       (addCookie [_ c]
+         (if (some? c)
+           (let [a (.getv impl :cookies)]
+             (.setv impl
+                    :cookies
+                    (assoc a (.getName c) c)))))
+       (containsHeader [_ nm] (.contains headers nm))
+       (removeHeader [_ nm] (.remove headers nm))
+       (clearHeaders [_] (.clear headers))
+       (clearCookies [_]
+         (.setv impl :cookies {}))
+       (addHeader [_ nm v] (.add headers nm v))
+       (setHeader [_ nm v] (.set headers nm v))
+       (isEmpty [_] (nil? (.getv impl :body)))
+       (content [_] (.getv impl :body))
+       (request [_] theReq)
+       (setContent [_ data]
+         (.setv impl :body data))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -301,113 +302,114 @@
 ;;
 (defmethod replyResult
   Channel
-  [^HttpResult res & [options]]
 
-  (downstream res options)
-  (let
-    [req (.request res)
-     ^Channel
-     ch (.socket req)
-     gist (.gist req)
-     method (:method gist)
-     {:keys [headers
-             lastMod
-             eTag
-             cookies]
-      :as cfg}
-     (.intern (.getx res))
-     cs (or (.charset res)
-            (Charset/forName "utf-8"))
-     code (.status res)
-     body0 (->> (.content res)
-                (converge cs))
-     conds (zmapHeaders gist conds-hds)
-     rhds (zmapHeaders cfg resp-hds)
-     cType (get-in rhds [:ctype :value])
-     [code body]
-     (if (codeOK? code)
-       (ifRange? eTag lastMod code cType body0 conds)
-       [code body0])
-     [code body]
-     (if (codeOK? code)
-       (ifMatch? method eTag code body conds)
-       [code body])
-     [code body]
-     (if (codeOK? code)
-       (ifNoneMatch? method eTag code body conds)
-       [code body])
-     [code body]
-     (if (codeOK? code)
-       (ifModSince? method lastMod code body conds)
-       [code body])
-     [code body]
-     (if (codeOK? code)
-       (ifUnmodSince? method lastMod code body conds)
-       [code body])
-     [code body]
-     (if (and (= "HEAD" method)
-              (codeOK? code))
-       [code nil]
-       [code body])
-     [body clen]
-     (cond
-       (ist? InputStream body)
-       [(HttpChunkedInput.
-          (ChunkedStream. ^InputStream body)) -1]
+  ([res] (replyResult res nil))
+  ([^HttpResult res sessionObj]
+   (downstream res sessionObj)
+   (let
+     [req (.request res)
+      ^Channel
+      ch (.socket req)
+      gist (.gist req)
+      method (:method gist)
+      {:keys [headers
+              lastMod
+              eTag
+              cookies]
+       :as cfg}
+      (.intern (.getx res))
+      cs (or (.charset res)
+             (Charset/forName "utf-8"))
+      code (.status res)
+      body0 (->> (.content res)
+                 (converge cs))
+      conds (zmapHeaders gist conds-hds)
+      rhds (zmapHeaders cfg resp-hds)
+      cType (get-in rhds [:ctype :value])
+      [code body]
+      (if (codeOK? code)
+        (ifRange? eTag lastMod code cType body0 conds)
+        [code body0])
+      [code body]
+      (if (codeOK? code)
+        (ifMatch? method eTag code body conds)
+        [code body])
+      [code body]
+      (if (codeOK? code)
+        (ifNoneMatch? method eTag code body conds)
+        [code body])
+      [code body]
+      (if (codeOK? code)
+        (ifModSince? method lastMod code body conds)
+        [code body])
+      [code body]
+      (if (codeOK? code)
+        (ifUnmodSince? method lastMod code body conds)
+        [code body])
+      [code body]
+      (if (and (= "HEAD" method)
+               (codeOK? code))
+        [code nil]
+        [code body])
+      [body clen]
+      (cond
+        (ist? InputStream body)
+        [(HttpChunkedInput.
+           (ChunkedStream. ^InputStream body)) -1]
 
-       (ist? HttpRanges body)
-       [(HttpChunkedInput. ^HttpRanges body)
-        (.length ^HttpRanges body)]
+        (ist? HttpRanges body)
+        [(HttpChunkedInput. ^HttpRanges body)
+         (.length ^HttpRanges body)]
 
-       (instBytes? body)
-       [body (alength ^bytes body)]
+        (instBytes? body)
+        [body (alength ^bytes body)]
 
-       (ist? File body)
-       [(HttpChunkedInput.
-          (ChunkedNioFile. ^File body))
-        (.length ^File body)]
+        (ist? File body)
+        [(HttpChunkedInput.
+           (ChunkedNioFile. ^File body))
+         (.length ^File body)]
 
-       (nil? body)
-       [nil 0]
-       :else
-       (trap! IOException "Unsupported result content"))
-     [rsp body]
-     (cond
-       (instBytes? body)
-       [(httpFullReply<> code body (.alloc ch)) nil]
-       (or (== clen 0)
-           (nil? body))
-       [(httpFullReply<> code) body]
-       :else
-       [(httpReply<> code) body])
-     hds (writeHeaders rsp headers)]
-    (->> (and (not (ist? FullHttpResponse rsp))
-              (some? body))
-         (HttpUtil/setTransferEncodingChunked rsp ))
-    (if-not (neg? clen)
-      (HttpUtil/setContentLength rsp clen))
-    (if (neg? clen)
-      (HttpUtil/setKeepAlive rsp false)
-      (HttpUtil/setKeepAlive rsp (:isKeepAlive? gist)))
-    (if (or (nil? body)
-            (== clen 0))
-      (.remove hds HttpHeaderNames/CONTENT_TYPE))
-    (doseq [s (encodeJavaCookies (vals cookies))]
-      (log/debug "resp: setting cookie: %s" s)
-      (.add hds HttpHeaderNames/SET_COOKIE s))
-    (if (and (spos? lastMod)
-             (not (get-in rhds [:last-mod :has?])))
-      (.set hds
-            HttpHeaderNames/LAST_MODIFIED
-            (MvcUtils/formatHttpDate ^long lastMod)))
-    (if (and (hgl? eTag)
-             (not (get-in rhds [:etag :has?])))
-      (.set hds HttpHeaderNames/ETAG eTag))
-    (let [cf (.write ch rsp)
-          cf (if body
-               (.writeAndFlush ch body)
-               (do (.flush ch) cf))]
-      (closeCF cf (HttpUtil/isKeepAlive rsp)))))
+        (nil? body)
+        [nil 0]
+        :else
+        (trap! IOException "Unsupported result content"))
+      [rsp body]
+      (cond
+        (instBytes? body)
+        [(httpFullReply<> code body (.alloc ch)) nil]
+        (or (== clen 0)
+            (nil? body))
+        [(httpFullReply<> code) body]
+        :else
+        [(httpReply<> code) body])
+      hds (writeHeaders rsp headers)]
+     (->> (and (not (ist? FullHttpResponse rsp))
+               (some? body))
+          (HttpUtil/setTransferEncodingChunked rsp ))
+     (if-not (neg? clen)
+       (HttpUtil/setContentLength rsp clen))
+     (if (neg? clen)
+       (HttpUtil/setKeepAlive rsp false)
+       (HttpUtil/setKeepAlive rsp (:isKeepAlive? gist)))
+     (if (or (nil? body)
+             (== clen 0))
+       (.remove hds HttpHeaderNames/CONTENT_TYPE))
+     (doseq [s (encodeJavaCookies (vals cookies))]
+       (log/debug "resp: setting cookie: %s" s)
+       (.add hds HttpHeaderNames/SET_COOKIE s))
+     (if (and (spos? lastMod)
+              (not (get-in rhds [:last-mod :has?])))
+       (.set hds
+             HttpHeaderNames/LAST_MODIFIED
+             (MvcUtils/formatHttpDate ^long lastMod)))
+     (if (and (hgl? eTag)
+              (not (get-in rhds [:etag :has?])))
+       (.set hds HttpHeaderNames/ETAG eTag))
+     (let [cf (.write ch rsp)
+           cf (if body
+                (.writeAndFlush ch body)
+                (do (.flush ch) cf))]
+       (closeCF cf (HttpUtil/isKeepAlive rsp))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF
