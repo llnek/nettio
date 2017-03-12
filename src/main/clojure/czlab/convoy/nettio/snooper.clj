@@ -148,7 +148,7 @@
     (when (.hasContent ct)
       (-> buf
         (.append "CONTENT: ")
-        (.append (.stringify ct))
+        (.append (.strit ct))
         (.append "\r\n")))
     (do
       (.append buf "END OF CONTENT\r\n")

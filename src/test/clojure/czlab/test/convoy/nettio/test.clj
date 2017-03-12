@@ -103,7 +103,7 @@
 ;;
 (defn- bbuf "" ^ByteBuf
   [^Channel ch ^String s]
-  (Unpooled/wrappedBuffer (bytesify s)))
+  (Unpooled/wrappedBuffer (bytesit s)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -133,9 +133,9 @@
           r4 (.poll q)
           rc
           (str
-            (stringify (toByteArray (.content r1)))
-            (stringify (toByteArray (.content r2)))
-            (stringify (toByteArray (.content r3))))]
+            (strit (toByteArray (.content r1)))
+            (strit (toByteArray (.content r2)))
+            (strit (toByteArray (.content r3))))]
       (.close ec)
       (and (nil? r4)
            (= "r1r2r3" rc)))))
@@ -164,8 +164,8 @@
        ^ByteBufHolder b2 (.poll outq)
        rc
        (str
-         (stringify (toByteArray (.content b1)))
-         (stringify (toByteArray (.content b2))))]
+         (strit (toByteArray (.content b1)))
+         (strit (toByteArray (.content b2))))]
       (.close ec)
       (= "r1r2" rc))))
 
@@ -211,7 +211,7 @@
     (stopServer ch)
     (and rc
          (> (.. rc content size) 0)
-         (= s (.. rc content stringify)))))
+         (= s (.. rc content strit)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -275,7 +275,7 @@
             (.intern ^ULFormItems @out)))]
     (stopServer ch)
     (and rc
-         (= "hello joe" (.. rc content stringify))
+         (= "hello joe" (.. rc content strit))
          (= (:a rmap) "b")
          (= (:c rmap) "3 9")
          (= (:name rmap) "john'smith"))))
@@ -352,7 +352,7 @@
                  (assoc! %1
                          (keyword (str (.getFieldName i)
                                        "+" (.getName i)))
-                         (stringify (.get i)))
+                         (strit (.get i)))
                  %1))
             (.intern ^ULFormItems @out)))]
     (stopServer ch)
@@ -367,7 +367,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- testFormUpload "" []
-  (let [cbody (bytesify FORM-MULTIPART)
+  (let [cbody (bytesit FORM-MULTIPART)
         gist {:ctype "multipart/form-data; boundary=---1234"
               :clen (alength cbody)}
         out (parseFormPost gist (xdata<> cbody))
@@ -390,7 +390,7 @@
                  (assoc! %1
                          (keyword (str (.getFieldName i)
                                        "+" (.getName i)))
-                         (stringify (.get i)))
+                         (strit (.get i)))
                  %1))
             (.intern out)))]
     (and (= (:field+fieldValue rmap) "fieldValue")
@@ -702,7 +702,7 @@
                            (when-some
                              [b (cast? BinaryWebSocketFrame msg)]
                              (reset! out
-                                     (stringify
+                                     (strit
                                        (toByteArray (.content b))))
                              (.writeAndFlush ch
                                              (CloseWebSocketFrame.)))))
