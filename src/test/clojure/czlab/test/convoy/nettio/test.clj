@@ -402,13 +402,13 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (def ^:private ROUTES
-  [{:handler "p1"
+  [{:XXXhandler "p1"
     :uri "/([^/]+)/(.*)"
     :verb :post
     :template  "t1.html"}
    {:mount "m1"
     :uri "/(favicon\\..+)"}
-   {:handler "p2"
+   {:XXXhandler "p2"
     :uri "/:a/([^/]+)/:b/c/:d"
     :verb :get
     :template  "t2.html"}
