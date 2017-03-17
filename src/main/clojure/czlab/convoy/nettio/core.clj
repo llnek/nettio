@@ -685,7 +685,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn safeRemoveHandler
-  "" [^ChannelPipeline cp ^Class cz] (try! (.remove cp cz)))
+  "" [^ChannelPipeline cp ^Class cz] (trye! nil (.remove cp cz)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
