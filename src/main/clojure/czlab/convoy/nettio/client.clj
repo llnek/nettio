@@ -92,7 +92,8 @@
             WholeResponse
             H1DataFactory
             ClientConnect
-            InboundHandler]
+            InboundHandler
+            WSClientConnect]
            [czlab.jasal XData]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -405,7 +406,18 @@
     (if (.isSuccess ff)
       (let [ch (.channel ff)
             cc
-            (reify ClientConnect
+            (reify WSClientConnect
+              (write [_ m]
+                (some->>
+                  (cond
+                    (string? m)
+                    (TextWebSocketFrame. ^String m)
+                    (instBytes? m)
+                    (-> (.alloc ch)
+                        (.directBuffer (int 4096))
+                        (.writeBytes  ^bytes m)
+                        (BinaryWebSocketFrame. )))
+                  (.writeAndFlush ch )))
               (dispose [_]
                 (try!
                   (if (.isOpen ch)
