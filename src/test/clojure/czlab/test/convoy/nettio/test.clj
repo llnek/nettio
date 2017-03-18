@@ -54,6 +54,7 @@
             WholeRequest
             WholeMessage
             H1DataFactory
+            WSClientConnect
             ClientConnect
             InboundHandler]
            [io.netty.channel
@@ -665,14 +666,13 @@
         rcp (wsconnect<> lhost-name
                          port
                          "/web/sock"
-                         (fn [^Channel ch msg]
-                           (when (ist? TextWebSocketFrame msg)
-                             (reset! out
-                                     (.text ^TextWebSocketFrame msg))
-                             (.writeAndFlush ch (CloseWebSocketFrame.)))))
+                         (fn [^WSClientConnect cc msg]
+                           (when-some [s (:text msg)]
+                             (reset! out s)
+                             (.write cc (CloseWebSocketFrame.)))))
         cc (deref rcp 5000 nil)]
-    (when-some [c (cast? ClientConnect cc)]
-      (.writeAndFlush (.channel c) (TextWebSocketFrame. "hello")))
+    (when-some [c (cast? WSClientConnect cc)]
+      (.write c "hello"))
     (pause 1000)
     (stopServer ch)
     (= "hello" @out)))
@@ -698,19 +698,13 @@
         rcp (wsconnect<> lhost-name
                          port
                          "/web/sock"
-                         (fn [^Channel ch msg]
-                           (when-some
-                             [b (cast? BinaryWebSocketFrame msg)]
-                             (reset! out
-                                     (strit
-                                       (toByteArray (.content b))))
-                             (.writeAndFlush ch
-                                             (CloseWebSocketFrame.)))))
-        buf (Unpooled/copiedBuffer "hello" (Charset/forName "utf-8"))
+                         (fn [^WSClientConnect cc msg]
+                           (when-some [b (:blob msg)]
+                             (reset! out (strit b))
+                             (.write cc (CloseWebSocketFrame.)))))
         cc (deref rcp 5000 nil)]
-    (when-some [c (cast? ClientConnect cc)]
-      (.writeAndFlush (.channel c)
-                      (BinaryWebSocketFrame. buf)))
+    (when-some [c (cast? WSClientConnect cc)]
+      (.write c (.getBytes "hello")))
     (pause 1000)
     (stopServer ch)
     (= "hello" @out)))
@@ -735,16 +729,13 @@
         rcp (wsconnect<> lhost-name
                          port
                          "/web/sock"
-                         (fn [ch msg]
-                           (when (ist? PongWebSocketFrame msg)
+                         (fn [^WSClientConnect cc msg]
+                           (when (:pong? msg)
                              (reset! pong true)
-                             (.writeAndFlush ^Channel
-                                             ch
-                                             (CloseWebSocketFrame.)))))
+                             (.write cc (CloseWebSocketFrame.)))))
         cc (deref rcp 5000 nil)]
-    (when-some [c (cast? ClientConnect cc)]
-      (.writeAndFlush (.channel c)
-                      (PingWebSocketFrame.)))
+    (when-some [c (cast? WSClientConnect cc)]
+      (.write c (PingWebSocketFrame.)))
     (pause 1000)
     (stopServer ch)
     (and (nil? @out)

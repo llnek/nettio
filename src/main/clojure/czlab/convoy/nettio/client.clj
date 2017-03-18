@@ -27,10 +27,12 @@
             WebSocketClientCompressionHandler]
            [io.netty.channel.socket.nio NioSocketChannel]
            [io.netty.handler.codec.http.websocketx
+            ContinuationWebSocketFrame
             BinaryWebSocketFrame
             TextWebSocketFrame
             CloseWebSocketFrame
             PongWebSocketFrame
+            WebSocketFrame
             WebSocketVersion
             WebSocketClientHandshaker
             WebSocketClientHandshakerFactory]
@@ -104,6 +106,7 @@
 (def ^:private ^ChannelHandler msg-agg (h1resAggregator<>))
 (def ^:private ^AttributeKey rsp-key  (akey<> "rsp-result"))
 (def ^:private ^AttributeKey cf-key  (akey<> "wsock-future"))
+(def ^:private ^AttributeKey cc-key  (akey<> "wsock-client"))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -289,6 +292,7 @@
       (. ^ChannelHandlerContext ctx close))
     (channelRead0 [ctx msg]
       (let [^ChannelPromise f (getAKey ctx cf-key)
+            ^WSClientConnect wcc (getAKey ctx cc-key)
             ch (ch?? ctx)]
         (cond
           (not (. handshaker isHandshakeComplete))
@@ -300,19 +304,27 @@
           (throw (IllegalStateException.
                    (str "Unexpected FullHttpResponse (status="
                         (.status ^FullHttpResponse msg))))
-          (or (ist? TextWebSocketFrame msg)
-              (ist? BinaryWebSocketFrame msg))
+          (ist? BinaryWebSocketFrame msg)
+          (let [^BinaryWebSocketFrame f msg]
+            (log/debug "got a bin frame: %s" msg)
+            (user wcc {:blob (toByteArray (.content f))
+                       :final? (.isFinalFragment f)}))
+          (ist? TextWebSocketFrame msg)
+          (let [^TextWebSocketFrame f msg]
+            (log/debug "got a text frame: %s" msg)
+            (user wcc {:text (.text f)
+                       :final? (.isFinalFragment f)}))
+          (ist? ContinuationWebSocketFrame msg)
           (do
-            (log/debug "got a test/bin frame: %s" msg)
-            (user ch msg))
+            (log/debug "got a CONTINUE frame: %s" msg))
           (ist? PongWebSocketFrame msg)
           (do
             (log/debug "received pong frame")
-            (user ch msg))
+            (user wcc {:pong? true}))
           (ist? CloseWebSocketFrame msg)
           (do
             (log/debug "received close frame")
-            (user ch msg)
+            (user wcc {:close? true})
             (. ^ChannelHandlerContext ctx close)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -399,37 +411,51 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
+(defn- mkWSClient
+  "" ^WSClientConnect [^Bootstrap bs host port ^Channel ch]
+
+  (reify WSClientConnect
+    (write [_ m]
+      (some->>
+        (cond
+          (ist? WebSocketFrame m)
+          m
+          (string? m)
+          (TextWebSocketFrame. ^String m)
+          (instBytes? m)
+          (-> (.alloc ch)
+              (.directBuffer (int 4096))
+              (.writeBytes  ^bytes m)
+              (BinaryWebSocketFrame. )))
+        (.writeAndFlush ch )))
+
+
+    (dispose [_]
+      (try!
+        (if (.isOpen ch)
+          (doto ch
+            (.writeAndFlush (CloseWebSocketFrame.))
+            .close)
+          (.. (.config ^Bootstrap bs)
+              group shutdownGracefully))))
+
+    (channel [_] ch)
+
+    (port [_] port)
+
+    (host [_] host)))
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
 (defn- wsconnCB
   "" [rcp bs host port]
 
   (fn [^ChannelFuture ff]
     (if (.isSuccess ff)
       (let [ch (.channel ff)
-            cc
-            (reify WSClientConnect
-              (write [_ m]
-                (some->>
-                  (cond
-                    (string? m)
-                    (TextWebSocketFrame. ^String m)
-                    (instBytes? m)
-                    (-> (.alloc ch)
-                        (.directBuffer (int 4096))
-                        (.writeBytes  ^bytes m)
-                        (BinaryWebSocketFrame. )))
-                  (.writeAndFlush ch )))
-              (dispose [_]
-                (try!
-                  (if (.isOpen ch)
-                    (doto ch
-                      (.writeAndFlush
-                        (CloseWebSocketFrame.))
-                      (.close ))
-                    (.. (.config ^Bootstrap bs)
-                        group shutdownGracefully))))
-              (channel [_] ch)
-              (port [_] port)
-              (host [_] host))]
+            cc (mkWSClient bs host port ch)]
+        (setAKey c cc-key cc)
         (deliver rcp cc))
       (let [err (or (.cause ff)
                     (Exception. "conn error"))]
