@@ -17,12 +17,12 @@
 
   (:use [czlab.convoy.nettio.core]
         [czlab.convoy.net.upload]
+        [czlab.convoy.net.xpis]
         [czlab.basal.str]
         [czlab.basal.io]
         [czlab.basal.core])
 
   (:import [io.netty.util AttributeKey ReferenceCountUtil]
-           [czlab.convoy.net ULFormItems ULFileItem]
            [io.netty.handler.codec.http.multipart
             AbstractDiskHttpData
             HttpDataFactory
@@ -104,7 +104,7 @@
 (defn- parsePost
   "" [^HttpPostRequestDecoder deco]
 
-  (let [bag (ULFormItems.)]
+  (let [bag (formItems<>)]
     (doseq [^HttpData x (.getBodyHttpDatas deco)]
       (when-some
         [z (cond
@@ -125,7 +125,7 @@
             (.removeHttpDataFromClean deco x)))
         ;;no need to release since we will call destroy on the decoder
         ;;(.release x)
-        (.add bag z)))
+        (addItem bag z)))
     bag))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
