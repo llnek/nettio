@@ -17,7 +17,6 @@
 
   (:use [czlab.convoy.nettio.core]
         [czlab.convoy.net.upload]
-        [czlab.convoy.net.xpis]
         [czlab.basal.str]
         [czlab.basal.io]
         [czlab.basal.core])

@@ -31,8 +31,8 @@
         [czlab.basal.str]
         [clojure.test])
 
-  (:import [czlab.convoy.net RouteCracker RouteInfo ULFormItems ULFileItem]
-           [io.netty.buffer Unpooled ByteBuf ByteBufHolder]
+  (:import [io.netty.buffer Unpooled ByteBuf ByteBufHolder]
+           [org.apache.commons.fileupload FileItem]
            [io.netty.handler.codec.http.websocketx
             BinaryWebSocketFrame
             TextWebSocketFrame
@@ -61,30 +61,23 @@
             ChannelHandler
             Channel
             ChannelHandlerContext]
-           [czlab.convoy.net HttpRequest]
            [io.netty.channel.embedded EmbeddedChannel]))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(defstateful HttpRequestMsgObj
+  HttpRequestMsg
+  (getReqCookie [_ name] )
+  (getReqCookies [_] ))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- mockRequest "" [ch ^WholeRequest w]
-  (reify HttpRequest
-    (cookie [_ n] )
-    (cookies [_] )
-    (body [_] (.content w))
-    (gist [_] (.gist w))
-    (localAddr [_] )
-    (localHost [_] )
-    (localPort [_] 0)
-    (remoteAddr [_] )
-    (remoteHost [_] )
-    (remotePort [_] 0)
-    (serverName [_] )
-    (serverPort [_] 0)
-    (scheme [_] )
-    (isSSL [_] false)
-    (session [_] )
-    (socket [_] ch)
-    (routeGist [_] )))
+  (entity<> HttpRequestMsgObj
+            {:body (.content w)
+             :gist (.gist w)
+             :socket ch
+             :ssl? false}))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -253,10 +246,10 @@
                        ch (.channel ctx)
                        b (.content msg)
                        g (.gist msg)
-                       res (httpResult<> (mockRequest ch msg))]
+                       res (httpResult ch (mockRequest ch msg) nil)]
                    (reset! out (.content b))
-                   (.setContent res "hello joe")
-                   (replyResult res))))}))
+                   (alterStateful res assoc :body "hello joe")
+                   (replyResult ch res nil))))}))
         ch (startServer bs
                         {:port 5555 :host lhost-name})
         po (h1post (str "http://" lhost-name ":5555/form")
@@ -267,13 +260,13 @@
         rmap
         (when @out
           (preduce<map>
-            #(let [^ULFileItem i %2]
+            #(let [^FileItem i %2]
                (if (.isFormField i)
                  (assoc! %1
                          (keyword (.getFieldName i))
                          (.getString i))
                  %1))
-            (.intern ^ULFormItems @out)))]
+            (getAllItems @out)))]
     (stopServer ch)
     (and rc
          (= "hello joe" (.. rc content strit))
@@ -337,25 +330,25 @@
         rmap
         (when @out
           (preduce<map>
-            #(let [^ULFileItem i %2]
+            #(let [^FileItem i %2]
                (if (.isFormField i)
                  (assoc! %1
                          (keyword (str (.getFieldName i)
                                        "+" (.getString i)))
                          (.getString i))
                  %1))
-            (.intern ^ULFormItems @out)))
+            (getAllItems @out)))
         fmap
         (when @out
           (preduce<map>
-            #(let [^ULFileItem i %2]
+            #(let [^FileItem i %2]
                (if-not (.isFormField i)
                  (assoc! %1
                          (keyword (str (.getFieldName i)
                                        "+" (.getName i)))
                          (strit (.get i)))
                  %1))
-            (.intern ^ULFormItems @out)))]
+            (getAllItems @out)))]
     (stopServer ch)
     (and rc
          (== 0 (.. rc content size))
@@ -375,25 +368,25 @@
         rmap
         (when out
           (preduce<map>
-            #(let [^ULFileItem i %2]
+            #(let [^FileItem i %2]
                (if (.isFormField i)
                  (assoc! %1
                          (keyword (str (.getFieldName i)
                                        "+" (.getString i)))
                          (.getString i))
                  %1))
-            (.intern out)))
+            (getAllItems out)))
         fmap
         (when out
           (preduce<map>
-            #(let [^ULFileItem i %2]
+            #(let [^FileItem i %2]
                (if-not (.isFormField i)
                  (assoc! %1
                          (keyword (str (.getFieldName i)
                                        "+" (.getName i)))
                          (strit (.get i)))
                  %1))
-            (.intern out)))]
+            (getAllItems out)))]
     (and (= (:field+fieldValue rmap) "fieldValue")
          (= (:multi+value1 rmap) "value1")
          (= (:multi+value2 rmap) "value2")
@@ -417,17 +410,17 @@
     :uri "/4"}])
 
 (def ^:private SORTED-ROUTES (loadRoutes ROUTES))
-(def ^:private ^RouteCracker RC (routeCracker<> SORTED-ROUTES))
+(def ^:private RC (routeCracker<> SORTED-ROUTES))
 ;;(println "routes = " SORTED-ROUTES)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- testRoutes1 "" []
-  (let [rc (.crack RC {:method "post" :uri "/hello/world"})
+  (let [rc (crackRoute RC {:method "post" :uri "/hello/world"})
         ^Matcher m (:matcher rc)
-        ^RouteInfo r (:routeInfo rc)
+        r (:routeInfo rc)
         {:keys [groups places]}
-        (.collect  r m)]
+        (collectInfo  r m)]
     (and (= "hello" (first groups))
          (= "world" (last groups))
          (empty? places))))
@@ -435,11 +428,11 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- testRoutes2 "" []
-  (let [rc (.crack RC {:method "get" :uri "/favicon.hello"})
+  (let [rc (crackRoute RC {:method "get" :uri "/favicon.hello"})
         ^Matcher m (:matcher rc)
-        ^RouteInfo r (:routeInfo rc)
+        r (:routeInfo rc)
         {:keys [groups places]}
-        (.collect  r m)]
+        (collectInfo  r m)]
     (and (= "favicon.hello" (first groups))
          (== 1 (count groups))
          (empty? places))))
@@ -447,11 +440,11 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- testRoutes3 "" []
-  (let [rc (.crack RC {:method "get" :uri "/A/zzz/B/c/D"})
+  (let [rc (crackRoute RC {:method "get" :uri "/A/zzz/B/c/D"})
         ^Matcher m (:matcher rc)
-        ^RouteInfo r (:routeInfo rc)
+        r (:routeInfo rc)
         {:keys [groups places]}
-        (.collect  r m)]
+        (collectInfo  r m)]
     (and (= "A" (nth groups 0))
          (= "zzz" (nth groups 1))
          (= "B" (nth groups 2))
@@ -464,21 +457,21 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- testRoutes4 "" []
-  (let [rc (.crack RC {:method "get" :uri "/4"})
+  (let [rc (crackRoute RC {:method "get" :uri "/4"})
         ^Matcher m (:matcher rc)
-        ^RouteInfo r (:routeInfo rc)
+        r (:routeInfo rc)
         {:keys [groups places]}
-        (.collect  r m)]
+        (collectInfo  r m)]
     (and (empty? groups)
          (empty? places))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- testRoutes5 "" []
-  (let [rc (.crack RC {:method "get" :uri "/1/1/1/1/1/1/14"})
+  (let [rc (crackRoute RC {:method "get" :uri "/1/1/1/1/1/1/14"})
         s (:status? rc)
         ^Matcher m (:matcher rc)
-        ^RouteInfo r (:routeInfo rc)]
+        r (:routeInfo rc)]
     (and (false? s)
          (nil? m)
          (nil? r))))
@@ -748,7 +741,7 @@
   (testing
     "related to: routes"
     (is (> (count SORTED-ROUTES) 0))
-    (is (.hasRoutes RC))
+    (is (hasRoutes? RC))
     (is (testRoutes1))
     (is (testRoutes2))
     (is (testRoutes3))

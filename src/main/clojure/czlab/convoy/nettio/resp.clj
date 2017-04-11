@@ -19,7 +19,6 @@
   (:use [czlab.convoy.nettio.core]
         [czlab.convoy.net.core]
         [czlab.convoy.net.wess]
-        [czlab.convoy.net.xpis]
         [czlab.basal.dates]
         [czlab.basal.meta]
         [czlab.basal.str]
@@ -82,27 +81,30 @@
   (gistHeader? [_ nm]
     (.contains ^HttpHeaders
                (:headers @data) ^CharSequence nm))
-  HttpResult
+  HttpResultMsg
   (setResContentType [this c]
     (.set ^HttpHeaders
           (:headers @data) HttpHeaderNames/CONTENT_TYPE c))
-  (getResContentType [me nm]
+  (getResContentType [me]
     (.gistHeader me HttpHeaderNames/CONTENT_TYPE))
   (setResETag [this e]
-    (.set headers HttpHeaderNames/ETAG e))
+    (.set ^HttpHeaders (:headers @data) HttpHeaderNames/ETAG e))
   (addResCookie [me c]
     (if (some? c)
       (alterStateful
         me
         update-in
         [:cookies]
-        assoc (.getName c) c)))
-  (removeResHeader [_ nm] (.remove ^HttpHeaders (:headers @data) nm))
+        assoc (.getName ^HttpCookie c) c)))
+  (removeResHeader [_ nm] (.remove ^HttpHeaders
+                                   (:headers @data) ^CharSequence nm))
   (clearResHeaders [_] (.clear ^HttpHeaders (:headers @data)))
   (clearResCookies [me]
     (alterStateful me assoc :cookies {}))
-  (addResHeader [_ nm v] (.add ^HttpHeaders (:headers @data) nm v))
-  (setResHeader [_ nm v] (.set ^HttpHeaders (:headers @data) nm v)))
+  (addResHeader [_ nm v]
+    (.add ^HttpHeaders (:headers @data) ^CharSequence nm v))
+  (setResHeader [_ nm v]
+    (.set ^HttpHeaders (:headers @data) ^CharSequence nm v)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -407,7 +409,7 @@
 (extend-protocol HttpResultMsgReplyer
   io.netty.channel.Channel
   (replyResult [ch theRes] (replyResult ch theRes nil))
-  (replyResult [ch theRes arg] (replyer<> ch theRes arg)))
+  (replyResult [ch theRes arg] (replyer<> theRes arg)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF

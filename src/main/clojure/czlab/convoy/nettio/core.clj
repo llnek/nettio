@@ -16,7 +16,8 @@
             [clojure.java.io :as io]
             [clojure.string :as cs])
 
-  (:use [czlab.convoy.net.core]
+  (:use [czlab.convoy.net.routes]
+        [czlab.convoy.net.core]
         [czlab.basal.str]
         [czlab.basal.io]
         [czlab.basal.core])
@@ -43,7 +44,6 @@
             ApplicationProtocolConfig$SelectorFailureBehavior
             ApplicationProtocolConfig$SelectedListenerFailureBehavior]
            [czlab.convoy.nettio InboundAdapter InboundHandler]
-           [czlab.convoy.net RouteInfo RouteCracker]
            [io.netty.channel.nio NioEventLoopGroup]
            [java.net InetAddress URL HttpCookie]
            [io.netty.handler.codec.http.cookie
@@ -107,6 +107,20 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;(set! *warn-on-reflection* true)
+
+(defobject HttpMsgGist
+  HttpMsgGist
+  (^String gistHeader [_ h] "Get a http header")
+  (gistHeader? [_ h] "Does this http header exist?")
+  (gistParam? [_ p] "Does this url parameter exist?")
+  (gistParam [_ p] "Get a http url parameter")
+  (gistHeaderKeys [_] "Get all the http headers")
+  (gistHeaderVals [_ h] "Get value(s) of this http header")
+  (gistParamKeys [_] "Get all the url parameters")
+  (gistParamVals [_ p] "Get value(s) of this url parameter"))
+
+
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -218,33 +232,10 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defmethod gistHeader?
-  :netty
-  [gist hd]
-  (. ^HttpHeaders
-     (:headers gist) contains ^CharSequence hd))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defmethod gistParam?
-  :netty
-  [gist pm]
-  (-> ^Map
-      (:parameters gist) (.containsKey ^String pm)))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defmethod gistHeader
-  :netty
-  [gist hd]
-  (. ^HttpHeaders (:headers gist) get ^CharSequence hd))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defmethod gistParam
-  :netty
-  [gist pm]
-  (first (. ^Map (:parameters gist) get ^String pm)))
+;;(defmethod gistHeader? :netty [gist hd] (. ^HttpHeaders (:headers gist) contains ^CharSequence hd))
+;;(defmethod gistParam? :netty [gist pm] (-> ^Map (:parameters gist) (.containsKey ^String pm)))
+;;(defmethod gistHeader :netty [gist hd] (. ^HttpHeaders (:headers gist) get ^CharSequence hd))
+;;(defmethod gistParam :netty [gist pm] (first (. ^Map (:parameters gist) get ^String pm)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -343,28 +334,10 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defmethod gistHeaderKeys
-  :netty
-  [gist] (set (.names ^HttpHeaders (:headers gist))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defmethod gistHeaderVals
-  :netty
-  [gist hd]
-  (vec (.getAll ^HttpHeaders (:headers gist) ^String hd)))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defmethod gistParamKeys
-  :netty
-  [gist] (set (.keySet ^Map (:parameters gist))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defmethod gistParamVals
-  :netty
-  [gist pm] (vec (.get ^Map (:parameters gist) ^String pm)))
+;;(defmethod gistHeaderKeys :netty [gist] (set (.names ^HttpHeaders (:headers gist))))
+;;(defmethod gistHeaderVals :netty [gist hd] (vec (.getAll ^HttpHeaders (:headers gist) ^String hd)))
+;;(defmethod gistParamKeys :netty [gist] (set (.keySet ^Map (:parameters gist))))
+;;(defmethod gistParamVals :netty [gist pm] (vec (.get ^Map (:parameters gist) ^String pm)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -852,22 +825,22 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn matchRoute "" [ctx msg]
+(defn matchOneRoute "" [ctx msg]
 
   (let [dft {:status true}
         rc
         (if (ist? HttpRequest msg)
-          (let [^RouteCracker c (getAKey ctx routes-key)]
+          (let [c (getAKey ctx routes-key)]
             (if (and c
-                     (.hasRoutes c))
-              (.crack c {:method (getMethod msg)
-                         :uri (getUriPath msg)}))))]
+                     (hasRoutes? c))
+              (crackRoute c {:method (getMethod msg)
+                             :uri (getUriPath msg)}))))]
     (or rc dft)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn scanGist
-  "" ^APersistentMap [ctx ^HttpMessage msg]
+  "" [ctx ^HttpMessage msg]
 
   (let
     [req (cast? HttpRequest msg)
@@ -875,10 +848,10 @@
              matcher
              status?
              redirect] :as ro}
-     (matchRoute ctx msg)
+     (matchOneRoute ctx msg)
      ri
      (if (and status? routeInfo matcher)
-       (. ^RouteInfo routeInfo collect ^Matcher matcher))
+       (collectInfo routeInfo matcher))
      m {:chunked? (HttpUtil/isTransferEncodingChunked msg)
         :isKeepAlive? (HttpUtil/isKeepAlive msg)
         :version (.. msg protocolVersion text)
@@ -893,10 +866,11 @@
                       (dissoc ro :routeInfo :matcher) ri)
         :method (getMethod msg)
         :cookies (crackCookies msg)}]
-    (if-some [s (some-> (cast? HttpResponse msg) .status)]
-      (merge m {:status {:code (.code s)
-                         :reason (.reasonPhrase s)}})
-      m)))
+    (->>
+      (if-some [s (some-> (cast? HttpResponse msg) .status)]
+        (merge m {:status {:code (.code s)
+                         :reason (.reasonPhrase s)}}) m)
+      (object<> HttpMsgGistObj ))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
