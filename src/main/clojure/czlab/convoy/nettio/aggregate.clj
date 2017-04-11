@@ -17,6 +17,7 @@
 
   (:use [czlab.convoy.nettio.core]
         [czlab.convoy.net.upload]
+        [czlab.convoy.net.core]
         [czlab.basal.str]
         [czlab.basal.io]
         [czlab.basal.core])
@@ -83,11 +84,35 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defmacro ^:private fireMsg
-  "" [ctx msg] `(some->>
-                  ~msg
-                  (.fireChannelRead ~(with-meta ctx
-                                                {:tag 'ChannelHandlerContext}))))
+(defn- headers?? "" ^HttpHeaders [data] (:headers data))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(defn- cs?? "" ^CharSequence [s] s)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(defobject HttpMessageObj
+  HttpMsgGist
+  (msgHeader? [_ h]
+    (.contains (headers?? data) (cs?? h)))
+  (msgHeader [_ h]
+    (.get (headers?? data) (cs?? h)))
+  (msgHeaderKeys [_]
+    (set (.names (headers?? data))))
+  (msgHeaderVals [_ h]
+    (vec (.getAll (headers?? data) (cs?? h)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(defn- fireMsg
+  "" [^ChannelHandlerContext ctx msg]
+  (if-some [w (cast? WholeMessage msg)]
+    (->>
+      (object<> HttpMessageObj
+                (assoc (.gist w)
+                       :body (.content w)))
+      (.fireChannelRead ctx))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -132,7 +157,7 @@
 (defn- h11res<>
   "" ^WholeResponse [ctx rsp]
 
-  (let [gs (scanGist ctx rsp)]
+  (let [gs (gistH1Response ctx rsp)]
     (doto
       (proxy [WholeResponse][rsp]
         (prepareBody [df msg]
@@ -147,7 +172,7 @@
 (defn- h11req<>
   "" ^WholeRequest [ctx req]
 
-  (let [gs (scanGist ctx req)]
+  (let [gs (gistH1Request ctx req)]
     (doto
       (proxy [WholeRequest][req]
         (prepareBody [df msg]
@@ -203,7 +228,7 @@
 
   (readChunk ctx part pipelining?)
   (let
-    [^List q (getAKey ctx h1pipe-Q-key)
+    [q (getAKey ctx h1pipe-Q-key)
      msg (getAKey ctx h1pipe-M-key)
      cur (getAKey ctx h1pipe-C-key)]
     (log/debug "got last chunk for msg %s" msg)
@@ -215,8 +240,7 @@
           (setAKey ctx h1pipe-C-key msg)
           (fireMsg ctx msg))
         :else
-        (do
-          (.add q msg)))
+        (do (.add ^List q msg)))
       (fireMsg ctx msg))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -268,13 +292,14 @@
   ([pipelining?]
    (proxy [H1ReqAggregator][]
      (onChannelActive [ctx]
-       (setAKey ctx h1pipe-Q-key (ArrayList.))
-       (setAKey ctx h1pipe-M-key nil)
-       (setAKey ctx h1pipe-C-key nil))
+       (setAKey* ctx
+                 h1pipe-Q-key (ArrayList.)
+                 h1pipe-M-key nil
+                 h1pipe-C-key nil))
      (onChannelInactive [ctx]
-       (delAKey ctx h1pipe-Q-key)
-       (delAKey ctx h1pipe-M-key)
-       (delAKey ctx h1pipe-C-key))
+       (delAKey* ctx
+                 h1pipe-Q-key
+                 h1pipe-M-key h1pipe-C-key))
      (channelRead [ctx msg]
        (aggRead ctx msg pipelining?))
      (dequeue [ctx msg]

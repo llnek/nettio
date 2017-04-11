@@ -48,6 +48,7 @@
            [java.net InetAddress URL HttpCookie]
            [io.netty.handler.codec.http.cookie
             ServerCookieDecoder
+            ClientCookieDecoder
             DefaultCookie
             Cookie
             ServerCookieEncoder]
@@ -107,20 +108,6 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;(set! *warn-on-reflection* true)
-
-(defobject HttpMsgGist
-  HttpMsgGist
-  (^String gistHeader [_ h] "Get a http header")
-  (gistHeader? [_ h] "Does this http header exist?")
-  (gistParam? [_ p] "Does this url parameter exist?")
-  (gistParam [_ p] "Get a http url parameter")
-  (gistHeaderKeys [_] "Get all the http headers")
-  (gistHeaderVals [_ h] "Get value(s) of this http header")
-  (gistParamKeys [_] "Get all the url parameters")
-  (gistParamVals [_ p] "Get value(s) of this url parameter"))
-
-
-
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -232,13 +219,6 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-;;(defmethod gistHeader? :netty [gist hd] (. ^HttpHeaders (:headers gist) contains ^CharSequence hd))
-;;(defmethod gistParam? :netty [gist pm] (-> ^Map (:parameters gist) (.containsKey ^String pm)))
-;;(defmethod gistHeader :netty [gist hd] (. ^HttpHeaders (:headers gist) get ^CharSequence hd))
-;;(defmethod gistParam :netty [gist pm] (first (. ^Map (:parameters gist) get ^String pm)))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
 (defn decoderResult
   "" ^DecoderResult [msg]
   (some-> (cast? DecoderResultProvider msg) .decoderResult))
@@ -331,13 +311,6 @@
     ChannelHandlerContext
     (.close ^ChannelHandlerContext c)
     nil))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-;;(defmethod gistHeaderKeys :netty [gist] (set (.names ^HttpHeaders (:headers gist))))
-;;(defmethod gistHeaderVals :netty [gist hd] (vec (.getAll ^HttpHeaders (:headers gist) ^String hd)))
-;;(defmethod gistParamKeys :netty [gist] (set (.keySet ^Map (:parameters gist))))
-;;(defmethod gistParamVals :netty [gist pm] (vec (.get ^Map (:parameters gist) ^String pm)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -764,17 +737,17 @@
   "Detects if a websock req" [req]
 
   (let [cn (->> HttpHeaderNames/CONNECTION
-                (getHeader req)
+                (msgHeader req)
                 str
                 lcase)
         ws (->> HttpHeaderNames/UPGRADE
-                (getHeader req)
+                (msgHeader req)
                 str
                 lcase)]
     (log/debug "checking if it's a websock request......")
     (and (embeds? ws "websocket")
          (embeds? cn "upgrade")
-         (= "GET" (getMethod req)))))
+         (= "GET" (:method @req)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -812,22 +785,31 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn crackCookies
-  "" ^APersistentMap [msg]
+(defn crackCookies "" [msg]
 
-  (if-some+ [v (getHeader msg
-                          HttpHeaderNames/COOKIE)]
-    (preduce<map>
-      #(assoc! %1
-               (.name ^Cookie %2)
-               (httpCookie<> %2))
-      (.decode ServerCookieDecoder/STRICT v)) {}))
+  (if (ist? HttpRequest msg)
+    (if-some+
+      [v (getHeader msg
+                    HttpHeaderNames/COOKIE)]
+      (preduce<map>
+        #(assoc! %1
+                 (.name ^Cookie %2)
+                 (httpCookie<> %2))
+        (.decode ServerCookieDecoder/STRICT v)))
+    (if-some+
+      [v (getHeader msg
+                    HttpHeaderNames/SET_COOKIE)]
+      (preduce<map>
+        #(assoc! %1
+                 (.name ^Cookie %2)
+                 (httpCookie<> %2))
+        (.decode ClientCookieDecoder/STRICT v)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn matchOneRoute "" [ctx msg]
 
-  (let [dft {:status true}
+  (let [dft {:status? true}
         rc
         (if (ist? HttpRequest msg)
           (let [c (getAKey ctx routes-key)]
@@ -839,38 +821,46 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn scanGist
-  "" [ctx ^HttpMessage msg]
+(defn gistH1Request
+  "" [ctx ^HttpRequest msg]
 
   (let
-    [req (cast? HttpRequest msg)
-     {:keys [routeInfo
-             matcher
-             status?
-             redirect] :as ro}
+    [{:keys [routeInfo matcher
+             status? redirect] :as ro}
      (matchOneRoute ctx msg)
-     ri
-     (if (and status? routeInfo matcher)
-       (collectInfo routeInfo matcher))
-     m {:chunked? (HttpUtil/isTransferEncodingChunked msg)
-        :isKeepAlive? (HttpUtil/isKeepAlive msg)
-        :version (.. msg protocolVersion text)
-        :framework :netty
-        :ssl? (maybeSSL? ctx)
-        :parameters (getUriParams msg)
-        :headers (.headers msg)
-        :uri2 (str (some-> req .uri))
-        :uri (getUriPath msg)
-        :charset (getMsgCharset msg)
-        :route (merge {:info routeInfo}
-                      (dissoc ro :routeInfo :matcher) ri)
-        :method (getMethod msg)
-        :cookies (crackCookies msg)}]
-    (->>
-      (if-some [s (some-> (cast? HttpResponse msg) .status)]
-        (merge m {:status {:code (.code s)
-                         :reason (.reasonPhrase s)}}) m)
-      (object<> HttpMsgGistObj ))))
+     ri (if (and status? routeInfo matcher)
+          (collectInfo routeInfo matcher))]
+    {:chunked? (HttpUtil/isTransferEncodingChunked msg)
+     :isKeepAlive? (HttpUtil/isKeepAlive msg)
+     :version (.. msg protocolVersion text)
+     :socket (ch?? ctx)
+     :origin msg
+     :ssl? (maybeSSL? ctx)
+     :parameters (getUriParams msg)
+     :headers (.headers msg)
+     :uri2 (str (some-> msg .uri))
+     :uri (getUriPath msg)
+     :charset (getMsgCharset msg)
+     :cookies (crackCookies msg)}))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(defn gistH1Response
+  "" [ctx ^HttpResponse msg]
+
+  (merge
+    {:chunked? (HttpUtil/isTransferEncodingChunked msg)
+     :isKeepAlive? (HttpUtil/isKeepAlive msg)
+     :version (.. msg protocolVersion text)
+     :socket (ch?? ctx)
+     :origin msg
+     :ssl? (maybeSSL? ctx)
+     :headers (.headers msg)
+     :charset (getMsgCharset msg)
+     :cookies (crackCookies msg)}
+    (let [s (.status msg)]
+      {:status {:code (.code s)
+                :reason (.reasonPhrase s)}})))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;

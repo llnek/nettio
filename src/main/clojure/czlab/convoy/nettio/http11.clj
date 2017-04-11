@@ -16,6 +16,7 @@
             [clojure.string :as cs])
 
   (:use [czlab.convoy.nettio.core]
+        [czlab.convoy.net.core]
         [czlab.basal.str]
         [czlab.basal.io]
         [czlab.basal.core])
@@ -93,16 +94,16 @@
 ;;
 (defn- corsPreflight? "" [req]
   (and (= (.name HttpMethod/OPTIONS)
-          (getMethod req))
-       (hasHeader? req HttpHeaderNames/ORIGIN)
-       (hasHeader? req HttpHeaderNames/ACCESS_CONTROL_REQUEST_METHOD)))
+          (:method @req))
+       (msgHeader? req HttpHeaderNames/ORIGIN)
+       (msgHeader? req HttpHeaderNames/ACCESS_CONTROL_REQUEST_METHOD)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- validOrigin? "" [ctx corsCfg]
   (let [req (getAKey ctx h1msg-key)
-        origin (getHeader req HttpHeaderNames/ORIGIN)
-        o? (hasHeader? req HttpHeaderNames/ORIGIN)
+        origin (msgHeader req HttpHeaderNames/ORIGIN)
+        o? (msgHeader? req HttpHeaderNames/ORIGIN)
         allowed (:origins corsCfg)]
     (cond
       (or (:anyOrigin? corsCfg)
@@ -185,8 +186,8 @@
 ;;
 (defn- setOrigin? "" [ctx rsp corsCfg]
   (let [req (getAKey ctx h1msg-key)
-        origin (getHeader req HttpHeaderNames/ORIGIN)
-        o? (hasHeader? req HttpHeaderNames/ORIGIN)]
+        origin (msgHeader req HttpHeaderNames/ORIGIN)
+        o? (msgHeader? req HttpHeaderNames/ORIGIN)]
     (if o?
       (cond
         (and (= "null" origin)
@@ -215,32 +216,36 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- replyPreflight "" [ctx req]
-  (let [{:keys [corsCfg]} (getAKey ctx chcfg-key)
-        ka? (HttpUtil/isKeepAlive req)
+  (let [{:keys [corsCfg]}
+        (getAKey ctx chcfg-key)
+        {:keys [isKeepAlive?]}
+        @req
         rsp (httpFullReply<>)]
     (when (setOrigin? ctx rsp corsCfg)
       (setAllowMethods rsp corsCfg)
       (setAllowHeaders rsp corsCfg)
       (setAllowCredentials rsp corsCfg)
       (setMaxAge rsp corsCfg))
-    (HttpUtil/setKeepAlive rsp ka?)
-    (closeCF (. ^ChannelHandlerContext ctx writeAndFlush rsp) ka?)))
+    (HttpUtil/setKeepAlive rsp isKeepAlive?)
+    (closeCF (.writeAndFlush
+               ^ChannelHandlerContext ctx rsp)
+             isKeepAlive? )))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- toggleToWebsock
-  "" [ctx ^ChannelHandler this ^HttpRequest req]
+  "" [ctx this req]
 
-  (let [uri (.path (QueryStringDecoder. (.uri req)))
-        r2 (mockFullRequest<> req)
-        {:keys [wsockPath]}
-        (getAKey ctx chcfg-key)
+  (let [{:keys [wsockPath]} (getAKey ctx chcfg-key)
+        {:keys [origin uri]} @req
+        r2 (mockFullRequest<> origin)
         pp (cpipe ctx)
         uri? (if (set? wsockPath)
                (contains? wsockPath uri)
                (= wsockPath uri))]
     (if-not uri?
-      (replyStatus ctx (.code HttpResponseStatus/FORBIDDEN))
+      (replyStatus ctx
+                   (.code HttpResponseStatus/FORBIDDEN))
       (do
         (.addAfter pp
                    (ctxName pp this)
@@ -254,20 +259,20 @@
         (safeRemoveHandler pp HttpContentCompressor)
         (safeRemoveHandler pp ChunkedWriteHandler)
         (safeRemoveHandler pp H1ReqAggregator)
-        (.remove pp this)
-        (. ^ChannelHandlerContext ctx fireChannelRead r2)))))
+        (.remove pp ^ChannelHandler this)
+        (.fireChannelRead ^ChannelHandlerContext ctx r2)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- processRequest
-  "" [^ChannelHandler this ctx ^HttpRequest req]
+  "" [^ChannelHandler this ctx req]
 
   (let
-    [origin (getHeader req HttpHeaderNames/ORIGIN)
-     o? (hasHeader? req HttpHeaderNames/ORIGIN)
+    [origin (msgHeader req HttpHeaderNames/ORIGIN)
+     o? (msgHeader? req HttpHeaderNames/ORIGIN)
      {:keys [corsCfg]} (getAKey ctx chcfg-key)
-     ka? (HttpUtil/isKeepAlive req)
-     _ (log/debug "processRequest: %s" req)
+     ka? (:isKeepAlive? @req)
+     _ (log/debug "processRequest: %s" @req)
      _ (setAKey ctx h1msg-key req)
      rc
      (cond
@@ -278,16 +283,18 @@
        (do->false
          (if (:enabled? corsCfg)
            (replyPreflight ctx req)
-           (replyStatus ctx (.code HttpResponseStatus/METHOD_NOT_ALLOWED))))
+           (replyStatus ctx
+                        (.code HttpResponseStatus/METHOD_NOT_ALLOWED))))
 
        (and (:enabled? corsCfg)
             (not (validOrigin? ctx corsCfg)))
        (do->false
-         (replyStatus ctx (.code HttpResponseStatus/FORBIDDEN)))
+         (replyStatus ctx
+                      (.code HttpResponseStatus/FORBIDDEN)))
 
        :else
        (do->true
-         (. ^ChannelHandlerContext ctx fireChannelRead req)))]
+         (.fireChannelRead ^ChannelHandlerContext ctx req)))]
     (if-not rc
       (ReferenceCountUtil/release req))))
 
@@ -301,12 +308,12 @@
       (when (setOrigin? ctx msg corsCfg)
         (setAllowCredentials msg corsCfg)
         (setExposeHeaders msg corsCfg)))
-    (. ^ChannelHandlerContext ctx write msg _)))
+    (.write ^ChannelHandlerContext ctx msg _)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- processOther
-  "" [^ChannelHandlerContext ctx msg] (.fireChannelRead ctx msg))
+(defn- processOther "" [ctx msg]
+  (.fireChannelRead ^ChannelHandlerContext ctx msg))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -315,7 +322,7 @@
 
   (proxy [DuplexHandler][]
     (channelRead [ctx msg]
-      (if (ist? HttpRequest msg)
+      (if (satisfies? HttpMsgGist msg)
         (processRequest this ctx msg)
         (processOther ctx msg)))
     (write [ctx msg _]

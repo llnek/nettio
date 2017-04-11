@@ -65,33 +65,30 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defstateful HttpRequestMsgObj
-  HttpRequestMsg
-  (getReqCookie [_ name] )
-  (getReqCookies [_] ))
+(defobject HttpRequestMsgObj
+  HttpMsgGist
+  (msgHeader [_ h] )
+  (msgHeader? [_ h] )
+  (msgHeaderKeys [_] )
+  (msgHeaderVals [_ h] ))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- mockRequest "" [ch ^WholeRequest w]
-  (entity<> HttpRequestMsgObj
-            {:body (.content w)
-             :gist (.gist w)
-             :socket ch
-             :ssl? false}))
+(defn- mockRequest "" [ch w]
+  (object<> HttpRequestMsgObj
+            {:body (:body @w)
+             :socket ch }))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- serverHandler<> "" []
   (proxy [InboundHandler][]
     (channelRead0 [ctx msg]
-      (assert (ist? WholeRequest msg))
-      (let [^WholeRequest req msg
-            c (.. req content getBytes)
+      (let [c (.getBytes ^XData (:body @msg))
             ch (ch?? ctx)
-            gist (.gist req)
             r (httpFullReply<>
                 (.code HttpResponseStatus/OK) c (.alloc ch))]
-        (. ^ChannelHandlerContext ctx writeAndFlush r)))))
+        (.writeAndFlush ^ChannelHandlerContext ctx r)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -172,9 +169,9 @@
         po (h1get (str "http://"
                        lhost-name
                        ":5555/test/discarder?a=1&b=john%27smith"))
-        ^WholeResponse rc (deref po 3000 nil)]
+        rc (deref po 3000 nil)]
     (stopServer ch)
-    (and rc (== 0 (.. rc content size)))))
+    (and rc (== 0 (.size ^XData (:body @rc))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -185,9 +182,9 @@
         po (h1get (str "http://"
                        lhost-name
                        ":5555/test/snooper?a=1&b=john%27smith"))
-        ^WholeResponse rc (deref po 3000 nil)]
+        rc (deref po 3000 nil)]
     (stopServer ch)
-    (and rc (.. rc content hasContent))))
+    (and rc (.hasContent ^XData (:body @rc)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -201,11 +198,11 @@
                         {:port port
                          :host lhost-name})
         po (h1get (format "http://%s:%d/%s" lhost-name port tn))
-        ^WholeResponse rc (deref po 5000 nil)]
+        rc (deref po 5000 nil)]
     (stopServer ch)
     (and rc
-         (> (.. rc content size) 0)
-         (= s (.. rc content strit)))))
+         (> (.size ^XData (:body @rc)) 0)
+         (= s (.strit ^XData (:body @rc))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -222,11 +219,11 @@
                          :host lhost-name})
         po (h1post (format "http://%s:%d/%s"
                            lhost-name port tn) src)
-        ^WholeResponse rc (deref po 5000 nil)
+        rc (deref po 5000 nil)
         des (io/file *tempfile-repo* tn)]
     (stopServer ch)
     (and rc
-         (== 0 (.. rc content size))
+         (== 0 (.size ^XData (:body @rc)))
          (.exists des)
          (= s (slurp des)))))
 
@@ -242,10 +239,8 @@
              (proxy [InboundHandler][]
                (channelRead0 [ctx msg]
                  (let [^ChannelHandlerContext ctx ctx
-                       ^WholeRequest msg msg
                        ch (.channel ctx)
-                       b (.content msg)
-                       g (.gist msg)
+                       ^XData b (:body @msg)
                        res (httpResult ch (mockRequest ch msg) nil)]
                    (reset! out (.content b))
                    (alterStateful res assoc :body "hello joe")
@@ -256,7 +251,7 @@
                    "a=b&c=3%209&name=john%27smith"
                    {:headers {:content-type
                               "application/x-www-form-urlencoded"}})
-        ^WholeResponse rc (deref po 5000 nil)
+        rc (deref po 5000 nil)
         rmap
         (when @out
           (preduce<map>
@@ -269,7 +264,7 @@
             (getAllItems @out)))]
     (stopServer ch)
     (and rc
-         (= "hello joe" (.. rc content strit))
+         (= "hello joe" (.strit ^XData (:body @rc)))
          (= (:a rmap) "b")
          (= (:c rmap) "3 9")
          (= (:name rmap) "john'smith"))))
@@ -315,8 +310,7 @@
             {:h1
              (proxy [InboundHandler][]
                (channelRead0 [ctx msg]
-                 (let [^WholeRequest msg msg
-                       b (.content msg)]
+                 (let [^XData b (:body @msg)]
                    (reset! out (.content b))
                    (replyStatus ctx 200))))}))
         ctype "multipart/form-data; boundary=---1234"
@@ -326,7 +320,7 @@
         po (h1post (str "http://" lhost-name ":5555/form")
                    cbody
                    {:headers {:content-type ctype }})
-        ^WholeResponse rc (deref po 5000 nil)
+        rc (deref po 5000 nil)
         rmap
         (when @out
           (preduce<map>
@@ -351,7 +345,7 @@
             (getAllItems @out)))]
     (stopServer ch)
     (and rc
-         (== 0 (.. rc content size))
+         (== 0 (.size ^XData (:body @rc)))
          (= (:field+fieldValue rmap) "fieldValue")
          (= (:multi+value1 rmap) "value1")
          (= (:multi+value2 rmap) "value2")
@@ -488,8 +482,7 @@
             {:h1
              (proxy [InboundHandler][]
                (channelRead0 [ctx msg]
-                 (let [^WholeRequest msg msg
-                       b (.content msg)]
+                 (let [^XData b (:body @msg)]
                    (replyStatus ctx 200))))}))
         ch (startServer bs
                         {:port 5555 :host lhost-name})
@@ -499,9 +492,9 @@
                :Access-Control-Request-Headers "X-Custom-Header"}}
         rc (h1send (format "http://%s:%d/cors" lhost-name port)
                    "OPTIONS" nil args)
-        ^WholeResponse p (deref rc 3000 nil)]
+        p (deref rc 3000 nil)]
     (stopServer ch)
-    (and p (== 405 (:code (:status (.gist p)))))))
+    (and p (== 405 (:code (:status @p))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -518,8 +511,7 @@
             {:h1
              (proxy [InboundHandler][]
                (channelRead0 [ctx msg]
-                 (let [^WholeRequest msg msg
-                       b (.content msg)]
+                 (let [^XData b (:body @msg)]
                    (replyStatus ctx 200))))}) args)
         ch (startServer bs
                         {:port 5555 :host lhost-name})
@@ -529,9 +521,9 @@
                :Access-Control-Request-Headers "X-Custom-Header"}}
         rc (h1send (format "http://%s:%d/cors" lhost-name port)
                    "OPTIONS" nil args)
-        ^WholeResponse p (deref rc 3000 nil)]
+        p (deref rc 3000 nil)]
     (stopServer ch)
-    (and p (= "*" (getHeader p "access-control-allow-origin")))))
+    (and p (= "*" (msgHeader p "access-control-allow-origin")))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -550,8 +542,7 @@
             {:h1
              (proxy [InboundHandler][]
                (channelRead0 [ctx msg]
-                 (let [^WholeRequest msg msg
-                       b (.content msg)]
+                 (let [^XData b (:body @msg)]
                       (replyStatus ctx 200))))}) args)
         ch (startServer bs
                         {:port 5555 :host lhost-name})
@@ -561,9 +552,9 @@
                :Access-Control-Request-Headers "X-Custom-Header"}}
         rc (h1send (format "http://%s:%d/cors" lhost-name port)
                    "OPTIONS" nil args)
-        ^WholeResponse p (deref rc 3000 nil)]
+        p (deref rc 3000 nil)]
     (stopServer ch)
-    (and p (= o (getHeader p "access-control-allow-origin")))))
+    (and p (= o (msgHeader p "access-control-allow-origin")))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -683,7 +674,7 @@
              (proxy [InboundHandler][]
                (channelRead0 [ctx msg]
                  (let [^ChannelHandlerContext ctx ctx
-                       ^BinaryWebSocketFrame msg msg]
+                       ^BinaryWebSocketFrame msg (:origin @msg)]
                    (.writeAndFlush ctx (.retain msg)))))}) args)
         port 5556
         ch (startServer bs
