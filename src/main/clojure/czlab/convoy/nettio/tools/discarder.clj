@@ -9,7 +9,7 @@
 (ns ^{:doc "Sample netty app - accepts and discards the request."
       :author "Kenneth Leung"}
 
-  czlab.convoy.nettio.discarder
+  czlab.convoy.nettio.tools.discarder
 
   (:gen-class)
 

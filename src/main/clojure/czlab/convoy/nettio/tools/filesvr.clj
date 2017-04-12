@@ -9,7 +9,7 @@
 (ns ^{:doc "Sample netty file server."
       :author "Kenneth Leung"}
 
-  czlab.convoy.nettio.filesvr
+  czlab.convoy.nettio.tools.filesvr
 
   (:gen-class)
 

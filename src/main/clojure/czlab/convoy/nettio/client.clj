@@ -15,7 +15,8 @@
             [clojure.java.io :as io]
             [clojure.string :as cs])
 
-  (:use [czlab.convoy.nettio.aggregate]
+  (:use [czlab.convoy.nettio.aggh11]
+        [czlab.convoy.nettio.aggwsk]
         [czlab.convoy.nettio.core]
         [czlab.convoy.net.util]
         [czlab.basal.core]

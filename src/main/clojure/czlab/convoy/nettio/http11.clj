@@ -15,7 +15,8 @@
             [clojure.java.io :as io]
             [clojure.string :as cs])
 
-  (:use [czlab.convoy.nettio.core]
+  (:use [czlab.convoy.nettio.aggwsk]
+        [czlab.convoy.nettio.core]
         [czlab.convoy.net.core]
         [czlab.basal.str]
         [czlab.basal.io]
@@ -255,6 +256,9 @@
                    "WSSCH"
                    "WSSPH"
                    (WebSocketServerProtocolHandler. uri nil true))
+        (.addAfter pp
+                   "WSSPH"
+                   "wsock-aggregator" (wsockAggregator<>))
         (safeRemoveHandler pp HttpContentDecompressor)
         (safeRemoveHandler pp HttpContentCompressor)
         (safeRemoveHandler pp ChunkedWriteHandler)

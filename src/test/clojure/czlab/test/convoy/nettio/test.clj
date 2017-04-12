@@ -8,13 +8,13 @@
 
 (ns czlab.test.convoy.nettio.test
 
-  (:require [czlab.convoy.nettio.discarder :refer [discardHTTPD<>]]
-            [czlab.convoy.nettio.filesvr :refer :all]
+  (:require [czlab.convoy.nettio.tools.discarder :refer [discardHTTPD<>]]
+            [czlab.convoy.nettio.tools.filesvr :refer :all]
             [czlab.basal.logging :as log]
             [clojure.java.io :as io]
-            [czlab.convoy.nettio.snooper :refer [snoopHTTPD<>]])
+            [czlab.convoy.nettio.tools.snooper :refer [snoopHTTPD<>]])
 
-  (:use [czlab.convoy.nettio.aggregate]
+  (:use [czlab.convoy.nettio.aggh11]
         [czlab.convoy.net.routes]
         [czlab.convoy.nettio.http11]
         [czlab.convoy.nettio.core]
@@ -596,7 +596,7 @@
             {:h1
              (proxy [InboundHandler][]
                (channelRead0 [ctx msg]
-                 (println "msg = " msg)))}) args)
+                 (println "Oh no! msg = " msg)))}) args)
         port 5556
         ch (startServer bs
                         {:port port :host host})
@@ -619,7 +619,7 @@
             {:h1
              (proxy [InboundHandler][]
                (channelRead0 [ctx msg]
-                 (println "msg = " msg)))}) args)
+                 (println "Why? msg = " msg)))}) args)
         port 5556
         ch (startServer bs
                         {:port port :host lhost-name})
@@ -644,8 +644,9 @@
              (proxy [InboundHandler][]
                (channelRead0 [ctx msg]
                  (let [^ChannelHandlerContext ctx ctx
-                       ^TextWebSocketFrame msg msg]
-                   (.writeAndFlush ctx (.retain msg)))))}) args)
+                       ^XData x (:body @msg)
+                       m (TextWebSocketFrame. (.strit x))]
+                   (.writeAndFlush ctx m))))}) args)
         port 5556
         ch (startServer bs
                         {:port port :host lhost-name})
@@ -676,8 +677,10 @@
              (proxy [InboundHandler][]
                (channelRead0 [ctx msg]
                  (let [^ChannelHandlerContext ctx ctx
-                       ^BinaryWebSocketFrame msg msg]
-                   (.writeAndFlush ctx (.retain msg)))))}) args)
+                       m (-> (byteBuf?? (:body @msg)
+                                        (ch?? ctx))
+                             (BinaryWebSocketFrame. ))]
+                   (.writeAndFlush ctx m))))}) args)
         port 5556
         ch (startServer bs
                         {:port port :host lhost-name})

@@ -381,7 +381,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- coerce2bb
+(defn coerce2bb
   "" ^ByteBuf [ch arg encoding]
 
   (let [buf (some-> ^Channel
@@ -444,6 +444,15 @@
     (-> (.headers rc)
         (.set ^HttpHeaders headers))
     rc))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(defn fakeARequest<> "" ^HttpRequest []
+  (DefaultHttpRequest.
+    HttpVersion/HTTP_1_1
+    HttpMethod/POST
+    "/"
+    (DefaultHttpHeaders.)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
