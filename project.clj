@@ -18,9 +18,7 @@
             [lein-cprint "1.2.0"]]
 
   :profiles {:provided {:dependencies
-                        [[org.clojure/clojure "1.8.0" :scope "provided"]
-                         [net.mikera/cljunit "0.6.0" :scope "test"]
-                         [junit/junit "4.12" :scope "test"]]}
+                        [[org.clojure/clojure "1.8.0" :scope "provided"]]}
              :uberjar {:aot :all}}
 
   :javadoc-opts {:package-names ["czlab.convoy"]

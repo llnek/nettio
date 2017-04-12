@@ -115,7 +115,7 @@
   {:pre [(or (nil? status)
              (number? status))]}
   (entity<> HttpResultMsgObj
-            {:code (or status (.code HttpResponseStatus/OK))
+            {:status (or status (.code HttpResponseStatus/OK))
              :ver (.text HttpVersion/HTTP_1_1)
              :headers (DefaultHttpHeaders.)
              :request theReq
@@ -285,11 +285,11 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- zmapHeaders "" [gist headers]
+(defn- zmapHeaders "" [msg headers]
   (zipmap (map #(let [[k v] %1] k) headers)
           (map #(let [[k v] %1]
-                  {:has? (gistHeader? gist v)
-                   :value (gistHeader gist v)}) headers)))
+                  {:has? (msgHeader? msg v)
+                   :value (msgHeader msg v)}) headers)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -306,21 +306,19 @@
     [req (:request @res)
      ^Channel
      ch (:socket @req)
-     gist (:gist @req)
-     method (:method gist)
+     method (:method @req)
      {:keys [headers
              lastMod
              eTag
-             cookies]
-      :as cfg}
+             cookies] :as cfg}
      @res
      cs (or (:charset @res)
             (Charset/forName "utf-8"))
      code (:status @res)
-     body0 (->> (:content @res)
+     body0 (->> (:body @res)
                 (converge cs))
-     conds (zmapHeaders gist conds-hds)
-     rhds (zmapHeaders cfg resp-hds)
+     conds (zmapHeaders req conds-hds)
+     rhds (zmapHeaders res resp-hds)
      cType (get-in rhds [:ctype :value])
      [code body]
      (if (codeOK? code)
@@ -386,7 +384,7 @@
       (HttpUtil/setContentLength rsp clen))
     (if (neg? clen)
       (HttpUtil/setKeepAlive rsp false)
-      (HttpUtil/setKeepAlive rsp (:isKeepAlive? gist)))
+      (HttpUtil/setKeepAlive rsp (:isKeepAlive? @req)))
     (if (or (nil? body)
             (== clen 0))
       (.remove hds HttpHeaderNames/CONTENT_TYPE))

@@ -237,11 +237,11 @@
   "" [ctx this req]
 
   (let [{:keys [wsockPath]} (getAKey ctx chcfg-key)
-        {:keys [origin uri]} @req
-        r2 (mockFullRequest<> origin)
+        {:keys [uri]} @req
+        r2 (mockFullRequest<> req)
         pp (cpipe ctx)
         uri? (if (set? wsockPath)
-               (contains? wsockPath uri)
+               (in? wsockPath uri)
                (= wsockPath uri))]
     (if-not uri?
       (replyStatus ctx

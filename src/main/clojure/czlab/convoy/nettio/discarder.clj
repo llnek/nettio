@@ -48,7 +48,7 @@
 (defn- h1proxy "" [cb]
   (proxy [InboundHandler][]
     (channelRead0 [ctx msg]
-      (when (ist? WholeRequest msg) (replyStatus ctx) (try! (cb))))))
+      (replyStatus ctx) (try! (cb)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;

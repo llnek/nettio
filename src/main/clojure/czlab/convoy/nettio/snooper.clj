@@ -21,10 +21,11 @@
         [czlab.basal.core]
         [czlab.basal.str]
         [czlab.convoy.net.server]
+        [czlab.convoy.net.core]
         [czlab.convoy.nettio.core])
 
   (:import [io.netty.util Attribute AttributeKey CharsetUtil]
-           [czlab.convoy.nettio WholeRequest InboundHandler]
+           [czlab.convoy.nettio InboundHandler]
            [java.util Map$Entry]
            [io.netty.channel
             ChannelInitializer
@@ -32,18 +33,19 @@
             ChannelPipeline
             ChannelHandler
             ChannelHandlerContext]
+           [io.netty.handler.codec.http.cookie
+            CookieDecoder
+            Cookie
+            ServerCookieEncoder]
            [io.netty.handler.codec.http
             HttpHeaders
-            HttpHeaders$Names
-            HttpHeaders$Values
+            HttpHeaderNames
+            HttpHeaderValues
             HttpServerCodec
             HttpVersion
             FullHttpResponse
             HttpContent
             HttpResponseStatus
-            CookieDecoder
-            ServerCookieEncoder
-            Cookie
             HttpRequest
             QueryStringDecoder
             LastHttpContent]
@@ -63,13 +65,14 @@
 ;;
 (defn- writeReply
   "Reply back a string"
-  [^ChannelHandlerContext ctx ^WholeRequest curObj]
+  [^ChannelHandlerContext ctx curObj]
 
-  (let [cookies (:cookies (.gist curObj))
+  (let [cookies (:cookies @curObj)
         buf (getAKey ctx msg-buf)
         res (httpFullReply<>
               (.code HttpResponseStatus/OK) (str buf) (.alloc ctx))
         hds (.headers res)
+        ce ServerCookieEncoder/STRICT
         clen (-> (.content res) .readableBytes)]
     (.set hds "Content-Length" (str clen))
     (.set hds "Content-Type"
@@ -78,23 +81,23 @@
     (if (empty? cookies)
       (doto hds
         (.add "Set-Cookie"
-              (ServerCookieEncoder/encode "key1" "value1"))
+              (.encode ce "key1" "value1"))
         (.add "Set-Cookie"
-              (ServerCookieEncoder/encode "key2" "value2")))
+              (.encode ce "key2" "value2")))
       (doseq [v cookies]
-        (.add hds "Set-Cookie"
-                  (ServerCookieEncoder/encode ^Cookie v))))
+        (.add hds
+              "Set-Cookie"
+              (.encode ce (nettyCookie<> v)))))
     (.writeAndFlush ctx res)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- handleReq
   "Introspect the inbound request"
-  [^ChannelHandlerContext ctx ^WholeRequest req]
+  [^ChannelHandlerContext ctx req]
 
-  (let [dc (QueryStringDecoder. (.uri req))
-        ka? (HttpHeaders/isKeepAlive req)
-        headers (.headers req)
+  (let [^HttpHeaders headers (:headers @req)
+        ka? (:isKeepAlive? @req)
         buf (strbf<>)]
     (setAKey ctx keep-alive ka?)
     (setAKey ctx msg-buf buf)
@@ -102,13 +105,13 @@
       (.append "WELCOME TO THE TEST WEB SERVER\r\n")
       (.append "==============================\r\n")
       (.append "VERSION: ")
-      (.append (.protocolVersion req))
+      (.append (:version @req))
       (.append "\r\n")
       (.append "HOSTNAME: ")
-      (.append (HttpHeaders/getHost req "???"))
+      (.append (str (msgHeader req "host")))
       (.append "\r\n")
       (.append "REQUEST_URI: ")
-      (.append (.uri req))
+      (.append (:uri2 @req))
       (.append "\r\n\r\n"))
     (->>
       (sreduce<>
@@ -133,7 +136,7 @@
               (.append " = ")
               (.append (cs/join "," (.getValue en)))
               (.append "\r\n")))
-        (.parameters dc))
+        (:parameters @req))
       (.append buf))
     (.append buf "\r\n")))
 
@@ -141,10 +144,10 @@
 ;;
 (defn- handleCnt
   "Handle the request content"
-  [^ChannelHandlerContext ctx ^WholeRequest msg]
+  [^ChannelHandlerContext ctx msg]
 
   (let [^StringBuilder buf (getAKey ctx msg-buf)
-        ct (.content msg)]
+        ^XData ct (:body @msg)]
     (when (.hasContent ct)
       (-> buf
         (.append "CONTENT: ")

@@ -76,8 +76,10 @@
 ;;
 (defn- mockRequest "" [ch w]
   (object<> HttpRequestMsgObj
-            {:body (:body @w)
-             :socket ch }))
+            (merge
+              (dftReqMsgObj)
+              {:body (:body @w)
+               :socket ch })))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -437,7 +439,7 @@
   (let [rc (crackRoute RC {:method "get" :uri "/A/zzz/B/c/D"})
         ^Matcher m (:matcher rc)
         r (:routeInfo rc)
-        {:keys [groups places]}
+        {:keys [groups places] :as ccc}
         (collectInfo  r m)]
     (and (= "A" (nth groups 0))
          (= "zzz" (nth groups 1))
@@ -674,7 +676,7 @@
              (proxy [InboundHandler][]
                (channelRead0 [ctx msg]
                  (let [^ChannelHandlerContext ctx ctx
-                       ^BinaryWebSocketFrame msg (:origin @msg)]
+                       ^BinaryWebSocketFrame msg msg]
                    (.writeAndFlush ctx (.retain msg)))))}) args)
         port 5556
         ch (startServer bs
@@ -754,8 +756,8 @@
     (is (testPipe false))
     (is (testPipe true)))
 
-  (is (testDiscarder))
   (is (testSnooper))
+  (is (testDiscarder))
 
   (is (testFileSvrGet))
   (is (testFileSvrPut))

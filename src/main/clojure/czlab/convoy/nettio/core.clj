@@ -77,12 +77,13 @@
             DefaultFullHttpResponse
             DefaultFullHttpRequest
             DefaultHttpResponse
+            DefaultHttpHeaders
             DefaultHttpRequest
             HttpRequest
             HttpResponseStatus
             HttpHeaders
             QueryStringDecoder]
-           [java.util Map Map$Entry]
+           [java.util HashMap Map Map$Entry]
            [java.nio.charset Charset]
            [java.security KeyStore]
            [io.netty.util
@@ -330,6 +331,14 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
+(defn getHeaderVals
+  ""
+  [^HttpMessage msg
+   ^CharSequence nm]
+  (-> (.headers msg) (.getAll nm)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
 (defn getHeader
   ""
   ^String
@@ -418,22 +427,19 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn mockFullRequest<>
-  "" {:tag FullHttpRequest}
+  "" ^FullHttpRequest [req]
 
-  ([^HttpRequest req rel?]
-   {:pre [(some? req)]}
-   (let [rc (DefaultFullHttpRequest.
-              (.protocolVersion req)
-              (.method req)
-              (.uri req))]
-     (-> (.headers rc)
-         (.set (.headers req)))
-     (if rel?
-       (ReferenceCountUtil/release req))
-     rc))
-
-  ([req]
-   (mockFullRequest<> req false)))
+  (let [{:keys [headers uri2
+                version method]}
+        @req
+        rc (DefaultFullHttpRequest.
+              (HttpVersion/valueOf version)
+              (HttpMethod/valueOf method)
+              uri2)]
+    (assert (ist? HttpHeaders headers))
+    (-> (.headers rc)
+        (.set ^HttpHeaders headers))
+    rc))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -796,14 +802,12 @@
                  (.name ^Cookie %2)
                  (httpCookie<> %2))
         (.decode ServerCookieDecoder/STRICT v)))
-    (if-some+
-      [v (getHeader msg
-                    HttpHeaderNames/SET_COOKIE)]
-      (preduce<map>
-        #(assoc! %1
-                 (.name ^Cookie %2)
-                 (httpCookie<> %2))
-        (.decode ClientCookieDecoder/STRICT v)))))
+    (preduce<map>
+      #(let [v (.decode ClientCookieDecoder/STRICT %2)]
+         (assoc! %1
+                 (.name v)
+                 (httpCookie<> v)))
+      (getHeaderVals msg HttpHeaderNames/SET_COOKIE))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -821,6 +825,37 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
+(defn dftReqMsgObj "" []
+  (doto
+    {:chunked? false
+     :isKeepAlive? false
+     :version ""
+     :method ""
+     :socket nil
+     :ssl? false
+     :parameters (HashMap.)
+     :headers (DefaultHttpHeaders.)
+     :uri2 ""
+     :uri ""
+     :charset nil
+     :cookies []} ))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(defn dftRspMsgObj "" []
+  (doto
+    {:chunked? false
+     :isKeepAlive? false
+     :version ""
+     :socket nil
+     :ssl? false
+     :headers (DefaultHttpHeaders.)
+     :charset nil
+     :cookies []
+     :status {} }))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
 (defn gistH1Request
   "" [ctx ^HttpRequest msg]
 
@@ -830,18 +865,20 @@
      (matchOneRoute ctx msg)
      ri (if (and status? routeInfo matcher)
           (collectInfo routeInfo matcher))]
-    {:chunked? (HttpUtil/isTransferEncodingChunked msg)
-     :isKeepAlive? (HttpUtil/isKeepAlive msg)
-     :version (.. msg protocolVersion text)
-     :socket (ch?? ctx)
-     :origin msg
-     :ssl? (maybeSSL? ctx)
-     :parameters (getUriParams msg)
-     :headers (.headers msg)
-     :uri2 (str (some-> msg .uri))
-     :uri (getUriPath msg)
-     :charset (getMsgCharset msg)
-     :cookies (crackCookies msg)}))
+    (merge
+      (dftReqMsgObj)
+      {:chunked? (HttpUtil/isTransferEncodingChunked msg)
+       :isKeepAlive? (HttpUtil/isKeepAlive msg)
+      :version (.. msg protocolVersion text)
+      :method (getMethod msg)
+      :socket (ch?? ctx)
+      :ssl? (maybeSSL? ctx)
+      :parameters (getUriParams msg)
+      :headers (.headers msg)
+      :uri2 (str (some-> msg .uri))
+      :uri (getUriPath msg)
+      :charset (getMsgCharset msg)
+      :cookies (crackCookies msg)})))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -849,11 +886,11 @@
   "" [ctx ^HttpResponse msg]
 
   (merge
+    (dftRspMsgObj)
     {:chunked? (HttpUtil/isTransferEncodingChunked msg)
      :isKeepAlive? (HttpUtil/isKeepAlive msg)
      :version (.. msg protocolVersion text)
      :socket (ch?? ctx)
-     :origin msg
      :ssl? (maybeSSL? ctx)
      :headers (.headers msg)
      :charset (getMsgCharset msg)

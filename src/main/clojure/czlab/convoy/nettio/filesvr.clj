@@ -40,8 +40,8 @@
             HttpResponseStatus
             HttpChunkedInput
             HttpResponse
-            HttpHeaders$Names
-            HttpHeaders$Values
+            HttpHeaderNames
+            HttpHeaderValues
             HttpHeaders
             HttpUtil
             LastHttpContent]
@@ -58,10 +58,9 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- replyGetVFile ""
-  [^ChannelHandlerContext ctx
-   ^WholeRequest req ^XData xdata]
+  [^ChannelHandlerContext ctx req ^XData xdata]
 
-  (let [keep? (HttpUtil/isKeepAlive req)
+  (let [keep? (:isKeepAlive? @req)
         res (httpReply<>)
         ch (.channel ctx)
         clen (.size xdata)]
@@ -84,14 +83,11 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- fPutter "" [^ChannelHandlerContext ctx
-                   ^WholeRequest req
-                   ^String fname
-                   args]
+(defn- fPutter "" [ctx req ^String fname args]
 
   (log/debug "fPutter file= %s" (io/file (:vdir args) fname))
   (let [vdir (io/file (:vdir args))
-        body (.content req)]
+        ^XData body (:body @req)]
     (if (.isFile body)
       (log/debug "fPutter orig= %s" (.fileRef body)))
     (->> (try!!
@@ -103,10 +99,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- fGetter "" [^ChannelHandlerContext ctx
-                   ^WholeRequest req
-                   ^String fname
-                   args]
+(defn- fGetter "" [ctx req ^String fname args]
 
   (log/debug "fGetter: file= %s" (io/file (:vdir args) fname))
   (let [vdir (io/file (:vdir args))
@@ -121,13 +114,12 @@
   (proxy [InboundHandler][]
     (channelRead0 [ctx msg]
       (let
-        [^WholeRequest msg msg
-         uri (.uri msg)
-         mtd (.. msg method name)
-         pos (. uri lastIndexOf (int \/))
+        [^String uri (:uri2 @msg)
+         mtd (:method @msg)
+         pos (.lastIndexOf uri (int \/))
          p (if (< pos 0)
              uri
-             (. uri substring (inc pos)))
+             (.substring uri (inc pos)))
          nm (stror p (str (jid<>) ".dat"))]
         (log/debug "%s: uri= %s, file= %s" mtd uri nm)
         (log/debug "args= %s" args)

@@ -288,7 +288,7 @@
       (if-some [^ChannelPromise f (getAKey ctx cf-key)]
         (if-not (.isDone f)
           (. f setFailure ^Throwable err)))
-      (log/warn err "")
+      ;;(log/warn err "ERRRRRRRRRRRRRRR!!!!!")
       (. ^ChannelHandlerContext ctx close))
     (channelRead0 [ctx msg]
       (let [^ChannelPromise f (getAKey ctx cf-key)
@@ -459,7 +459,7 @@
         (deliver rcp cc))
       (let [err (or (.cause ff)
                     (Exception. "conn error"))]
-        (log/warn err "")
+        ;;(log/warn err "")
         (deliver rcp err)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
