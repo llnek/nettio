@@ -65,10 +65,6 @@ public abstract class WholeMessage implements HttpMessage {
 
   /**
    */
-  public abstract Object gist();
-
-  /**
-   */
   protected WholeMessage(HttpMessage m) {
     _body= new XData();
     _msg= m;

@@ -107,12 +107,12 @@
 ;;
 (defn- fireMsg
   "" [^ChannelHandlerContext ctx msg]
-  (if-some [w (cast? WholeMessage msg)]
-    (->>
-      (object<> HttpMessageObj
-                (assoc (.gist w)
-                       :body (.content w)))
-      (.fireChannelRead ctx))))
+
+  (some->>
+    (or (some->> (gistH1Message ctx msg)
+               (object<> HttpMessageObj ))
+        msg)
+    (.fireChannelRead ctx)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -157,14 +157,13 @@
 (defn- h11res<>
   "" ^WholeResponse [ctx rsp]
 
-  (let [gs (gistH1Response ctx rsp)]
+  (let []
     (doto
       (proxy [WholeResponse][rsp]
         (prepareBody [df msg]
           (. ^HttpDataFactory df
              createAttribute ^HttpRequest msg body-attr-id))
-        (endContent [_] (getHttpData _))
-        (gist [] gs))
+        (endContent [_] (getHttpData _)))
       (. init ^HttpDataFactory (getAKey ctx dfac-key)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -172,7 +171,7 @@
 (defn- h11req<>
   "" ^WholeRequest [ctx req]
 
-  (let [gs (gistH1Request ctx req)]
+  (let []
     (doto
       (proxy [WholeRequest][req]
         (prepareBody [df msg]
@@ -187,8 +186,7 @@
             (ist? HttpPostRequestDecoder c)
             (parsePost c)
             (ist? Attribute c)
-            (getHttpData c)))
-        (gist [] gs))
+            (getHttpData c))))
       (. init ^HttpDataFactory (getAKey ctx dfac-key)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

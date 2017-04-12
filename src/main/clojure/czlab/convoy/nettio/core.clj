@@ -43,7 +43,11 @@
             ApplicationProtocolConfig$Protocol
             ApplicationProtocolConfig$SelectorFailureBehavior
             ApplicationProtocolConfig$SelectedListenerFailureBehavior]
-           [czlab.convoy.nettio InboundAdapter InboundHandler]
+           [czlab.convoy.nettio
+            InboundAdapter
+            WholeRequest
+            WholeResponse
+            InboundHandler]
            [io.netty.channel.nio NioEventLoopGroup]
            [java.net InetAddress URL HttpCookie]
            [io.netty.handler.codec.http.cookie
@@ -857,10 +861,11 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn gistH1Request
-  "" [ctx ^HttpRequest msg]
+  "" [ctx ^WholeRequest req]
 
   (let
-    [{:keys [routeInfo matcher
+    [^HttpRequest msg (.intern req)
+     {:keys [routeInfo matcher
              status? redirect] :as ro}
      (matchOneRoute ctx msg)
      ri (if (and status? routeInfo matcher)
@@ -871,6 +876,7 @@
        :isKeepAlive? (HttpUtil/isKeepAlive msg)
       :version (.. msg protocolVersion text)
       :method (getMethod msg)
+      :body (.content req)
       :socket (ch?? ctx)
       :ssl? (maybeSSL? ctx)
       :parameters (getUriParams msg)
@@ -883,21 +889,32 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn gistH1Response
-  "" [ctx ^HttpResponse msg]
+  "" [ctx ^WholeResponse rsp]
 
-  (merge
-    (dftRspMsgObj)
-    {:chunked? (HttpUtil/isTransferEncodingChunked msg)
-     :isKeepAlive? (HttpUtil/isKeepAlive msg)
-     :version (.. msg protocolVersion text)
-     :socket (ch?? ctx)
-     :ssl? (maybeSSL? ctx)
-     :headers (.headers msg)
-     :charset (getMsgCharset msg)
-     :cookies (crackCookies msg)}
-    (let [s (.status msg)]
-      {:status {:code (.code s)
-                :reason (.reasonPhrase s)}})))
+  (let [^HttpResponse msg (.intern rsp)]
+    (merge
+      (dftRspMsgObj)
+      {:chunked? (HttpUtil/isTransferEncodingChunked msg)
+       :isKeepAlive? (HttpUtil/isKeepAlive msg)
+       :version (.. msg protocolVersion text)
+       :socket (ch?? ctx)
+       :body (.content rsp)
+       :ssl? (maybeSSL? ctx)
+       :headers (.headers msg)
+       :charset (getMsgCharset msg)
+       :cookies (crackCookies msg)}
+      (let [s (.status msg)]
+        {:status {:code (.code s)
+                  :reason (.reasonPhrase s)}}))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(defmacro gistH1Message "" [ctx m]
+  `(let [c# ~ctx m# ~m]
+     (if (ist? czlab.convoy.nettio.WholeRequest m#)
+       (gistH1Request c# m#)
+       (if (ist? czlab.convoy.nettio.WholeResponse m#)
+         (gistH1Response c# m#)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
