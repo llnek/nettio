@@ -654,8 +654,8 @@
                          port
                          "/web/sock"
                          (fn [^WSClientConnect cc msg]
-                           (when-some [s (:text msg)]
-                             (reset! out s)
+                           (when-some [^XData s (:body msg)]
+                             (reset! out (.strit s))
                              (.write cc (CloseWebSocketFrame.)))))
         cc (deref rcp 5000 nil)]
     (when-some [c (cast? WSClientConnect cc)]
@@ -688,8 +688,8 @@
                          port
                          "/web/sock"
                          (fn [^WSClientConnect cc msg]
-                           (when-some [b (:blob msg)]
-                             (reset! out (strit b))
+                           (when-some [^XData b (:body msg)]
+                             (reset! out (.strit b))
                              (.write cc (CloseWebSocketFrame.)))))
         cc (deref rcp 5000 nil)]
     (when-some [c (cast? WSClientConnect cc)]

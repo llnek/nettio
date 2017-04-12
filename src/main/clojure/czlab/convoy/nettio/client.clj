@@ -96,6 +96,7 @@
             H1DataFactory
             ClientConnect
             InboundHandler
+            InboundAdapter
             WSClientConnect]
            [czlab.jasal XData]))
 
@@ -271,10 +272,22 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
+(defn- wsock-hdlr
+  "" ^ChannelHandler [user]
+
+  (proxy [InboundAdapter][]
+    (exceptionCaught [ctx err]
+      (.close ^ChannelHandlerContext ctx))
+    (channelRead [ctx msg]
+      (let [wcc (getAKey ctx cc-key)]
+        (user wcc @msg)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
 (defn- wsh<>
   "" ^ChannelHandler [^WebSocketClientHandshaker
                       handshaker
-                      cb user args]
+                      cb args]
 
   (proxy [InboundHandler][]
     (handlerAdded [ctx]
@@ -289,14 +302,14 @@
       (if-some [^ChannelPromise f (getAKey ctx cf-key)]
         (if-not (.isDone f)
           (. f setFailure ^Throwable err)))
-      ;;(log/warn err "ERRRRRRRRRRRRRRR!!!!!")
+      ;;(log/warn err "")
       (. ^ChannelHandlerContext ctx close))
     (channelRead0 [ctx msg]
-      (let [^ChannelPromise f (getAKey ctx cf-key)
-            ^WSClientConnect wcc (getAKey ctx cc-key)
+      (let [^WSClientConnect wcc (getAKey ctx cc-key)
+            ^ChannelPromise f (getAKey ctx cf-key)
             ch (ch?? ctx)]
         (cond
-          (not (. handshaker isHandshakeComplete))
+          (not (.isHandshakeComplete handshaker))
           (do
             (log/debug "attempt to finz the hand-shake...")
             (.finishHandshake handshaker ch ^FullHttpResponse msg)
@@ -305,28 +318,12 @@
           (throw (IllegalStateException.
                    (str "Unexpected FullHttpResponse (status="
                         (.status ^FullHttpResponse msg))))
-          (ist? BinaryWebSocketFrame msg)
-          (let [^BinaryWebSocketFrame f msg]
-            (log/debug "got a bin frame: %s" msg)
-            (user wcc {:blob (toByteArray (.content f))
-                       :final? (.isFinalFragment f)}))
-          (ist? TextWebSocketFrame msg)
-          (let [^TextWebSocketFrame f msg]
-            (log/debug "got a text frame: %s" msg)
-            (user wcc {:text (.text f)
-                       :final? (.isFinalFragment f)}))
-          (ist? ContinuationWebSocketFrame msg)
-          (do
-            (log/debug "got a CONTINUE frame: %s" msg))
-          (ist? PongWebSocketFrame msg)
-          (do
-            (log/debug "received pong frame")
-            (user wcc {:pong? true}))
           (ist? CloseWebSocketFrame msg)
           (do
             (log/debug "received close frame")
-            (user wcc {:close? true})
-            (. ^ChannelHandlerContext ctx close)))))))
+            (.close ^ChannelHandlerContext ctx))
+          :else
+          (.fireChannelRead ^ChannelHandlerContext ctx msg))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -369,8 +366,9 @@
                       WebSocketVersion/V13
                       nil true (DefaultHttpHeaders.))
                     cb
-                    user
-                    args))))))
+                    args))
+        (.addLast "ws-agg" (wsockAggregator<>))
+        (.addLast "ws-user" (wsock-hdlr user))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;

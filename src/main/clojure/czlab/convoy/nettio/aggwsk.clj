@@ -80,13 +80,19 @@
 
   (let [rc {:isText? (ist? TextWebSocketFrame msg)
             :charset (Charset/forName "utf-8")} ]
-    (if (.isFinalFragment msg)
+    (cond
+      (ist? PongWebSocketFrame msg)
+      (->> (object<> WebSocketMessageObj
+                     (assoc rc :pong? true))
+           (.fireChannelRead ctx ))
+      (.isFinalFragment msg)
       (->> (object<> WebSocketMessageObj
                      (assoc rc
                             :body (xdata<>
                                     (toByteArray
                                       (.content msg)))))
            (.fireChannelRead ctx ))
+      :else
       (let [^HttpDataFactory df (getAKey ctx dfac-key)
             req (fakeARequest<>)
             ^Attribute a (.createAttribute df
@@ -106,6 +112,8 @@
     (ist? TextWebSocketFrame msg)
     (readFrame ctx msg)
     (ist? BinaryWebSocketFrame msg)
+    (readFrame ctx msg)
+    (ist? PongWebSocketFrame msg)
     (readFrame ctx msg)
     :else
     (.fireChannelRead ctx msg)))
