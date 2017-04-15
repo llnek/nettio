@@ -9,7 +9,7 @@
 (ns ^{:doc "Sample netty app - snoops on the request."
       :author "Kenneth Leung"}
 
-  czlab.nettio.tools.snooper
+  czlab.nettio.snooper
 
   (:gen-class)
 

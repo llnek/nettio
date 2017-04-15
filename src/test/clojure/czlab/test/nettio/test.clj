@@ -8,11 +8,11 @@
 
 (ns czlab.test.nettio.test
 
-  (:require [czlab.nettio.tools.discarder :refer [discardHTTPD<>]]
-            [czlab.nettio.tools.filesvr :refer :all]
+  (:require [czlab.nettio.discarder :refer [discardHTTPD<>]]
+            [czlab.nettio.filesvr :refer :all]
             [czlab.basal.logging :as log]
             [clojure.java.io :as io]
-            [czlab.nettio.tools.snooper :refer [snoopHTTPD<>]])
+            [czlab.nettio.snooper :refer [snoopHTTPD<>]])
 
   (:use [czlab.nettio.aggh11]
         [czlab.convoy.routes]
