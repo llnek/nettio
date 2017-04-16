@@ -73,23 +73,13 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defstateful HttpResultMsgObj
-
   HttpMsgGist
-  (msgHeader [_ nm]
-    (.get ^HttpHeaders
-          (:headers @data) ^CharSequence nm))
-  (msgHeader? [_ nm]
-    (.contains ^HttpHeaders
-               (:headers @data) ^CharSequence nm))
-  (msgHeaderKeys [_] )
-  (msgHeaderVals [_ h] )
-
   HttpResultMsg
   (setResContentType [this c]
     (.set ^HttpHeaders
           (:headers @data) HttpHeaderNames/CONTENT_TYPE c))
   (getResContentType [me]
-    (.msgHeader me HttpHeaderNames/CONTENT_TYPE))
+    (msgHeader me HttpHeaderNames/CONTENT_TYPE))
   (setResETag [this e]
     (.set ^HttpHeaders (:headers @data) HttpHeaderNames/ETAG e))
   (addResCookie [me c]

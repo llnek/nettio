@@ -84,24 +84,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- headers?? "" ^HttpHeaders [data] (:headers data))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- cs?? "" ^CharSequence [s] s)
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defobject HttpMessageObj
-  HttpMsgGist
-  (msgHeader? [_ h]
-    (.contains (headers?? data) (cs?? h)))
-  (msgHeader [_ h]
-    (.get (headers?? data) (cs?? h)))
-  (msgHeaderKeys [_]
-    (set (.names (headers?? data))))
-  (msgHeaderVals [_ h]
-    (vec (.getAll (headers?? data) (cs?? h)))))
+(defobject HttpMessageObj HttpMsgGist)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;

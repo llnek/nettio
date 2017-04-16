@@ -65,12 +65,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defobject HttpRequestMsgObj
-  HttpMsgGist
-  (msgHeader [_ h] )
-  (msgHeader? [_ h] )
-  (msgHeaderKeys [_] )
-  (msgHeaderVals [_ h] ))
+(defobject HttpRequestMsgObj HttpMsgGist)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;

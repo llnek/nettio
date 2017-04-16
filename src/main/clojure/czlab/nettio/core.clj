@@ -49,7 +49,11 @@
             WholeResponse
             InboundHandler]
            [io.netty.channel.nio NioEventLoopGroup]
-           [java.net InetAddress URL HttpCookie]
+           [java.net
+            InetAddress
+            URL
+            HttpCookie
+            InetSocketAddress]
            [io.netty.handler.codec.http.cookie
             ServerCookieDecoder
             ClientCookieDecoder
@@ -113,6 +117,29 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;(set! *warn-on-reflection* true)
+
+(defn- headers?? "" ^HttpHeaders [data] (:headers @data))
+(defn- cs?? "" ^CharSequence [s] s)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(defn msgHeader? "" [msg h]
+  (.contains (headers?? msg) (cs?? h)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(defn msgHeader "" ^String [msg h]
+  (.get (headers?? msg) (cs?? h)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(defn msgHeaderKeys "" [msg]
+  (set (.names (headers?? msg))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(defn msgHeaderVals "" [msg h]
+  (vec (.getAll (headers?? msg) (cs?? h))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -873,7 +900,10 @@
   "" [ctx ^WholeRequest req]
 
   (let
-    [^HttpRequest msg (.intern req)
+    [^InetSocketAddress laddr (.localAddress (ch?? ctx))
+     ^HttpRequest msg (.intern req)
+     ssl? (maybeSSL? ctx)
+     hs (.headers msg)
      {:keys [routeInfo matcher
              status? redirect] :as ro}
      (matchOneRoute ctx msg)
@@ -884,10 +914,21 @@
       {:chunked? (HttpUtil/isTransferEncodingChunked msg)
        :isKeepAlive? (HttpUtil/isKeepAlive msg)
       :version (.. msg protocolVersion text)
+      :route (merge (dissoc ro :routeInfo :matcher)
+                    {:info routeInfo} ri)
+      :localAddr (.. laddr getAddress getHostAddress)
+      :localHost (.getHostName laddr)
+      :localPort (.getPort laddr)
+      :remotePort (convLong (.get hs "remote_port") 0)
+      :remoteAddr (str (.get hs "remote_addr"))
+      :remoteHost (str (.get hs "remote_host"))
+      :serverPort (convLong (.get hs "server_port") 0)
+      :serverName (str (.get hs "server_name"))
+      :scheme (if ssl? "https" "http")
       :method (getMethod msg)
       :body (.content req)
       :socket (ch?? ctx)
-      :ssl? (maybeSSL? ctx)
+      :ssl? ssl?
       :parameters (getUriParams msg)
       :headers (.headers msg)
       :uri2 (str (some-> msg .uri))
