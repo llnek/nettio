@@ -75,13 +75,13 @@
 (defstateful HttpResultMsgObj
   HttpMsgGist
   HttpResultMsg
-  (setResContentType [this c]
+  (setResContentType [me c]
     (.set ^HttpHeaders
-          (:headers @data) HttpHeaderNames/CONTENT_TYPE c))
+          (:headers @me) HttpHeaderNames/CONTENT_TYPE c))
   (getResContentType [me]
     (msgHeader me HttpHeaderNames/CONTENT_TYPE))
-  (setResETag [this e]
-    (.set ^HttpHeaders (:headers @data) HttpHeaderNames/ETAG e))
+  (setResETag [me e]
+    (.set ^HttpHeaders (:headers @me) HttpHeaderNames/ETAG e))
   (addResCookie [me c]
     (if (some? c)
       (alterStateful
@@ -89,15 +89,15 @@
         update-in
         [:cookies]
         assoc (.getName ^HttpCookie c) c)))
-  (removeResHeader [_ nm] (.remove ^HttpHeaders
-                                   (:headers @data) ^CharSequence nm))
-  (clearResHeaders [_] (.clear ^HttpHeaders (:headers @data)))
+  (removeResHeader [me nm] (.remove ^HttpHeaders
+                                   (:headers @me) ^CharSequence nm))
+  (clearResHeaders [me] (.clear ^HttpHeaders (:headers @me)))
   (clearResCookies [me]
     (alterStateful me assoc :cookies {}))
-  (addResHeader [_ nm v]
-    (.add ^HttpHeaders (:headers @data) ^CharSequence nm v))
-  (setResHeader [_ nm v]
-    (.set ^HttpHeaders (:headers @data) ^CharSequence nm v)))
+  (addResHeader [me nm v]
+    (.add ^HttpHeaders (:headers @me) ^CharSequence nm v))
+  (setResHeader [me nm v]
+    (.set ^HttpHeaders (:headers @me) ^CharSequence nm v)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;

@@ -900,7 +900,8 @@
   "" [ctx ^WholeRequest req]
 
   (let
-    [^InetSocketAddress laddr (.localAddress (ch?? ctx))
+    [laddr (cast? InetSocketAddress
+                  (.localAddress (ch?? ctx)))
      ^HttpRequest msg (.intern req)
      ssl? (maybeSSL? ctx)
      hs (.headers msg)
@@ -916,9 +917,9 @@
       :version (.. msg protocolVersion text)
       :route (merge (dissoc ro :routeInfo :matcher)
                     {:info routeInfo} ri)
-      :localAddr (.. laddr getAddress getHostAddress)
-      :localHost (.getHostName laddr)
-      :localPort (.getPort laddr)
+      :localAddr (some-> laddr .getAddress .getHostAddress)
+      :localHost (some-> laddr .getHostName)
+      :localPort (some-> laddr .getPort)
       :remotePort (convLong (.get hs "remote_port") 0)
       :remoteAddr (str (.get hs "remote_addr"))
       :remoteHost (str (.get hs "remote_host"))
