@@ -54,11 +54,13 @@
 ;;
 (defn discardHTTPD<>
   "Drops the req and returns OK"
-  {:tag ServerBootstrap}
 
   ([cb] (discardHTTPD<> cb nil))
   ([cb args]
-   (createServer<> :netty/http (fn [_] {:h1 (h1proxy cb)}) args)))
+   (let [w (mutable<> NettyWebServer)]
+     (apply create-server
+            w
+            (fn [_] {:h1 (h1proxy cb)}) args))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -74,9 +76,9 @@
     (< (count args) 2)
     (println "usage: discard host port")
     :else
-    (let [bs (discardHTTPD<> #(println "hello, poked by discarder"))
-          ch (startServer bs {:host (nth args 0)
-                              :port (convInt (nth args 1) 8080)})]
+    (let [lc (discardHTTPD<> #(println "hello, poked by discarder"))
+          ch (start-server lc {:host (nth args 0)
+                               :port (convInt (nth args 1) 8080)})]
       (exitHook #(stopServer ch))
       (reset! svrboot bs)
       (reset! svrchan ch)

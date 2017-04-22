@@ -22,6 +22,7 @@
         [czlab.basal.core])
 
   (:import [io.netty.util AttributeKey ReferenceCountUtil]
+           [czlab.convoy.core WebsocketMessageObj]
            [io.netty.handler.codec.http.multipart
             Attribute
             HttpDataFactory]
@@ -49,10 +50,6 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defobject WebSocketMessageObj WSockMsgGist)
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
 (defn- readFrameEx "" [^ChannelHandlerContext ctx
                        ^ContinuationWebSocketFrame msg]
 
@@ -70,7 +67,7 @@
                   (doto->> (.getFile attr) (.renameTo attr))))]
         (.release attr)
         (->> (assoc (dissoc rc :attr :fake) :body x)
-             (object<> WebSocketMessageObj )
+             (object<> WebsocketMessageObj )
              (.fireChannelRead ctx))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -86,7 +83,7 @@
                      (assoc rc :pong? true))
            (.fireChannelRead ctx ))
       (.isFinalFragment msg)
-      (->> (object<> WebSocketMessageObj
+      (->> (object<> WebsocketMessageObj
                      (assoc rc
                             :body (xdata<>
                                     (toByteArray

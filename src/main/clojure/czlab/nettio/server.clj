@@ -297,101 +297,9 @@
             (onSSL pp funcs args))
           (onH1Proto ch funcs args))))))
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;{:keys [a] {:keys []} :b} - destruct nested
-;;
-(defmethod createServer<> :netty/http [stype & cargs]
-
-  (let
-    [{:keys [threads routes rcvBuf backlog
-             sharedGroup? tempFileDir
-             maxContentSize maxInMemory]
-      :or {maxContentSize Integer/MAX_VALUE
-           maxInMemory *membuf-limit*
-           rcvBuf (* 2 MegaBytes)
-           backlog KiloBytes
-           sharedGroup? true
-           threads 0 routes nil}
-      {:keys [server child]}
-      :options
-      :as args}
-     (second cargs)
-     p1 (first cargs)
-     ci
-     (cond
-       (ist? ChannelInitializer p1) p1
-       (fn? p1) (chanInitor<> p1 args)
-       :else (trap! ClassCastException "wrong input"))
-     tempFileDir (fpath (or tempFileDir
-                            *tempfile-repo*))
-     args (dissoc args :routes :options)
-     [g z] (gAndC threads :tcps)
-     bs (ServerBootstrap.)
-     server (or server
-                [[ChannelOption/SO_BACKLOG (int backlog)]
-                 [ChannelOption/SO_REUSEADDR true]])
-     child (or child
-               [[ChannelOption/SO_RCVBUF (int rcvBuf)]
-                [ChannelOption/TCP_NODELAY true]])]
-     (doseq [[k v] child] (.childOption bs k v))
-     (doseq [[k v] server] (.option bs k v))
-     ;;threads=zero tells netty to use default, which is
-     ;;2*num_of_processors
-     (doto bs
-       (.handler (LoggingHandler. LogLevel/INFO))
-       (.childHandler ^ChannelHandler ci)
-       (.channel z))
-     (if-not sharedGroup?
-       (.group bs
-               ^EventLoopGroup g
-               ^EventLoopGroup (first (gAndC threads :tcps)))
-       (.group bs ^EventLoopGroup g))
-     ;;assign generic attributes for all channels
-     (.childAttr bs dfac-key (H1DataFactory. (int maxInMemory)))
-     (.childAttr bs chcfg-key args)
-     ;; routes to check?
-     (when-not (empty? routes)
-       (log/info "routes provided - creating routes cracker")
-       (->> (routeCracker<> routes)
-            (.childAttr bs routes-key)))
-     (log/info "netty server bootstraped with [%s]"
-               (if (Epoll/isAvailable) "EPoll" "Java/NIO"))
-     (configDiskFiles true tempFileDir)
-     bs))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defmethod createServer<> :netty/udp [stype & cargs]
-
-  (let
-    [{:keys [maxMsgsPerRead threads rcvBuf options]
-      :or {maxMsgsPerRead Integer/MAX_VALUE
-           rcvBuf (* 2 MegaBytes)
-           threads 0}
-      :as args}
-     (second cargs)
-     p1 (first cargs)
-     ci
-     (cond
-       (ist? ChannelInitializer p1) p1
-       (fn? p1) (chanInitor<> p1 args)
-       :else (trap! ClassCastException "wrong input"))
-     [g z] (gAndC threads :udps)
-     bs (Bootstrap.)
-     options (or options
-                 [[ChannelOption/MAX_MESSAGES_PER_READ maxMsgsPerRead]
-                  [ChannelOption/SO_RCVBUF (int rcvBuf)]
-                  [ChannelOption/SO_BROADCAST true]
-                  [ChannelOption/TCP_NODELAY true]])]
-    (doseq [[k v] options] (.option bs k v))
-    (doto bs
-      (.channel z)
-      (.group g)
-      (.handler ^ChannelHandler ci))))
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- startsvr
+(defn- start-svr
   "" ^Channel
   [^AbstractBootstrap bs host port]
 
@@ -421,30 +329,131 @@
                   (.. bs config group shutdownGracefully))))
     ch))
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defmethod startServer
-  ServerBootstrap
-  [bs {:keys [host
-              port]
-       :or {port 80}}]
-  {:pre [(number? port)]} (startsvr bs host port))
+(defn- finz-ch [^Channel ch]
+  (try!
+    (if (and ch
+             (.isOpen ch)) (.close ch))))
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defmethod startServer
-  Bootstrap
-  [bs {:keys [host
-              port]
-       :or {port 4444}}]
-  {:pre [(number? port)]} (startsvr bs host port))
+(decl-mutable NettyWebServer
+  HttpServerLifecycle
+  (create-server [me & cargs]
+    (let
+      [{:keys [threads routes rcvBuf backlog
+               sharedGroup? tempFileDir
+               maxContentSize maxInMemory]
+        :or {maxContentSize Integer/MAX_VALUE
+             maxInMemory *membuf-limit*
+             rcvBuf (* 2 MegaBytes)
+             backlog KiloBytes
+             sharedGroup? true
+             threads 0 routes nil}
+        {:keys [server child]}
+        :options
+        :as args}
+       (second cargs)
+       p1 (first cargs)
+       ci
+       (cond
+         (ist? ChannelInitializer p1) p1
+         (fn? p1) (chanInitor<> p1 args)
+         :else (trap! ClassCastException "wrong input"))
+       tempFileDir (fpath (or tempFileDir
+                              *tempfile-repo*))
+       args (dissoc args :routes :options)
+       [g z] (gAndC threads :tcps)
+       bs (ServerBootstrap.)
+       server (or server
+                  [[ChannelOption/SO_BACKLOG (int backlog)]
+                   [ChannelOption/SO_REUSEADDR true]])
+       child (or child
+                 [[ChannelOption/SO_RCVBUF (int rcvBuf)]
+                  [ChannelOption/TCP_NODELAY true]])]
+      (doseq [[k v] child] (.childOption bs k v))
+      (doseq [[k v] server] (.option bs k v))
+      ;;threads=zero tells netty to use default, which is
+      ;;2*num_of_processors
+      (setf! me :bootstrap bs)
+      (doto bs
+        (.handler (LoggingHandler. LogLevel/INFO))
+        (.childHandler ^ChannelHandler ci)
+        (.channel z))
+      (if-not sharedGroup?
+        (.group bs
+                ^EventLoopGroup g
+                ^EventLoopGroup (first (gAndC threads :tcps)))
+        (.group bs ^EventLoopGroup g))
+      ;;assign generic attributes for all channels
+      (.childAttr bs dfac-key (H1DataFactory. (int maxInMemory)))
+      (.childAttr bs chcfg-key args)
+      ;; routes to check?
+      (when-not (empty? routes)
+        (log/info "routes provided - creating routes cracker")
+        (->> (routeCracker<> routes)
+             (.childAttr bs routes-key)))
+      (log/info "netty server bootstraped with [%s]"
+                (if (Epoll/isAvailable) "EPoll" "Java/NIO"))
+      (configDiskFiles true tempFileDir)
+      bs))
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+  (start-server [me & args]
+    (let [bs (:bootstrap @me)
+          [host port] args
+          port (or port 80)]
+      (assert (number? port))
+      (setf! me
+             :channel
+             (start-svr bs host port))))
+
+  (stop-server [me & args]
+    (finz-ch (:channel @me))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defmethod stopServer
-  Channel
-  [^Channel ch]
-  (if (and ch (.isOpen ch)) (.close ch)))
+(decl-mutable NettyUdpServer
+  HttpServerLifecycle
+  (create-server [me & cargs]
+    (let
+      [{:keys [maxMsgsPerRead threads rcvBuf options]
+        :or {maxMsgsPerRead Integer/MAX_VALUE
+             rcvBuf (* 2 MegaBytes)
+             threads 0}
+        :as args}
+       (second cargs)
+       p1 (first cargs)
+       ci
+       (cond
+         (ist? ChannelInitializer p1) p1
+         (fn? p1) (chanInitor<> p1 args)
+         :else (trap! ClassCastException "wrong input"))
+       [g z] (gAndC threads :udps)
+       bs (Bootstrap.)
+       options (or options
+                   [[ChannelOption/MAX_MESSAGES_PER_READ maxMsgsPerRead]
+                    [ChannelOption/SO_RCVBUF (int rcvBuf)]
+                   [ChannelOption/SO_BROADCAST true]
+                   [ChannelOption/TCP_NODELAY true]])]
+      (doseq [[k v] options] (.option bs k v))
+      (setf! me :bootstrap bs)
+      (doto bs
+        (.channel z)
+        (.group g)
+        (.handler ^ChannelHandler ci))))
+
+  (start-server [me & args]
+    (let [bs (:bootstrap @me)
+          [host port] args
+          port (or port 4444)]
+      (assert (number? port))
+      (setf! me
+             :channel
+             (start-svr bs host port))))
+
+  (stop-server [me & args]
+    (finz-ch (:channel @me))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF

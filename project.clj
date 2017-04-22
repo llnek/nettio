@@ -21,7 +21,7 @@
                         [[org.clojure/clojure "1.8.0" :scope "provided"]]}
              :uberjar {:aot :all}}
 
-  :javadoc-opts {:package-names ["czlab.convoy"]
+  :javadoc-opts {:package-names ["czlab.nettio"]
                  :output-dir "docs"}
 
   :global-vars {*warn-on-reflection* true}

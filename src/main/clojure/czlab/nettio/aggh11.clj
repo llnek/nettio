@@ -30,6 +30,7 @@
             FileUpload
             Attribute
             HttpPostRequestDecoder]
+           [czlab.convoy.core HttpMessageObj]
            [io.netty.handler.codec.http
             HttpVersion
             HttpMethod
@@ -84,17 +85,12 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defobject HttpMessageObj HttpMsgGist)
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
 (defn- fireMsg
   "" [^ChannelHandlerContext ctx msg]
 
   (some->>
     (or (some->> (gistH1Message ctx msg)
-               (object<> HttpMessageObj ))
-        msg)
+                 (object<> HttpMessageObj )) msg)
     (.fireChannelRead ctx)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -111,66 +107,66 @@
 (defn- parsePost
   "" [^HttpPostRequestDecoder deco]
 
-  (let [bag (formItems<>)]
-    (doseq [^HttpData x (.getBodyHttpDatas deco)]
-      (when-some
-        [z (cond
-             (ist? FileUpload x)
-             (let [u (cast? FileUpload x)
-                   c (getHttpData u)]
-               (fileItem<> false
-                           (.getContentType u)
-                           nil
-                           (.getName u)
-                           (.getFilename u) c))
-             (ist? Attribute x)
-             (let [a (cast? Attribute x)
-                   c (getHttpData a)]
-               (fileItem<> true "" nil (.getName a) "" c)))]
-        (if-some [d (cast? AbstractDiskHttpData x)]
-          (if-not (.isInMemory d)
-            (.removeHttpDataFromClean deco x)))
-        ;;no need to release since we will call destroy on the decoder
-        ;;(.release x)
-        (addItem bag z)))
-    bag))
+  (reduce
+    #(when-some
+       [z (cond
+            (ist? FileUpload %)
+            (let [u (cast? FileUpload %)
+                  c (getHttpData u)]
+              (fileItem<> false
+                          (.getContentType u)
+                          nil
+                          (.getName u)
+                          (.getFilename u) c))
+            (ist? Attribute %)
+            (let [a (cast? Attribute %)
+                  c (getHttpData a)]
+              (fileItem<> true "" nil (.getName a) "" c)))]
+       (if-some [d (cast? AbstractDiskHttpData %)]
+         (if-not (.isInMemory d)
+           (.removeHttpDataFromClean deco ^HttpData %)))
+       ;;no need to release since we will call destroy on the decoder
+       ;;(.release x)
+       (add-item %1 z))
+    (formItems<>)
+    (.getBodyHttpDatas deco)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- h11res<>
   "" ^WholeResponse [ctx rsp]
 
-  (let []
-    (doto
-      (proxy [WholeResponse][rsp]
-        (prepareBody [df msg]
-          (. ^HttpDataFactory df
-             createAttribute ^HttpRequest msg body-attr-id))
-        (endContent [_] (getHttpData _)))
-      (. init ^HttpDataFactory (getAKey ctx dfac-key)))))
+  (doto
+    (proxy [WholeResponse][rsp]
+      (prepareBody [df msg]
+        (. ^HttpDataFactory
+           df
+           createAttribute ^HttpRequest msg body-attr-id))
+      (endContent [arg] (getHttpData arg)))
+    (.init ^HttpDataFactory (getAKey ctx dfac-key))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- h11req<>
   "" ^WholeRequest [ctx req]
 
-  (let []
-    (doto
-      (proxy [WholeRequest][req]
-        (prepareBody [df msg]
-          (if (-> (chkFormPost msg)
-                  (eqAny? ["multipart" "post"]))
-            (HttpPostRequestDecoder.
-              ^HttpDataFactory df ^HttpRequest msg (getMsgCharset msg))
-            (. ^HttpDataFactory df
-               createAttribute ^HttpRequest msg body-attr-id)))
-        (endContent [c]
-          (cond
-            (ist? HttpPostRequestDecoder c)
-            (parsePost c)
-            (ist? Attribute c)
-            (getHttpData c))))
-      (. init ^HttpDataFactory (getAKey ctx dfac-key)))))
+  (doto
+    (proxy [WholeRequest][req]
+      (prepareBody [df msg]
+        (if (-> (chkFormPost msg)
+                (eqAny? ["multipart" "post"]))
+          (HttpPostRequestDecoder.
+            ^HttpDataFactory df ^HttpRequest msg (getMsgCharset msg))
+          (. ^HttpDataFactory
+             df
+             createAttribute ^HttpRequest msg body-attr-id)))
+      (endContent [c]
+        (cond
+          (ist? HttpPostRequestDecoder c)
+          (parsePost c)
+          (ist? Attribute c)
+          (getHttpData c))))
+    (.init ^HttpDataFactory (getAKey ctx dfac-key))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;

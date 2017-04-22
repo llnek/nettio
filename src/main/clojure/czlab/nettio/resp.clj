@@ -72,31 +72,30 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defstateful HttpResultMsgObj
+(decl-mutable HttpResultMsgObj
   HttpMsgGist
   HttpResultMsg
-  (setResContentType [me c]
+  (set-res-content-type [me c]
     (.set ^HttpHeaders
           (:headers @me) HttpHeaderNames/CONTENT_TYPE c))
-  (getResContentType [me]
+  (get-res-content-type [me]
     (msgHeader me HttpHeaderNames/CONTENT_TYPE))
-  (setResETag [me e]
+  (set-res-etag [me e]
     (.set ^HttpHeaders (:headers @me) HttpHeaderNames/ETAG e))
-  (addResCookie [me c]
+  (add-res-cookie [me c]
     (if (some? c)
-      (alterStateful
-        me
-        update-in
-        [:cookies]
-        assoc (.getName ^HttpCookie c) c)))
-  (removeResHeader [me nm] (.remove ^HttpHeaders
+      (setf! me
+             :cookies
+             (assoc (:cookies @me)
+                    (.getName ^HttpCookie c) c))))
+  (remove-res-header [me nm] (.remove ^HttpHeaders
                                    (:headers @me) ^CharSequence nm))
-  (clearResHeaders [me] (.clear ^HttpHeaders (:headers @me)))
-  (clearResCookies [me]
-    (alterStateful me assoc :cookies {}))
-  (addResHeader [me nm v]
+  (clear!res-headers [me] (.clear ^HttpHeaders (:headers @me)))
+  (clear!res-cookies [me]
+    (setf! me :cookies {}))
+  (add-res-header [me nm v]
     (.add ^HttpHeaders (:headers @me) ^CharSequence nm v))
-  (setResHeader [me nm v]
+  (set-res-header [me nm v]
     (.set ^HttpHeaders (:headers @me) ^CharSequence nm v)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -104,7 +103,7 @@
 (defn- result<> "" [ch theReq status]
   {:pre [(or (nil? status)
              (number? status))]}
-  (entity<> HttpResultMsgObj
+  (mutable<> HttpResultMsgObj
             {:status (or status (.code HttpResponseStatus/OK))
              :ver (.text HttpVersion/HTTP_1_1)
              :headers (DefaultHttpHeaders.)
@@ -116,8 +115,8 @@
 ;;
 (extend-protocol HttpResultMsgCreator
   io.netty.channel.Channel
-  (httpResult [ch theReq] (httpResult ch theReq 200))
-  (httpResult [ch theReq status] (result<> ch theReq status)))
+  (http-result [ch theReq] (http-result ch theReq 200))
+  (http-result [ch theReq status] (result<> ch theReq status)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -399,8 +398,8 @@
 ;;
 (extend-protocol HttpResultMsgReplyer
   io.netty.channel.Channel
-  (replyResult [ch theRes] (replyResult ch theRes nil))
-  (replyResult [ch theRes arg] (replyer<> theRes arg)))
+  (reply-result [ch theRes] (reply-result ch theRes nil))
+  (reply-result [ch theRes arg] (replyer<> theRes arg)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF
