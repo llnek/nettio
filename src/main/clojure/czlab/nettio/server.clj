@@ -61,6 +61,7 @@
             ApplicationProtocolConfig$SelectorFailureBehavior
             ApplicationProtocolConfig$SelectedListenerFailureBehavior]
            [io.netty.handler.codec.http HttpMessage]
+           [czlab.jasal LifeCycle]
            [java.util ArrayList]
            [java.security KeyStore]
            [io.netty.bootstrap
@@ -339,8 +340,8 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (decl-mutable NettyWebServer
-  HttpServerLifecycle
-  (create-server [me & cargs]
+  LifeCycle
+  (init [me carg]
     (let
       [{:keys [threads routes rcvBuf backlog
                sharedGroup? tempFileDir
@@ -354,8 +355,8 @@
         {:keys [server child]}
         :options
         :as args}
-       (second cargs)
-       p1 (first cargs)
+       (dissoc carg :ifunc)
+       p1 (:ifunc carg)
        ci
        (cond
          (ist? ChannelInitializer p1) p1
@@ -399,31 +400,34 @@
       (configDiskFiles true tempFileDir)
       bs))
 
-  (start-server [me & args]
+  (start [me] (.start me nil))
+  (start [me arg]
     (let [bs (:bootstrap @me)
-          [host port] args
-          port (or port 80)]
+          {:keys [host port]
+           :or {port 80}} arg]
       (assert (number? port))
       (setf! me
              :channel
              (start-svr bs host port))))
 
-  (stop-server [me & args]
-    (finz-ch (:channel @me))))
+  (stop [me]
+    (finz-ch (:channel @me)))
+
+  (dispose [me] (wipe! me)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (decl-mutable NettyUdpServer
-  HttpServerLifecycle
-  (create-server [me & cargs]
+  LifeCycle
+  (init [me carg]
     (let
       [{:keys [maxMsgsPerRead threads rcvBuf options]
         :or {maxMsgsPerRead Integer/MAX_VALUE
              rcvBuf (* 2 MegaBytes)
              threads 0}
         :as args}
-       (second cargs)
-       p1 (first cargs)
+       (dissoc carg :ifunc)
+       p1 (:ifunc carg)
        ci
        (cond
          (ist? ChannelInitializer p1) p1
@@ -443,17 +447,21 @@
         (.group g)
         (.handler ^ChannelHandler ci))))
 
-  (start-server [me & args]
+  (start [me] (.start me nil))
+  (start [me arg]
     (let [bs (:bootstrap @me)
-          [host port] args
-          port (or port 4444)]
+          {:keys [host port]
+           :or {port 4444}}
+          arg]
       (assert (number? port))
       (setf! me
              :channel
              (start-svr bs host port))))
 
-  (stop-server [me & args]
-    (finz-ch (:channel @me))))
+  (stop [me]
+    (finz-ch (:channel @me)))
+
+  (dispose [me] (wipe! me)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF
