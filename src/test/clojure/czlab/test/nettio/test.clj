@@ -65,15 +65,6 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- mockRequest "" [ch w]
-  (object<> HttpMessageObj
-            (merge
-              (dftReqMsgObj)
-              {:body (:body @w)
-               :socket ch })))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
 (defn- serverHandler<> "" []
   (proxy [InboundHandler][]
     (channelRead0 [ctx msg]
@@ -255,36 +246,6 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(def ^:private
-  FORM-MULTIPART
-  (str "-----1234\r\n"
-             "Content-Disposition: form-data; name=\"file1\"; filename=\"foo1.tab\"\r\n"
-             "Content-Type: text/plain\r\n"
-             "\r\n"
-             "file content(1)\n"
-             "\r\n"
-             "-----1234\r\n"
-             "Content-Disposition: form-data; name=\"file2\"; filename=\"foo2.tab\"\r\n"
-             "Content-Type: text/plain\r\n"
-             "\r\n"
-             "file content(2)\n"
-             "\r\n"
-             "-----1234\r\n"
-             "Content-Disposition: form-data; name=\"field\"\r\n"
-             "\r\n"
-             "fieldValue\r\n"
-             "-----1234\r\n"
-             "Content-Disposition: form-data; name=\"multi\"\r\n"
-             "\r\n"
-             "value1\r\n"
-             "-----1234\r\n"
-             "Content-Disposition: form-data; name=\"multi\"\r\n"
-             "\r\n"
-             "value2\r\n"
-             "-----1234--\r\n"))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
 (defn- testFormMultipart "" []
   (let [out (atom nil)
         w
@@ -296,7 +257,7 @@
                          (replyStatus ctx 200))))})
             (nettyWebServer<>))
         ctype "multipart/form-data; boundary=---1234"
-        cbody FORM-MULTIPART
+        cbody TEST-FORM-MULTIPART
         _ (.start w {:port 5555 :host lhost-name})
         po (h1post (str "http://" lhost-name ":5555/form")
                    cbody
@@ -332,124 +293,6 @@
          (= (:multi+value2 rmap) "value2")
          (= (:file1+foo1.tab fmap) "file content(1)\n")
          (= (:file2+foo2.tab fmap) "file content(2)\n"))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- testFormUpload "" []
-  (let [cbody (bytesit FORM-MULTIPART)
-        gist {:ctype "multipart/form-data; boundary=---1234"
-              :clen (alength cbody)}
-        out (parseFormPost gist (xdata<> cbody))
-        rmap
-        (when out
-          (preduce<map>
-            #(let [^FileItem i %2]
-               (if (.isFormField i)
-                 (assoc! %1
-                         (keyword (str (.getFieldName i)
-                                       "+" (.getString i)))
-                         (.getString i))
-                 %1))
-            (get-all-items out)))
-        fmap
-        (when out
-          (preduce<map>
-            #(let [^FileItem i %2]
-               (if-not (.isFormField i)
-                 (assoc! %1
-                         (keyword (str (.getFieldName i)
-                                       "+" (.getName i)))
-                         (strit (.get i)))
-                 %1))
-            (get-all-items out)))]
-    (and (= (:field+fieldValue rmap) "fieldValue")
-         (= (:multi+value1 rmap) "value1")
-         (= (:multi+value2 rmap) "value2")
-         (= (:file1+foo1.tab fmap) "file content(1)\n")
-         (= (:file2+foo2.tab fmap) "file content(2)\n"))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(def ^:private ROUTES
-  [{:XXXhandler "p1"
-    :uri "/([^/]+)/(.*)"
-    :verb :post
-    :template  "t1.html"}
-   {:mount "m1"
-    :uri "/(favicon\\..+)"}
-   {:XXXhandler "p2"
-    :uri "/:a/([^/]+)/:b/c/:d"
-    :verb :get
-    :template  "t2.html"}
-   {:mount "m2"
-    :uri "/4"}])
-
-(def ^:private SORTED-ROUTES (loadRoutes ROUTES))
-(def ^:private RC (routeCracker<> SORTED-ROUTES))
-;;(println "routes = " SORTED-ROUTES)
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- testRoutes1 "" []
-  (let [rc (crack-route RC {:method "post" :uri "/hello/world"})
-        ^Matcher m (:matcher rc)
-        r (:routeInfo rc)
-        {:keys [groups places]}
-        (collect-info r m)]
-    (and (= "hello" (first groups))
-         (= "world" (last groups))
-         (empty? places))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- testRoutes2 "" []
-  (let [rc (crack-route RC {:method "get" :uri "/favicon.hello"})
-        ^Matcher m (:matcher rc)
-        r (:routeInfo rc)
-        {:keys [groups places]}
-        (collect-info r m)]
-    (and (= "favicon.hello" (first groups))
-         (== 1 (count groups))
-         (empty? places))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- testRoutes3 "" []
-  (let [rc (crack-route RC {:method "get" :uri "/A/zzz/B/c/D"})
-        ^Matcher m (:matcher rc)
-        r (:routeInfo rc)
-        {:keys [groups places] :as ccc}
-        (collect-info r m)]
-    (and (= "A" (nth groups 0))
-         (= "zzz" (nth groups 1))
-         (= "B" (nth groups 2))
-         (= "D" (nth groups 3))
-         (= "A" (get places "a"))
-         (= "B" (get places "b"))
-         (= "D" (get places "d"))
-         (== 3 (count places)))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- testRoutes4 "" []
-  (let [rc (crack-route RC {:method "get" :uri "/4"})
-        ^Matcher m (:matcher rc)
-        r (:routeInfo rc)
-        {:keys [groups places]}
-        (collect-info  r m)]
-    (and (empty? groups)
-         (empty? places))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- testRoutes5 "" []
-  (let [rc (crack-route RC {:method "get" :uri "/1/1/1/1/1/1/14"})
-        s (:status? rc)
-        ^Matcher m (:matcher rc)
-        r (:routeInfo rc)]
-    (and (false? s)
-         (nil? m)
-         (nil? r))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -702,16 +545,6 @@
 (deftest czlabtestconvoynettio-test
 
   (testing
-    "related to: routes"
-    (is (> (count SORTED-ROUTES) 0))
-    (is (has-routes? RC))
-    (is (testRoutes1))
-    (is (testRoutes2))
-    (is (testRoutes3))
-    (is (testRoutes4))
-    (is (testRoutes5)))
-
-  (testing
     "related to: web sockets"
     (is (testWebsockBad))
     (is (testWebsock))
@@ -735,8 +568,7 @@
   (testing
     "related to: form post"
     (is (testFormPost))
-    (is (testFormMultipart))
-    (is (testFormUpload)))
+    (is (testFormMultipart)))
 
   (testing
     "related to: CORS pre-flight"
