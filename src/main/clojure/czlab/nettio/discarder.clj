@@ -17,19 +17,19 @@
             [czlab.basal.logging :as log])
 
   (:use [czlab.nettio.server]
-        [czlab.convoy.server]
         [czlab.basal.core]
         [czlab.basal.str]
         [czlab.nettio.core])
 
   (:import [io.netty.handler.codec.http HttpResponseStatus]
            [io.netty.handler.codec.http LastHttpContent]
+           [czlab.nettio.server NettyWebServer]
            [clojure.lang APersistentMap]
+           [czlab.jasal CU LifeCycle]
            [czlab.nettio
             WholeMessage
             WholeRequest
             InboundHandler]
-           [czlab.jasal CU]
            [io.netty.channel
             ChannelPipeline
             ChannelHandler
@@ -40,8 +40,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;(set! *warn-on-reflection* false)
 
-(defonce ^:private svrboot (atom nil))
-(defonce ^:private svrchan (atom nil))
+(defonce ^:private svr (atom nil))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -57,17 +56,15 @@
 
   ([cb] (discardHTTPD<> cb nil))
   ([cb args]
-   (let [w (mutable<> NettyWebServer)]
-     (apply create-server
-            w
-            (fn [_] {:h1 (h1proxy cb)}) args))))
+   (let [^LifeCycle w (mutable<> NettyWebServer)]
+     (.init w (merge args
+                     {:ifunc (fn [_] {:h1 (h1proxy cb)}) }))
+     w)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn finzServer "" []
-  (stopServer @svrchan)
-  (reset! svrboot nil)
-  (reset! svrchan nil))
+  (.stop ^LifeCycle @svr) (reset! svr nil))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -76,12 +73,12 @@
     (< (count args) 2)
     (println "usage: discard host port")
     :else
-    (let [lc (discardHTTPD<> #(println "hello, poked by discarder"))
-          ch (start-server lc {:host (nth args 0)
-                               :port (convInt (nth args 1) 8080)})]
-      (exitHook #(stopServer ch))
-      (reset! svrboot bs)
-      (reset! svrchan ch)
+    (let [^LifeCycle s (discardHTTPD<>
+                         #(println "hello, poked by discarder"))]
+      (.start s {:host (nth args 0)
+                 :port (convInt (nth args 1) 8080)})
+      (exitHook #(.stop s))
+      (reset! svr s)
       (CU/block))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

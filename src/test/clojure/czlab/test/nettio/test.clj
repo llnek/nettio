@@ -33,6 +33,7 @@
 
   (:import [io.netty.buffer Unpooled ByteBuf ByteBufHolder]
            [org.apache.commons.fileupload FileItem]
+           [czlab.convoy.core HttpMessageObj]
            [io.netty.handler.codec.http.websocketx
             BinaryWebSocketFrame
             TextWebSocketFrame
@@ -47,7 +48,7 @@
             HttpResponseStatus]
            [java.nio.charset Charset]
            [java.net URL URI]
-           [czlab.jasal XData]
+           [czlab.jasal LifeCycle XData]
            [jregex Matcher]
            [czlab.nettio
             WholeResponse
@@ -63,14 +64,10 @@
             ChannelHandlerContext]
            [io.netty.channel.embedded EmbeddedChannel]))
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defobject HttpRequestMsgObj HttpMsgGist)
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- mockRequest "" [ch w]
-  (object<> HttpRequestMsgObj
+  (object<> HttpMessageObj
             (merge
               (dftReqMsgObj)
               {:body (:body @w)
@@ -81,7 +78,7 @@
 (defn- serverHandler<> "" []
   (proxy [InboundHandler][]
     (channelRead0 [ctx msg]
-      (let [c (.getBytes ^XData (:body @msg))
+      (let [c (.getBytes ^XData (:body msg))
             ch (ch?? ctx)
             r (httpFullReply<>
                 (.code HttpResponseStatus/OK) c (.alloc ch))]
@@ -160,43 +157,39 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- testDiscarder "" []
-  (let [bs (discardHTTPD<> rand)
-        ch (startServer bs
-                        {:port 5555 :host lhost-name})
+  (let [^LifeCycle w (discardHTTPD<> rand)
+        _ (.start w {:port 5555 :host lhost-name})
         po (h1get (str "http://"
                        lhost-name
                        ":5555/test/discarder?a=1&b=john%27smith"))
-        rc (deref po 3000 nil)]
-    (stopServer ch)
+        rc (deref po 3000 nil)
+        _ (.stop w)]
     (and rc (== 0 (.size ^XData (:body @rc))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- testSnooper "" []
-  (let [bs (snoopHTTPD<>)
-        ch (startServer bs
-                        {:port 5555 :host lhost-name})
+  (let [^LifeCycle w (snoopHTTPD<>)
+        _ (.start w {:port 5555 :host lhost-name})
         po (h1get (str "http://"
                        lhost-name
                        ":5555/test/snooper?a=1&b=john%27smith"))
-        rc (deref po 3000 nil)]
-    (stopServer ch)
+        rc (deref po 3000 nil)
+        _ (.stop w)]
     (and rc (.hasContent ^XData (:body @rc)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- testFileSvrGet "" []
-  (let [bs (memFileServer<> *tempfile-repo*)
+  (let [^LifeCycle w (memFileServer<> *tempfile-repo*)
         s "test content"
         tn "testget.txt"
         port 5555
         _ (spit (io/file *tempfile-repo* tn) s)
-        ch (startServer bs
-                        {:port port
-                         :host lhost-name})
+        _ (.start w {:port port :host lhost-name})
         po (h1get (format "http://%s:%d/%s" lhost-name port tn))
-        rc (deref po 5000 nil)]
-    (stopServer ch)
+        rc (deref po 5000 nil)
+        _ (.stop w)]
     (and rc
          (> (.size ^XData (:body @rc)) 0)
          (= s (.strit ^XData (:body @rc))))))
@@ -204,21 +197,19 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- testFileSvrPut "" []
-  (let [bs (memFileServer<> *tempfile-repo*)
+  (let [^LifeCycle w (memFileServer<> *tempfile-repo*)
         src (tempFile)
         s "test content"
         tn "testput.txt"
         port 5555
         _ (deleteQ (io/file *tempfile-repo* tn))
         _ (spit src s)
-        ch (startServer bs
-                        {:port port
-                         :host lhost-name})
+        _ (.start w {:port port :host lhost-name})
         po (h1post (format "http://%s:%d/%s"
                            lhost-name port tn) src)
         rc (deref po 5000 nil)
-        des (io/file *tempfile-repo* tn)]
-    (stopServer ch)
+        des (io/file *tempfile-repo* tn)
+        _ (.stop w)]
     (and rc
          (== 0 (.size ^XData (:body @rc)))
          (.exists des)
@@ -228,22 +219,19 @@
 ;;
 (defn- testFormPost "" []
   (let [out (atom nil)
-        bs
-        (createServer<>
-          :netty/http
-          (fn [_]
-            {:h1
-             (proxy [InboundHandler][]
-               (channelRead0 [ctx msg]
-                 (let [^ChannelHandlerContext ctx ctx
-                       ch (.channel ctx)
-                       ^XData b (:body @msg)
-                       res (httpResult ch (mockRequest ch msg) nil)]
-                   (reset! out (.content b))
-                   (alterStateful res assoc :body "hello joe")
-                   (replyResult ch res nil))))}))
-        ch (startServer bs
-                        {:port 5555 :host lhost-name})
+        w
+        (-> (fn [_]
+              {:h1
+               (proxy [InboundHandler][]
+                 (channelRead0 [ctx msg]
+                   (let [ch (ch?? ctx)
+                         ^XData b (:body msg)
+                         res (http-result ch msg nil)]
+                     (reset! out (.content b))
+                     (setf! res :body "hello joe")
+                     (reply-result ch res nil))))})
+            (nettyWebServer<>))
+        _ (.start w {:port 5555 :host lhost-name})
         po (h1post (str "http://" lhost-name ":5555/form")
                    "a=b&c=3%209&name=john%27smith"
                    {:headers {:content-type
@@ -258,8 +246,8 @@
                          (keyword (.getFieldName i))
                          (.getString i))
                  %1))
-            (getAllItems @out)))]
-    (stopServer ch)
+            (getAllItems @out)))
+        _ (.stop w)]
     (and rc
          (= "hello joe" (.strit ^XData (:body @rc)))
          (= (:a rmap) "b")
@@ -300,20 +288,17 @@
 ;;
 (defn- testFormMultipart "" []
   (let [out (atom nil)
-        bs
-        (createServer<>
-          :netty/http
-          (fn [_]
-            {:h1
-             (proxy [InboundHandler][]
-               (channelRead0 [ctx msg]
-                 (let [^XData b (:body @msg)]
-                   (reset! out (.content b))
-                   (replyStatus ctx 200))))}))
+        w
+        (-> (fn [_]
+              {:h1 (proxy [InboundHandler][]
+                     (channelRead0 [ctx msg]
+                       (let [^XData b (:body msg)]
+                         (reset! out (.content b))
+                         (replyStatus ctx 200))))})
+            (nettyWebServer<>))
         ctype "multipart/form-data; boundary=---1234"
         cbody FORM-MULTIPART
-        ch (startServer bs
-                        {:port 5555 :host lhost-name})
+        _ (.start w {:port 5555 :host lhost-name})
         po (h1post (str "http://" lhost-name ":5555/form")
                    cbody
                    {:headers {:content-type ctype }})
@@ -328,7 +313,7 @@
                                        "+" (.getString i)))
                          (.getString i))
                  %1))
-            (getAllItems @out)))
+            (get-all-items @out)))
         fmap
         (when @out
           (preduce<map>
@@ -339,8 +324,8 @@
                                        "+" (.getName i)))
                          (strit (.get i)))
                  %1))
-            (getAllItems @out)))]
-    (stopServer ch)
+            (get-all-items @out)))
+        _ (.stop w)]
     (and rc
          (== 0 (.size ^XData (:body @rc)))
          (= (:field+fieldValue rmap) "fieldValue")
@@ -366,7 +351,7 @@
                                        "+" (.getString i)))
                          (.getString i))
                  %1))
-            (getAllItems out)))
+            (get-all-items out)))
         fmap
         (when out
           (preduce<map>
@@ -377,7 +362,7 @@
                                        "+" (.getName i)))
                          (strit (.get i)))
                  %1))
-            (getAllItems out)))]
+            (get-all-items out)))]
     (and (= (:field+fieldValue rmap) "fieldValue")
          (= (:multi+value1 rmap) "value1")
          (= (:multi+value2 rmap) "value2")
@@ -407,11 +392,11 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- testRoutes1 "" []
-  (let [rc (crackRoute RC {:method "post" :uri "/hello/world"})
+  (let [rc (crack-route RC {:method "post" :uri "/hello/world"})
         ^Matcher m (:matcher rc)
         r (:routeInfo rc)
         {:keys [groups places]}
-        (collectInfo  r m)]
+        (collect-info r m)]
     (and (= "hello" (first groups))
          (= "world" (last groups))
          (empty? places))))
@@ -419,11 +404,11 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- testRoutes2 "" []
-  (let [rc (crackRoute RC {:method "get" :uri "/favicon.hello"})
+  (let [rc (crack-route RC {:method "get" :uri "/favicon.hello"})
         ^Matcher m (:matcher rc)
         r (:routeInfo rc)
         {:keys [groups places]}
-        (collectInfo  r m)]
+        (collect-info r m)]
     (and (= "favicon.hello" (first groups))
          (== 1 (count groups))
          (empty? places))))
@@ -431,11 +416,11 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- testRoutes3 "" []
-  (let [rc (crackRoute RC {:method "get" :uri "/A/zzz/B/c/D"})
+  (let [rc (crack-route RC {:method "get" :uri "/A/zzz/B/c/D"})
         ^Matcher m (:matcher rc)
         r (:routeInfo rc)
         {:keys [groups places] :as ccc}
-        (collectInfo  r m)]
+        (collect-info r m)]
     (and (= "A" (nth groups 0))
          (= "zzz" (nth groups 1))
          (= "B" (nth groups 2))
@@ -448,18 +433,18 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- testRoutes4 "" []
-  (let [rc (crackRoute RC {:method "get" :uri "/4"})
+  (let [rc (crack-route RC {:method "get" :uri "/4"})
         ^Matcher m (:matcher rc)
         r (:routeInfo rc)
         {:keys [groups places]}
-        (collectInfo  r m)]
+        (collect-info  r m)]
     (and (empty? groups)
          (empty? places))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- testRoutes5 "" []
-  (let [rc (crackRoute RC {:method "get" :uri "/1/1/1/1/1/1/14"})
+  (let [rc (crack-route RC {:method "get" :uri "/1/1/1/1/1/1/14"})
         s (:status? rc)
         ^Matcher m (:matcher rc)
         r (:routeInfo rc)]
@@ -472,25 +457,23 @@
 (defn- testPreflightNotAllowed "" []
   (let [o (str "http://" lhost-name)
         port 5555
-        bs
-        (createServer<>
-          :netty/http
-          (fn [_]
-            {:h1
-             (proxy [InboundHandler][]
-               (channelRead0 [ctx msg]
-                 (let [^XData b (:body @msg)]
-                   (replyStatus ctx 200))))}))
-        ch (startServer bs
-                        {:port 5555 :host lhost-name})
+        w
+        (-> (fn [_]
+              {:h1
+               (proxy [InboundHandler][]
+                 (channelRead0 [ctx msg]
+                   (let [^XData b (:body msg)]
+                     (replyStatus ctx 200))))})
+            (nettyWebServer<>))
+        _ (.start w {:port 5555 :host lhost-name})
         args {:headers
               {:origin o
                :Access-Control-Request-Method "PUT"
                :Access-Control-Request-Headers "X-Custom-Header"}}
         rc (h1send (format "http://%s:%d/cors" lhost-name port)
                    "OPTIONS" nil args)
-        p (deref rc 3000 nil)]
-    (stopServer ch)
+        p (deref rc 3000 nil)
+        _ (.stop w)]
     (and p (== 405 (:code (:status @p))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -501,25 +484,24 @@
         args
         {:corsCfg {:enabled? true
                    :anyOrigin? true}}
-        bs
-        (createServer<>
-          :netty/http
-          (fn [_]
-            {:h1
-             (proxy [InboundHandler][]
-               (channelRead0 [ctx msg]
-                 (let [^XData b (:body @msg)]
-                   (replyStatus ctx 200))))}) args)
-        ch (startServer bs
-                        {:port 5555 :host lhost-name})
+        w
+        (->> (fn [_]
+               {:h1
+                (proxy [InboundHandler][]
+                  (channelRead0 [ctx msg]
+                    (let [^XData b (:body msg)]
+                      (replyStatus ctx 200))))})
+             (assoc args :ifunc)
+             (nettyWebServer<>))
+        _ (.start w {:port 5555 :host lhost-name})
         args {:headers
               {:origin o
                :Access-Control-Request-Method "PUT"
                :Access-Control-Request-Headers "X-Custom-Header"}}
         rc (h1send (format "http://%s:%d/cors" lhost-name port)
                    "OPTIONS" nil args)
-        p (deref rc 3000 nil)]
-    (stopServer ch)
+        p (deref rc 3000 nil)
+        _ (.stop w)]
     (and p (= "*" (msgHeader p "access-control-allow-origin")))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

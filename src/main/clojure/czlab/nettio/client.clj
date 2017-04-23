@@ -454,7 +454,7 @@
     (if (.isSuccess ff)
       (let [ch (.channel ff)
             cc (mkWSClient bs host port ch)]
-        (setAKey c cc-key cc)
+        (setAKey ch cc-key cc)
         (deliver rcp cc))
       (let [err (or (.cause ff)
                     (Exception. "conn error"))]

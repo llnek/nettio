@@ -20,11 +20,11 @@
   (:use [czlab.nettio.server]
         [czlab.basal.core]
         [czlab.basal.str]
-        [czlab.convoy.server]
         [czlab.convoy.core]
         [czlab.nettio.core])
 
   (:import [io.netty.util Attribute AttributeKey CharsetUtil]
+           [czlab.nettio.server NettyWebServer]
            [czlab.nettio InboundHandler]
            [java.util Map$Entry]
            [io.netty.channel
@@ -49,7 +49,7 @@
             HttpRequest
             QueryStringDecoder
             LastHttpContent]
-           [czlab.jasal CU XData]
+           [czlab.jasal LifeCycle CU XData]
            [io.netty.bootstrap ServerBootstrap]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -58,8 +58,7 @@
 (def ^:private keep-alive (akey<> "keepalive"))
 (def ^:private cookie-buf (akey<> "cookies"))
 (def ^:private msg-buf (akey<> "msg"))
-(defonce ^:private svrboot (atom nil))
-(defonce ^:private svrchan (atom nil))
+(defonce ^:private svr (atom nil))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -160,25 +159,26 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn snoopHTTPD<>
-  "Sample Snooper HTTPD" {:tag ServerBootstrap}
+  "Sample Snooper HTTPD"
 
   ([] (snoopHTTPD<> nil))
   ([args]
-   (createServer<>
-     :netty/http
-     (fn [_]
-       {:h1
-        (proxy [InboundHandler][]
-          (channelRead0 [ctx msg]
-            (handleReq ctx msg)
-            (handleCnt ctx msg)))}) args)))
+   (let [^LifeCycle w (mutable<> NettyWebServer)]
+     (.init w
+            (merge
+              args
+              {:ifunc (fn [_]
+                        {:h1
+                         (proxy [InboundHandler][]
+                           (channelRead0 [ctx msg]
+                             (handleReq ctx msg)
+                             (handleCnt ctx msg)))}) }))
+     w)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn finzServer "" []
-  (stopServer @svrchan)
-  (reset! svrboot nil)
-  (reset! svrchan nil))
+  (.stop ^LifeCycle @svr) (reset! svr nil))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -188,12 +188,11 @@
     (< (count args) 2)
     (println "usage: snoop host port")
     :else
-    (let [bs (snoopHTTPD<>)
-          ch (startServer bs {:host (nth args 0)
-                              :port (convInt (nth args 1) 8080)})]
-      (exitHook #(stopServer ch))
-      (reset! svrboot bs)
-      (reset! svrchan ch)
+    (let [^LifeCycle w (snoopHTTPD<>)]
+      (.start w {:host (nth args 0)
+                 :port (convInt (nth args 1) 8080)})
+      (exitHook #(.stop w))
+      (reset! svr w)
       (CU/block))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

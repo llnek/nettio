@@ -858,8 +858,8 @@
         (if (ist? HttpRequest msg)
           (let [c (getAKey ctx routes-key)]
             (if (and c
-                     (hasRoutes? c))
-              (crackRoute c {:method (getMethod msg)
+                     (has-routes? c))
+              (crack-route c {:method (getMethod msg)
                              :uri (getUriPath msg)}))))]
     (or rc dft)))
 
@@ -909,7 +909,7 @@
              status? redirect] :as ro}
      (matchOneRoute ctx msg)
      ri (if (and status? routeInfo matcher)
-          (collectInfo routeInfo matcher))]
+          (collect-info routeInfo matcher))]
     (merge
       (dftReqMsgObj)
       {:chunked? (HttpUtil/isTransferEncodingChunked msg)

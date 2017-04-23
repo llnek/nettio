@@ -79,7 +79,7 @@
             :charset (Charset/forName "utf-8")} ]
     (cond
       (ist? PongWebSocketFrame msg)
-      (->> (object<> WebSocketMessageObj
+      (->> (object<> WebsocketMessageObj
                      (assoc rc :pong? true))
            (.fireChannelRead ctx ))
       (.isFinalFragment msg)

@@ -18,7 +18,6 @@
   (:use [czlab.nettio.aggh11]
         [czlab.nettio.http11]
         [czlab.nettio.core]
-        [czlab.convoy.server]
         [czlab.convoy.routes]
         [czlab.basal.core]
         [czlab.basal.str]
@@ -343,7 +342,8 @@
   LifeCycle
   (init [me carg]
     (let
-      [{:keys [threads routes rcvBuf backlog
+      [carg (if (fn? carg) {:ifunc carg} carg)
+       {:keys [threads routes rcvBuf backlog
                sharedGroup? tempFileDir
                maxContentSize maxInMemory]
         :or {maxContentSize Integer/MAX_VALUE
@@ -421,7 +421,8 @@
   LifeCycle
   (init [me carg]
     (let
-      [{:keys [maxMsgsPerRead threads rcvBuf options]
+      [carg (if (fn? carg) {:ifunc carg} carg)
+       {:keys [maxMsgsPerRead threads rcvBuf options]
         :or {maxMsgsPerRead Integer/MAX_VALUE
              rcvBuf (* 2 MegaBytes)
              threads 0}
@@ -462,6 +463,26 @@
     (finz-ch (:channel @me)))
 
   (dispose [me] (wipe! me)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(defn nettyUdpServer<> "" {:tag LifeCycle}
+  ([] (nettyUdpServer<> nil))
+  ([carg]
+   (let [w (mutable<> NettyUdpServer)]
+     (if (some? carg)
+       (.init w carg))
+     w)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(defn nettyWebServer<> "" {:tag LifeCycle}
+  ([] (nettyWebServer<> nil))
+  ([carg]
+   (let [w (mutable<> NettyWebServer)]
+     (if (some? carg)
+       (.init w carg))
+     w)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF

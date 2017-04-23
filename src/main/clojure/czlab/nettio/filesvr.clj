@@ -27,6 +27,7 @@
 
   (:import [io.netty.handler.stream ChunkedFile ChunkedStream]
            [io.netty.bootstrap ServerBootstrap]
+           [czlab.nettio.server NettyWebServer]
            [czlab.nettio
             WholeMessage
             WholeRequest
@@ -47,13 +48,12 @@
             LastHttpContent]
            [io.netty.buffer Unpooled]
            [java.io IOException File]
-           [czlab.jasal CU XData]))
+           [czlab.jasal LifeCycle CU XData]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;(set! *warn-on-reflection* false)
 
-(defonce ^:private svrboot (atom nil))
-(defonce ^:private svrchan (atom nil))
+(defonce ^:private svr (atom nil))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -139,18 +139,17 @@
 
   ([vdir] (memFileServer<> vdir nil))
   ([vdir args]
-   (let [args (merge args
-                     {:vdir vdir})]
-     (createServer<>
-       :netty/http
-       #(do {:h1 (h1proxy %)}) args))))
+   (let [^LifeCycle w (mutable<> NettyWebServer)]
+     (.init w
+            (merge args
+                   {:vdir vdir
+                    :ifunc #(do {:h1 (h1proxy %)}) }))
+     w)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; filesvr host port vdir
 (defn finzServer "" []
-  (stopServer @svrchan)
-  (reset! svrboot nil)
-  (reset! svrchan nil))
+  (.stop ^LifeCycle @svr) (reset! svr nil))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; filesvr host port vdir
@@ -160,12 +159,11 @@
     (< (count args) 3)
     (println "usage: filesvr host port <rootdir>")
     :else
-    (let [bs (memFileServer<> (nth args 2))
-          ch (startServer bs {:host (nth args 0)
-                              :port (convInt (nth args 1) 8080)})]
-      (exitHook #(stopServer ch))
-      (reset! svrboot bs)
-      (reset! svrchan ch)
+    (let [^LifeCycle w (memFileServer<> (nth args 2))]
+      (.start w {:host (nth args 0)
+                 :port (convInt (nth args 1) 8080)})
+      (exitHook #(.stop w))
+      (reset! svr w)
       (CU/block))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
