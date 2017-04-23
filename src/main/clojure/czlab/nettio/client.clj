@@ -280,7 +280,7 @@
       (.close ^ChannelHandlerContext ctx))
     (channelRead [ctx msg]
       (let [wcc (getAKey ctx cc-key)]
-        (user wcc @msg)))))
+        (user wcc msg)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;

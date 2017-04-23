@@ -22,7 +22,6 @@
         [czlab.basal.core]
         [czlab.basal.str]
         [czlab.basal.io]
-        [czlab.convoy.server]
         [czlab.nettio.core])
 
   (:import [io.netty.handler.stream ChunkedFile ChunkedStream]
@@ -60,7 +59,7 @@
 (defn- replyGetVFile ""
   [^ChannelHandlerContext ctx req ^XData xdata]
 
-  (let [keep? (:isKeepAlive? @req)
+  (let [keep? (:isKeepAlive? req)
         res (httpReply<>)
         ch (.channel ctx)
         clen (.size xdata)]
@@ -87,7 +86,7 @@
 
   (log/debug "fPutter file= %s" (io/file (:vdir args) fname))
   (let [vdir (io/file (:vdir args))
-        ^XData body (:body @req)]
+        ^XData body (:body req)]
     (if (.isFile body)
       (log/debug "fPutter orig= %s" (.fileRef body)))
     (->> (try!!
@@ -114,8 +113,8 @@
   (proxy [InboundHandler][]
     (channelRead0 [ctx msg]
       (let
-        [^String uri (:uri2 @msg)
-         mtd (:method @msg)
+        [^String uri (:uri2 msg)
+         mtd (:method msg)
          pos (.lastIndexOf uri (int \/))
          p (if (< pos 0)
              uri

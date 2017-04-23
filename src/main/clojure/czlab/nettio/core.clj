@@ -28,6 +28,7 @@
            [javax.net.ssl KeyManagerFactory TrustManagerFactory]
            [io.netty.handler.codec.http2 Http2SecurityUtil]
            [java.io IOException OutputStream]
+           [clojure.lang IDeref]
            [io.netty.handler.codec.http.multipart
             DiskAttribute
             DiskFileUpload]
@@ -118,7 +119,9 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;(set! *warn-on-reflection* true)
 
-(defn- headers?? "" ^HttpHeaders [data] (:headers @data))
+(defn- headers??
+  "" ^HttpHeaders [msg] (:headers (if (ist? IDeref msg) @msg msg)))
+
 (defn- cs?? "" ^CharSequence [s] s)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -462,7 +465,7 @@
 
   (let [{:keys [headers uri2
                 version method]}
-        @req
+        req
         rc (DefaultFullHttpRequest.
               (HttpVersion/valueOf version)
               (HttpMethod/valueOf method)
@@ -793,7 +796,7 @@
     (log/debug "checking if it's a websock request......")
     (and (embeds? ws "websocket")
          (embeds? cn "upgrade")
-         (= "GET" (:method @req)))))
+         (= "GET" (:method req)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;

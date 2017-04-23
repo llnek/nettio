@@ -21,7 +21,6 @@
         [czlab.nettio.resp]
         [czlab.nettio.server]
         [czlab.nettio.client]
-        [czlab.convoy.server]
         [czlab.convoy.core]
         [czlab.convoy.upload]
         [czlab.basal.process]
@@ -164,7 +163,7 @@
                        ":5555/test/discarder?a=1&b=john%27smith"))
         rc (deref po 3000 nil)
         _ (.stop w)]
-    (and rc (== 0 (.size ^XData (:body @rc))))))
+    (and rc (== 0 (.size ^XData (:body rc))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -176,7 +175,7 @@
                        ":5555/test/snooper?a=1&b=john%27smith"))
         rc (deref po 3000 nil)
         _ (.stop w)]
-    (and rc (.hasContent ^XData (:body @rc)))))
+    (and rc (.hasContent ^XData (:body rc)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -191,8 +190,8 @@
         rc (deref po 5000 nil)
         _ (.stop w)]
     (and rc
-         (> (.size ^XData (:body @rc)) 0)
-         (= s (.strit ^XData (:body @rc))))))
+         (> (.size ^XData (:body rc)) 0)
+         (= s (.strit ^XData (:body rc))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -211,7 +210,7 @@
         des (io/file *tempfile-repo* tn)
         _ (.stop w)]
     (and rc
-         (== 0 (.size ^XData (:body @rc)))
+         (== 0 (.size ^XData (:body rc)))
          (.exists des)
          (= s (slurp des)))))
 
@@ -246,10 +245,10 @@
                          (keyword (.getFieldName i))
                          (.getString i))
                  %1))
-            (getAllItems @out)))
+            (get-all-items @out)))
         _ (.stop w)]
     (and rc
-         (= "hello joe" (.strit ^XData (:body @rc)))
+         (= "hello joe" (.strit ^XData (:body rc)))
          (= (:a rmap) "b")
          (= (:c rmap) "3 9")
          (= (:name rmap) "john'smith"))))
@@ -327,7 +326,7 @@
             (get-all-items @out)))
         _ (.stop w)]
     (and rc
-         (== 0 (.size ^XData (:body @rc)))
+         (== 0 (.size ^XData (:body rc)))
          (= (:field+fieldValue rmap) "fieldValue")
          (= (:multi+value1 rmap) "value1")
          (= (:multi+value2 rmap) "value2")
@@ -474,7 +473,7 @@
                    "OPTIONS" nil args)
         p (deref rc 3000 nil)
         _ (.stop w)]
-    (and p (== 405 (:code (:status @p))))))
+    (and p (== 405 (:code (:status p))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -514,50 +513,48 @@
                    :anyOrigin? true
                    :nullable? false
                    :credentials? true}}
-        bs
-        (createServer<>
-          :netty/http
-          (fn [_]
-            {:h1
-             (proxy [InboundHandler][]
-               (channelRead0 [ctx msg]
-                 (let [^XData b (:body @msg)]
-                      (replyStatus ctx 200))))}) args)
-        ch (startServer bs
-                        {:port 5555 :host lhost-name})
+        w
+        (->> (fn [_]
+               {:h1
+                (proxy [InboundHandler][]
+                  (channelRead0 [ctx msg]
+                    (let [^XData b (:body msg)]
+                      (replyStatus ctx 200))))})
+             (assoc args :ifunc)
+             (nettyWebServer<>))
+        _ (.start w {:port 5555 :host lhost-name})
         args {:headers
               {:origin o
                :Access-Control-Request-Method "PUT"
                :Access-Control-Request-Headers "X-Custom-Header"}}
         rc (h1send (format "http://%s:%d/cors" lhost-name port)
                    "OPTIONS" nil args)
-        p (deref rc 3000 nil)]
-    (stopServer ch)
+        p (deref rc 3000 nil)
+        _ (.stop w)]
     (and p (= o (msgHeader p "access-control-allow-origin")))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- testWebsockClose "" []
   (let [args {:wsockPath "/web/sock"}
-        bs
-        (createServer<>
-          :netty/http
-          (fn [_]
-            {:h1
-             (proxy [InboundHandler][]
-               (channelRead0 [ctx msg]
-                 (println "msg = " msg)))}) args)
+        w
+        (->> (fn [_]
+               {:h1
+                (proxy [InboundHandler][]
+                  (channelRead0 [ctx msg]
+                    (println "msg = " msg)))})
+             (assoc args :ifunc)
+             (nettyWebServer<>))
         port 5556
-        ch (startServer bs
-                        {:port port :host lhost-name})
+        _ (.start w {:port port :host lhost-name})
         rcp (wsconnect<> lhost-name
                          port
                          "/web/sock"
                          (fn [_ _]))
-        cc (deref rcp 5000 nil)]
-    (when-some [c (cast? ClientConnect cc)] (.dispose c))
-    (pause 1000)
-    (stopServer ch)
+        cc (deref rcp 5000 nil)
+        _ (when-some [c (cast? ClientConnect cc)] (.dispose c))
+        _ (pause 1000)
+        _ (.stop w)]
     (and (ist? ClientConnect cc)
          (not (.isOpen (.channel ^ClientConnect cc))))))
 
@@ -566,46 +563,44 @@
 (defn- testWebsockBad "" []
   (let [args {:wsockPath #{"/web/sock"}}
         host lhost-name
-        bs
-        (createServer<>
-          :netty/http
-          (fn [_]
-            {:h1
-             (proxy [InboundHandler][]
-               (channelRead0 [ctx msg]
-                 (println "Oh no! msg = " msg)))}) args)
+        w
+        (->> (fn [_]
+               {:h1
+                (proxy [InboundHandler][]
+                  (channelRead0 [ctx msg]
+                    (println "Oh no! msg = " msg)))})
+             (assoc args :ifunc)
+             (nettyWebServer<>))
         port 5556
-        ch (startServer bs
-                        {:port port :host host})
+        _ (.start w {:port port :host host})
         rcp (wsconnect<> host
                          port
                          "/websock"
                          (fn [_ _]))
-        cc (deref rcp 3000 nil)]
-    (stopServer ch)
+        cc (deref rcp 3000 nil)
+        _ (.stop w)]
     (ist? Throwable cc)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- testWebsock "" []
   (let [args {:wsockPath #{"/web/sock"}}
-        bs
-        (createServer<>
-          :netty/http
-          (fn [_]
-            {:h1
-             (proxy [InboundHandler][]
-               (channelRead0 [ctx msg]
-                 (println "Why? msg = " msg)))}) args)
+        w
+        (->> (fn [_]
+               {:h1
+                (proxy [InboundHandler][]
+                  (channelRead0 [ctx msg]
+                    (println "Why? msg = " msg)))})
+             (assoc args :ifunc)
+             (nettyWebServer<>))
         port 5556
-        ch (startServer bs
-                        {:port port :host lhost-name})
+        _ (.start w {:port port :host lhost-name})
         rcp (wsconnect<> lhost-name
                          port
                          "/web/sock"
                          (fn [_ _]))
-        cc (deref rcp 5000 nil)]
-    (stopServer ch)
+        cc (deref rcp 5000 nil)
+        _ (.stop w)]
     (and cc (== 5556 (.port ^ClientConnect cc)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -613,20 +608,18 @@
 (defn- testWebsockText "" []
   (let [args {:wsockPath "/web/sock"}
         out (atom nil)
-        bs
-        (createServer<>
-          :netty/http
-          (fn [_]
-            {:h1
-             (proxy [InboundHandler][]
-               (channelRead0 [ctx msg]
-                 (let [^ChannelHandlerContext ctx ctx
-                       ^XData x (:body @msg)
-                       m (TextWebSocketFrame. (.strit x))]
-                   (.writeAndFlush ctx m))))}) args)
+        w
+        (->> (fn [_]
+               {:h1
+                (proxy [InboundHandler][]
+                  (channelRead0 [ctx msg]
+                    (let [^XData x (:body msg)
+                          m (TextWebSocketFrame. (.strit x))]
+                   (.writeAndFlush ^ChannelHandlerContext ctx m))))})
+             (assoc args :ifunc)
+             (nettyWebServer<>))
         port 5556
-        ch (startServer bs
-                        {:port port :host lhost-name})
+        _ (.start w {:port port :host lhost-name})
         rcp (wsconnect<> lhost-name
                          port
                          "/web/sock"
@@ -634,11 +627,10 @@
                            (when-some [^XData s (:body msg)]
                              (reset! out (.strit s))
                              (.write cc (CloseWebSocketFrame.)))))
-        cc (deref rcp 5000 nil)]
-    (when-some [c (cast? WSClientConnect cc)]
-      (.write c "hello"))
-    (pause 1000)
-    (stopServer ch)
+        cc (deref rcp 5000 nil)
+        _ (when-some [c (cast? WSClientConnect cc)] (.write c "hello"))
+        _ (pause 1000)
+        _ (.stop w)]
     (= "hello" @out)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -646,21 +638,20 @@
 (defn- testWebsockBlob "" []
   (let [args {:wsockPath "/web/sock"}
         out (atom nil)
-        bs
-        (createServer<>
-          :netty/http
-          (fn [_]
-            {:h1
-             (proxy [InboundHandler][]
-               (channelRead0 [ctx msg]
-                 (let [^ChannelHandlerContext ctx ctx
-                       m (-> (byteBuf?? (:body @msg)
-                                        (ch?? ctx))
-                             (BinaryWebSocketFrame. ))]
-                   (.writeAndFlush ctx m))))}) args)
+        w
+        (->> (fn [_]
+               {:h1
+                (proxy [InboundHandler][]
+                  (channelRead0 [ctx msg]
+                    (let [^ChannelHandlerContext ctx ctx
+                          m (-> (byteBuf?? (:body msg)
+                                           (ch?? ctx))
+                                (BinaryWebSocketFrame. ))]
+                      (.writeAndFlush ctx m))))})
+             (assoc args :ifunc)
+             (nettyWebServer<>))
         port 5556
-        ch (startServer bs
-                        {:port port :host lhost-name})
+        _ (.start w {:port port :host lhost-name})
         rcp (wsconnect<> lhost-name
                          port
                          "/web/sock"
@@ -668,11 +659,11 @@
                            (when-some [^XData b (:body msg)]
                              (reset! out (.strit b))
                              (.write cc (CloseWebSocketFrame.)))))
-        cc (deref rcp 5000 nil)]
-    (when-some [c (cast? WSClientConnect cc)]
-      (.write c (.getBytes "hello")))
-    (pause 1000)
-    (stopServer ch)
+        cc (deref rcp 5000 nil)
+        _ (when-some [c (cast? WSClientConnect cc)]
+            (.write c (.getBytes "hello")))
+        _ (pause 1000)
+        _ (.stop w)]
     (= "hello" @out)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -681,17 +672,16 @@
   (let [args {:wsockPath #{"/web/sock"}}
         pong (atom false)
         out (atom nil)
-        bs
-        (createServer<>
-          :netty/http
-          (fn [_]
-            {:h1
-             (proxy [InboundHandler][]
-               (channelRead0 [ctx msg]
-                 (reset! out "bad")))}) args)
+        w
+        (->> (fn [_]
+               {:h1
+                (proxy [InboundHandler][]
+                  (channelRead0 [ctx msg]
+                    (reset! out "bad")))})
+             (assoc args :ifunc)
+             (nettyWebServer<>))
         port 5556
-        ch (startServer bs
-                        {:port port :host lhost-name})
+        _ (.start w {:port port :host lhost-name})
         rcp (wsconnect<> lhost-name
                          port
                          "/web/sock"
@@ -699,11 +689,11 @@
                            (when (:pong? msg)
                              (reset! pong true)
                              (.write cc (CloseWebSocketFrame.)))))
-        cc (deref rcp 5000 nil)]
-    (when-some [c (cast? WSClientConnect cc)]
-      (.write c (PingWebSocketFrame.)))
-    (pause 1000)
-    (stopServer ch)
+        cc (deref rcp 5000 nil)
+        _ (when-some [c (cast? WSClientConnect cc)]
+            (.write c (PingWebSocketFrame.)))
+        _ (pause 1000)
+        _ (.stop w)]
     (and (nil? @out)
          (true? @pong))))
 
@@ -714,7 +704,7 @@
   (testing
     "related to: routes"
     (is (> (count SORTED-ROUTES) 0))
-    (is (hasRoutes? RC))
+    (is (has-routes? RC))
     (is (testRoutes1))
     (is (testRoutes2))
     (is (testRoutes3))

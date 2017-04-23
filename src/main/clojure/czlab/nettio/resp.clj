@@ -294,8 +294,8 @@
   (let
     [req (:request @res)
      ^Channel
-     ch (:socket @req)
-     method (:method @req)
+     ch (:socket req)
+     method (:method req)
      {:keys [headers
              lastMod
              eTag
@@ -373,7 +373,7 @@
       (HttpUtil/setContentLength rsp clen))
     (if (neg? clen)
       (HttpUtil/setKeepAlive rsp false)
-      (HttpUtil/setKeepAlive rsp (:isKeepAlive? @req)))
+      (HttpUtil/setKeepAlive rsp (:isKeepAlive? req)))
     (if (or (nil? body)
             (== clen 0))
       (.remove hds HttpHeaderNames/CONTENT_TYPE))

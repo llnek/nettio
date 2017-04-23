@@ -95,7 +95,7 @@
 ;;
 (defn- corsPreflight? "" [req]
   (and (= (.name HttpMethod/OPTIONS)
-          (:method @req))
+          (:method req))
        (msgHeader? req HttpHeaderNames/ORIGIN)
        (msgHeader? req HttpHeaderNames/ACCESS_CONTROL_REQUEST_METHOD)))
 
@@ -220,7 +220,7 @@
   (let [{:keys [corsCfg]}
         (getAKey ctx chcfg-key)
         {:keys [isKeepAlive?]}
-        @req
+        req
         rsp (httpFullReply<>)]
     (when (setOrigin? ctx rsp corsCfg)
       (setAllowMethods rsp corsCfg)
@@ -238,7 +238,7 @@
   "" [ctx this req]
 
   (let [{:keys [wsockPath]} (getAKey ctx chcfg-key)
-        {:keys [uri]} @req
+        {:keys [uri]} req
         r2 (mockFullRequest<> req)
         pp (cpipe ctx)
         uri? (if (set? wsockPath)
@@ -275,8 +275,8 @@
     [origin (msgHeader req HttpHeaderNames/ORIGIN)
      o? (msgHeader? req HttpHeaderNames/ORIGIN)
      {:keys [corsCfg]} (getAKey ctx chcfg-key)
-     ka? (:isKeepAlive? @req)
-     _ (log/debug "processRequest: %s" @req)
+     ka? (:isKeepAlive? req)
+     _ (log/debug "processRequest: %s" req)
      _ (setAKey ctx h1msg-key req)
      rc
      (cond

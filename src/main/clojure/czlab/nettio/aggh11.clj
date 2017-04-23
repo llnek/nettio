@@ -110,21 +110,21 @@
   (reduce
     #(when-some
        [z (cond
-            (ist? FileUpload %)
-            (let [u (cast? FileUpload %)
+            (ist? FileUpload %2)
+            (let [u (cast? FileUpload %2)
                   c (getHttpData u)]
               (fileItem<> false
                           (.getContentType u)
                           nil
                           (.getName u)
                           (.getFilename u) c))
-            (ist? Attribute %)
-            (let [a (cast? Attribute %)
+            (ist? Attribute %2)
+            (let [a (cast? Attribute %2)
                   c (getHttpData a)]
               (fileItem<> true "" nil (.getName a) "" c)))]
-       (if-some [d (cast? AbstractDiskHttpData %)]
+       (if-some [d (cast? AbstractDiskHttpData %2)]
          (if-not (.isInMemory d)
-           (.removeHttpDataFromClean deco ^HttpData %)))
+           (.removeHttpDataFromClean deco ^HttpData %2)))
        ;;no need to release since we will call destroy on the decoder
        ;;(.release x)
        (add-item %1 z))

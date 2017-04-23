@@ -66,7 +66,7 @@
   "Reply back a string"
   [^ChannelHandlerContext ctx curObj]
 
-  (let [cookies (:cookies @curObj)
+  (let [cookies (:cookies curObj)
         buf (getAKey ctx msg-buf)
         res (httpFullReply<>
               (.code HttpResponseStatus/OK) (str buf) (.alloc ctx))
@@ -95,8 +95,8 @@
   "Introspect the inbound request"
   [^ChannelHandlerContext ctx req]
 
-  (let [^HttpHeaders headers (:headers @req)
-        ka? (:isKeepAlive? @req)
+  (let [^HttpHeaders headers (:headers req)
+        ka? (:isKeepAlive? req)
         buf (strbf<>)]
     (setAKey ctx keep-alive ka?)
     (setAKey ctx msg-buf buf)
@@ -104,13 +104,13 @@
       (.append "WELCOME TO THE TEST WEB SERVER\r\n")
       (.append "==============================\r\n")
       (.append "VERSION: ")
-      (.append (:version @req))
+      (.append (:version req))
       (.append "\r\n")
       (.append "HOSTNAME: ")
       (.append (str (msgHeader req "host")))
       (.append "\r\n")
       (.append "REQUEST_URI: ")
-      (.append (:uri2 @req))
+      (.append (:uri2 req))
       (.append "\r\n\r\n"))
     (->>
       (sreduce<>
@@ -135,7 +135,7 @@
               (.append " = ")
               (.append (cs/join "," (.getValue en)))
               (.append "\r\n")))
-        (:parameters @req))
+        (:parameters req))
       (.append buf))
     (.append buf "\r\n")))
 
@@ -146,7 +146,7 @@
   [^ChannelHandlerContext ctx msg]
 
   (let [^StringBuilder buf (getAKey ctx msg-buf)
-        ^XData ct (:body @msg)]
+        ^XData ct (:body msg)]
     (when (.hasContent ct)
       (-> buf
         (.append "CONTENT: ")
