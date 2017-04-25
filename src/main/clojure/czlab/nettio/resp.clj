@@ -93,6 +93,8 @@
   (clear!res-headers [me] (.clear ^HttpHeaders (:headers @me)))
   (clear!res-cookies [me]
     (setf! me :cookies {}))
+  (set-res-status [me s] (setf! me :status s))
+  (set-res-content [me c] (setf! me :body c))
   (add-res-header [me nm v]
     (.add ^HttpHeaders (:headers @me) ^CharSequence nm v))
   (set-res-header [me nm v]
