@@ -30,7 +30,6 @@
             FileUpload
             Attribute
             HttpPostRequestDecoder]
-           [czlab.convoy.core HttpMessageObj]
            [io.netty.handler.codec.http
             HttpVersion
             HttpMethod
@@ -89,8 +88,7 @@
   "" [^ChannelHandlerContext ctx msg]
 
   (some->>
-    (or (some->> (gistH1Message ctx msg)
-                 (object<> HttpMessageObj )) msg)
+    (or (some-> (gistH1Message ctx msg) nettyMsg<> ) msg)
     (.fireChannelRead ctx)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

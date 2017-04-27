@@ -74,6 +74,14 @@
 ;;
 (decl-mutable HttpResultMsgObj
   HttpMsgGist
+  (msgHeader? [msg h]
+    (.contains (mg-headers?? msg) (mg-cs?? h)))
+  (msgHeader [msg h]
+    (.get (mg-headers?? msg) (mg-cs?? h)))
+  (msgHeaderKeys [msg]
+    (set (.names (mg-headers?? msg))))
+  (msgHeaderVals [msg h]
+    (vec (.getAll (mg-headers?? msg) (mg-cs?? h))))
   HttpResultMsg
   (set-res-content-type [me c]
     (.set ^HttpHeaders

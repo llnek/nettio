@@ -32,7 +32,6 @@
 
   (:import [io.netty.buffer Unpooled ByteBuf ByteBufHolder]
            [org.apache.commons.fileupload FileItem]
-           [czlab.convoy.core HttpMessageObj]
            [io.netty.handler.codec.http.websocketx
             BinaryWebSocketFrame
             TextWebSocketFrame

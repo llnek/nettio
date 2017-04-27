@@ -22,7 +22,6 @@
         [czlab.basal.core])
 
   (:import [io.netty.util AttributeKey ReferenceCountUtil]
-           [czlab.convoy.core WebsocketMessageObj]
            [io.netty.handler.codec.http.multipart
             Attribute
             HttpDataFactory]
@@ -34,6 +33,7 @@
             PongWebSocketFrame
             PingWebSocketFrame
             ContinuationWebSocketFrame]
+           [czlab.nettio.core NettyWsockMsg]
            [czlab.nettio H1Aggregator]
            [java.nio.charset Charset]
            [czlab.jasal XData]
@@ -67,7 +67,7 @@
                   (doto->> (.getFile attr) (.renameTo attr))))]
         (.release attr)
         (->> (assoc (dissoc rc :attr :fake) :body x)
-             (object<> WebsocketMessageObj )
+             (object<> NettyWsockMsg )
              (.fireChannelRead ctx))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -79,11 +79,11 @@
             :charset (Charset/forName "utf-8")} ]
     (cond
       (ist? PongWebSocketFrame msg)
-      (->> (object<> WebsocketMessageObj
+      (->> (object<> NettyWsockMsg
                      (assoc rc :pong? true))
            (.fireChannelRead ctx ))
       (.isFinalFragment msg)
-      (->> (object<> WebsocketMessageObj
+      (->> (object<> NettyWsockMsg
                      (assoc rc
                             :body (xdata<>
                                     (toByteArray

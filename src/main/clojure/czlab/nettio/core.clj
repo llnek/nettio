@@ -119,30 +119,34 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;(set! *warn-on-reflection* true)
 
-(defn- headers??
+(defn mg-headers??
   "" ^HttpHeaders [msg] (:headers (if (ist? IDeref msg) @msg msg)))
 
-(defn- cs?? "" ^CharSequence [s] s)
+(defn mg-cs?? "" ^CharSequence [s] s)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn msgHeader? "" [msg h]
-  (.contains (headers?? msg) (cs?? h)))
+(decl-object NettyWsockMsg WsockMsg WsockMsgGist)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn msgHeader "" ^String [msg h]
-  (.get (headers?? msg) (cs?? h)))
+(decl-object NettyHttpMsg
+  HttpMsg
+  HttpMsgGist
+  (msgHeader? [msg h]
+    (.contains (mg-headers?? msg) (mg-cs?? h)))
+  (msgHeader [msg h]
+    (.get (mg-headers?? msg) (mg-cs?? h)))
+  (msgHeaderKeys [msg]
+    (set (.names (mg-headers?? msg))))
+  (msgHeaderVals [msg h]
+    (vec (.getAll (mg-headers?? msg) (mg-cs?? h)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn msgHeaderKeys "" [msg]
-  (set (.names (headers?? msg))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn msgHeaderVals "" [msg h]
-  (vec (.getAll (headers?? msg) (cs?? h))))
+(defn nettyMsg<> ""
+  ([] (nettyMsg<> {}))
+  ([s] (object<> NettyHttpMsg s)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
