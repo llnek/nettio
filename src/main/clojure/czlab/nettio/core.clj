@@ -351,46 +351,42 @@
     (.close ^ChannelHandlerContext c)
     nil))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(defn- toHHS "" ^HttpHeaders [obj]
+  (cond
+    (ist? HttpMessage obj) (.headers ^HttpMessage obj)
+    (ist? HttpHeaders obj) obj
+    :else (throwBadArg "expecting http-msg or http-headers")))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn addHeader
-  ""
-  [^HttpMessage msg
-   ^CharSequence nm ^String value]
-  (-> (.headers msg) (.add nm value)))
+  "" [obj ^CharSequence nm ^String value] (-> (toHHS obj) (.add nm value)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn setHeader
   ""
-  [^HttpMessage msg
-   ^CharSequence nm ^String value]
-  (-> (.headers msg) (.set nm value)))
+  [obj ^CharSequence nm ^String value] (-> (toHHS obj) (.set nm value)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn getHeaderVals
   ""
-  [^HttpMessage msg
-   ^CharSequence nm]
-  (-> (.headers msg) (.getAll nm)))
+  [obj ^CharSequence nm] (-> (toHHS obj) (.getAll nm)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn getHeader
   ""
-  ^String
-  [^HttpMessage msg
-   ^CharSequence nm]
-  (-> (.headers msg) (.get nm)))
+  ^String [obj ^CharSequence nm] (-> (toHHS obj) (.get nm)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn hasHeader?
   ""
-  [^HttpMessage msg
-   ^CharSequence nm]
-  (-> (.headers msg) (.contains nm)))
+  [obj ^CharSequence nm] (-> (toHHS obj) (.contains nm)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
