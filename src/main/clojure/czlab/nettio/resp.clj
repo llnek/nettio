@@ -73,7 +73,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (decl-object NettyResultObj
-  HttpResultObj
+  HttpResultMsg
   HttpMsgGist
   (msgHeader? [msg h]
     (.contains (mg-headers?? msg) (mg-cs?? h)))
@@ -99,11 +99,33 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(extend-protocol HttpResultMsgCreator
+(declare replyer<>)
+(extend-type
   io.netty.channel.Channel
+  ;;
+  HttpResultMsgCreator
   (http-result
     ([ch theReq] (http-result ch theReq 200))
-    ([ch theReq status] (result<> ch theReq status))))
+    ([ch theReq status] (result<> ch theReq status)))
+  ;;
+  HttpResultMsgReplyer
+  (reply-result
+    ([ch theRes] (reply-result ch theRes nil))
+    ([ch theRes arg] (replyer<> theRes arg)))
+  ;;
+  HttpResultMsgModifier
+  (remove-res-header [_ res name]
+    (do-with
+      [res res]
+      (.remove ^HttpHeaders (:headers res) ^CharSequence name)))
+  (add-res-header [_ res name value]
+    (do-with
+      [res res]
+      (addHeader (:headers res) name value)))
+  (set-res-header [_ res name value]
+    (do-with
+      [res res]
+      (setHeader (:headers res) name value))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -380,14 +402,6 @@
                (.writeAndFlush ch body)
                (do (.flush ch) cf))]
       (closeCF cf (HttpUtil/isKeepAlive rsp)))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(extend-protocol HttpResultMsgReplyer
-  io.netty.channel.Channel
-  (reply-result
-    ([ch theRes] (reply-result ch theRes nil))
-    ([ch theRes arg] (replyer<> theRes arg))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF
