@@ -86,7 +86,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- result<> "" [ch theReq status]
+(defn- result<> "" [theReq status]
   {:pre [(or (nil? status)
              (number? status))]}
   (object<> NettyResultObj
@@ -99,30 +99,33 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(declare replyer<>)
-(extend-type
-  io.netty.channel.Channel
-  ;;
+(declare replyer<> result<>)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(extend-type czlab.nettio.core.NettyHttpMsg
   HttpResultMsgCreator
   (http-result
-    ([ch theReq] (http-result ch theReq 200))
-    ([ch theReq status] (result<> ch theReq status)))
-  ;;
+    ([theReq] (http-result theReq 200))
+    ([theReq status] (result<> theReq status))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(extend-type czlab.nettio.resp.NettyResultObj
   HttpResultMsgReplyer
   (reply-result
-    ([ch theRes] (reply-result ch theRes nil))
-    ([ch theRes arg] (replyer<> theRes arg)))
-  ;;
+    ([theRes] (reply-result theRes nil))
+    ([theRes arg] (replyer<> theRes arg)))
   HttpResultMsgModifier
-  (remove-res-header [_ res name]
+  (remove-res-header [res name]
     (do-with
       [res res]
       (.remove ^HttpHeaders (:headers res) ^CharSequence name)))
-  (add-res-header [_ res name value]
+  (add-res-header [res name value]
     (do-with
       [res res]
       (addHeader (:headers res) name value)))
-  (set-res-header [_ res name value]
+  (set-res-header [res name value]
     (do-with
       [res res]
       (setHeader (:headers res) name value))))

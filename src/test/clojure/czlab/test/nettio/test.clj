@@ -215,10 +215,10 @@
                  (channelRead0 [ctx msg]
                    (let [ch (ch?? ctx)
                          ^XData b (:body msg)
-                         res (http-result ch msg)]
+                         res (http-result msg)]
                      (reset! out (.content b))
                      (->> (assoc res :body "hello joe")
-                          (reply-result ch )))))})
+                          (reply-result )))))})
             (nettyWebServer<>))
         _ (.start w {:port 5555 :host lhost-name})
         po (h1post (str "http://" lhost-name ":5555/form")
