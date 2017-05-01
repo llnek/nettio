@@ -29,6 +29,9 @@
            [io.netty.handler.codec.http2 Http2SecurityUtil]
            [java.io IOException OutputStream]
            [clojure.lang IDeref]
+           [io.netty.handler.codec.http.websocketx
+            TextWebSocketFrame
+            BinaryWebSocketFrame]
            [io.netty.handler.codec.http.multipart
             DiskAttribute
             DiskFileUpload]
@@ -119,6 +122,8 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;(set! *warn-on-reflection* true)
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
 (defn mg-headers??
   "" ^HttpHeaders [msg] (:headers (if (ist? IDeref msg) @msg msg)))
 
@@ -1019,6 +1024,18 @@
           (.generateCertificates  ^InputStream inp) vec)
       (finally
        (if del? (closeQ inp))))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(extend-protocol WsockMsgReplyer
+  io.netty.channel.Channel
+  (send-ws-string [me s]
+    (->> (TextWebSocketFrame. ^String s)
+         (.writeAndFlush ^Channel me )))
+  (send-ws-bytes [me b]
+    (->> (coerce2bb me b)
+         (BinaryWebSocketFrame. )
+         (.writeAndFlush ^Channel me ))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF
