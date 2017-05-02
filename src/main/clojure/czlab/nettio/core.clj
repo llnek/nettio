@@ -1037,6 +1037,25 @@
          (BinaryWebSocketFrame. )
          (.writeAndFlush ^Channel me ))))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(defn- maybeAKey "" [k]
+  (let [s (sname k)]
+    (if-not (AttributeKey/exists s)
+      (AttributeKey/newInstance s)
+      (AttributeKey/valueOf s))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(extend-protocol SocketAttrProvider
+  io.netty.channel.Channel
+  (set-socket-attr [me k a]
+    (setAKey me (maybeAKey k) a))
+  (get-socket-attr [me k]
+    (getAKey me (maybeAKey k)))
+  (del-socket-attr [me k]
+    (delAKey me (maybeAKey k))))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF
 
