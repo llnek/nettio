@@ -54,11 +54,11 @@
             ApplicationProtocolConfig$Protocol
             ApplicationProtocolConfig$SelectorFailureBehavior
             ApplicationProtocolConfig$SelectedListenerFailureBehavior]
+           [io.netty.util ReferenceCountUtil AttributeKey]
            [java.io InputStream File IOException]
            [io.netty.buffer ByteBuf Unpooled]
            [java.net InetSocketAddress URI URL]
            [io.netty.bootstrap Bootstrap]
-           [io.netty.util AttributeKey]
            [io.netty.handler.stream
             ChunkedFile
             ChunkedStream
@@ -302,7 +302,7 @@
       (if-some [^ChannelPromise f (getAKey ctx cf-key)]
         (if-not (.isDone f)
           (. f setFailure ^Throwable err)))
-      ;;(log/warn err "")
+      (log/warn err "")
       (. ^ChannelHandlerContext ctx close))
     (channelRead0 [ctx msg]
       (let [^WSClientConnect wcc (getAKey ctx cc-key)
@@ -323,7 +323,8 @@
             (log/debug "received close frame")
             (.close ^ChannelHandlerContext ctx))
           :else
-          (.fireChannelRead ^ChannelHandlerContext ctx msg))))))
+          (->> (ReferenceCountUtil/retain msg)
+               (.fireChannelRead ^ChannelHandlerContext ctx )))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -473,7 +474,7 @@
         ^H1DataFactory f (getAKey c dfac-key)]
     (futureCB (.closeFuture c)
               (fn [_]
-                (log/debug "shutdown: netty client")
+                (log/debug "shutdown: netty ws-client")
                 (some-> f .cleanAllHttpData)
                 (try! (.. bs config group shutdownGracefully))))))
 
@@ -488,7 +489,7 @@
         ^H1DataFactory f (getAKey c dfac-key)]
     (futureCB (.closeFuture c)
               (fn [_]
-                (log/debug "shutdown: netty client")
+                (log/debug "shutdown: netty h1-client")
                 (some-> f .cleanAllHttpData)
                 (try! (.. bs config group shutdownGracefully))))
     (reify ClientConnect
