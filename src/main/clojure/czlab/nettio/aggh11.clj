@@ -58,7 +58,6 @@
             H1ReqAggregator
             H1ResAggregator
             H1DataFactory
-            H1Aggregator
             WholeResponse]
            [java.nio.charset Charset]
            [java.util List ArrayList]

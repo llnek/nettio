@@ -34,7 +34,7 @@
             PingWebSocketFrame
             ContinuationWebSocketFrame]
            [czlab.nettio.core NettyWsockMsg]
-           [czlab.nettio H1Aggregator]
+           [czlab.nettio DuplexHandler]
            [java.nio.charset Charset]
            [czlab.jasal XData]
            [io.netty.buffer ByteBuf]
@@ -118,7 +118,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (def ^:private wsock-agg
-  (proxy [H1Aggregator][]
+  (proxy [DuplexHandler][]
     (channelRead [ctx msg] (aggRead ctx msg))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

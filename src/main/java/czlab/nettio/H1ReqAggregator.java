@@ -14,11 +14,18 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelPromise;
 import io.netty.handler.codec.http.FullHttpResponse;
 import io.netty.handler.codec.http.HttpResponseStatus;
+import io.netty.channel.ChannelHandler;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * @author "Kenneth Leung"
  */
-public abstract class H1ReqAggregator extends H1Aggregator {
+public abstract class H1ReqAggregator extends DuplexHandler {
+
+  /**
+   */
+  public static final Logger TLOG = LoggerFactory.getLogger(H1ReqAggregator.class);
 
   @Override
   public void channelInactive(ChannelHandlerContext ctx) throws Exception {

@@ -302,7 +302,7 @@
       (if-some [^ChannelPromise f (getAKey ctx cf-key)]
         (if-not (.isDone f)
           (. f setFailure ^Throwable err)))
-      (log/warn "%s" (.getMessage ^Throwable err))
+      (log/warn err "")
       (. ^ChannelHandlerContext ctx close))
     (channelRead0 [ctx msg]
       (let [^WSClientConnect wcc (getAKey ctx cc-key)
@@ -578,6 +578,196 @@
   "Gives back a promise" {:tag IDeref}
   ([target] (h1get target nil))
   ([target args] (h1send target :get nil args)))
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(defn- h2BootAndConn
+  "" [host port args]
+
+  (let [[^Bootstrap bs ctx] (boot! args)
+        _ (.handler bs (h2pipe ctx args))
+        c (connect bs host port (some? ctx))
+        ^H1DataFactory f (getAKey c dfac-key)]
+    (futureCB (.closeFuture c)
+              (fn [_]
+                (log/debug "shutdown: netty h2-client")
+                (some-> f .cleanAllHttpData)
+                (try! (.. bs config group shutdownGracefully))))
+    (reify ClientConnect
+      (dispose [_]
+        (try! (if (.isOpen c)
+                (.close c)
+                (.. bs config group shutdownGracefully))))
+      (channel [_] c)
+      (port [_] port)
+      (host [_] host))))
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Wait for this handler to be added after the upgrade to HTTP/2, and for initial preface
+;; handshake to complete.
+(defn awaitSettings "" [^ChannelPromise cp ^long timeout ^TimeUnit unit]
+  (if-not (.awaitUninterruptibly cp timeout unit)
+    (trap! IllegalStateException "Timed out waiting for settings"))
+  (if-not (.isSuccess cp)
+    (trap! RuntimeException (.cause cp))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Reads the first {@link Http2Settings} object and notifies a {@link io.netty.channel.ChannelPromise}
+(defn- http2SettingsHandler "" [^ChannelPromise cp]
+  (proxy [SimpleChannelInboundHandler][]
+    (channelRead0 [ctx msg]
+      ;; Only care about the first settings message
+      (.setSuccess cp)
+      (-> (cpipe ctx) (.remove ^ChannelHandler this)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Create an association between an anticipated response stream id and a {@link io.netty.channel.ChannelPromise}
+;; @param streamId The stream for which a response is expected
+;; @param writeFuture A future that represent the request write operation
+;; @param promise The promise object that will be used to wait/notify events
+;; @return The previous object associated with {@code streamId}
+;; @see HttpResponseHandler#awaitResponses(long, java.util.concurrent.TimeUnit)
+;;
+;; Wait (sequentially) for a time duration for each anticipated response
+;; @param timeout Value of time to wait for each response
+;; @param unit Units associated with {@code timeout}
+;; @see HttpResponseHandler#put(int, io.netty.channel.ChannelFuture, io.netty.channel.ChannelPromise)
+(defn- awaitResponses "" [handler ^long timeout ^TimeUnit unit]
+  (let [^Map pm (.getv handler :promises)
+        it (.. pm entrySet iterator)]
+    (while (.hasNext it)
+      (let [^Map$Entry entry (.next it)
+            ^ChannelFuture writeFuture (.. entry getValue getKey)]
+        (if-not (.awaitUninterruptibly wf timeout unit)
+          (trap! IllegalStateException
+                 (str "Timed out waiting to write for stream id "
+                      (.getKey entry))))
+        (if-not (.isSuccess wf)
+          (trap! RuntimeException (.cause wf)))
+        (let [^ChannelPromise p (.. entry getValue getValue)]
+          (if-not (.awaitUninterruptibly p timeout unit)
+            (trap! IllegalStateException
+                   (str "Timed out waiting for response on stream id "
+                        (.getKey entry))))
+          (if-not (.isSuccess p)
+            (trap! RuntimeException (.cause p))))
+        (log/debug "---Stream id: %s received---" (.getKey entry))
+        (.remove it)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(defn- httpResponseHandler "" []
+  ;;Map<Integer, Entry<ChannelFuture, ChannelPromise>> streamidPromiseMap]
+  ;;Use a concurrent map because we add and iterate from the main thread
+  ;;(just for the purposes of the example),
+  ;;but Netty also does a get on the map when messages are received in
+  ;;a EventLoop thread.
+  (let [pms (PlatformDependent/newConcurrentHashMap)]
+
+    (proxy [SimpleChannelInboundHandler
+            czlab.jasal.Settable][]
+      (setv [sid arg]
+        ;;ChannelFuture writeFuture, ChannelPromise promise
+        (.put pms sid arg))
+      (unsetv [_])
+      (channelRead0 [ctx msg]
+        (let [hds (.headers msg)
+              sid (->> (.text
+                         HttpConversionUtil$ExtensionHeaderNames/STREAM_ID)
+                       (.getInt hds))]
+          (cond
+            (nil? sid)
+            (log/warn "unexpected message received: %s" msg)
+            :else
+            (let [entry (.get pms sid)]
+              (if (nil? entry)
+                (log/warn "Message received for unknown stream id %s" sid)
+                (let [b (toByteArray (.content msg))]
+                  (println (strit b))
+                  (.. entry getValue setSuccess))))))))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; A handler that triggers the cleartext upgrade to HTTP/2 by sending an initial HTTP request.
+(defn- upgradeRequestHandler "" []
+  (reify ChannelInboundHandlerAdapter
+    (channelActive [me ctx]
+      (let [upgradeRequest
+            (DefaultFullHttpRequest. HttpVersion/HTTP_1_1
+                                     HttpMethod/GET "/")
+            pp (.pipeline ctx)]
+        (.writeAndFlush ctx upgradeRequest)
+        (.fireChannelActive ctx)
+        (.remove pp me)
+        (.addLast pp settings resp)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Class that logs any User Events triggered on this channel.
+(defn- userEventLogger "" []
+  (reify ChannelInboundHandlerAdapter
+    (userEventTriggered [_ ctx evt]
+      (log/debug "User Event Triggered: %s" evt)
+      (.fireUserEventTriggered ctx evt))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(defn- configureSsl "" [^SslContext sslCtx ^SocketChannel ch]
+  (let [pp (.pipeline ch)]
+    (.addLast pp (.newHandler sslCtx (.alloc ch)))
+    ;; We must wait for the handshake to finish
+    ;; and the protocol to be negotiated before configuring
+    ;; the HTTP/2 components of the pipeline.
+    (.addLast
+      (proxy [ApplicationProtocolNegotiationHandler][""]
+        (configurePipeline [ctx protocol]
+          (if (.equals ApplicationProtocolNames/HTTP_2 protocol)
+            (let [p (cpipe ctx)]
+              (.addLast p connectionHandler)
+              (.addLast p settings resp)
+            (do (.close ctx)
+                (trap! IllegalStateException
+                       (str "unknown protocol: " protocol)))))))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Configure the pipeline for a cleartext upgrade from HTTP to HTTP/2.
+(defn- configureClearText [^SocketChannel ch]
+  (let [sourceCodec (HttpClientCodec.)
+        upgradeCodec (Http2ClientUpgradeCodec. connectionHandler)
+        upgradeHandler (HttpClientUpgradeHandler. sourceCodec
+                                                  upgradeCodec 65536)]
+    (doto (.pipeline ch)
+      (.addLast sourceCodec
+                upgradeHandler
+                (upgradeRequestHandler)
+                (userEventLogger)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(defn- h2pipe "" []
+  (let [logger (Http2FrameLogger. LogLevel/INFO "h2pipe")
+        maxContentLength (* 1024 1024)
+        SslContext sslCtx
+        HttpToHttp2ConnectionHandler connectionHandler
+        resp (httpResponseHandler)
+        settingsHandler]
+    (proxy [ChannelInitializer][]
+      (initChannel [ch]
+        (let [connection (DefaultHttp2Connection. false)
+              connectionHandler
+              (-> (HttpToHttp2ConnectionHandlerBuilder.)
+                  (.frameListener
+                    (DelegatingDecompressorFrameListener.
+                      connection
+                      (-> (InboundHttp2ToHttpAdapterBuilder. connection)
+                          (.maxContentLength maxContentLength)
+                          (.propagateSettings true)
+                          (.build))))
+                  (.frameLogger logger)
+                  (.connection connection)
+                  (.build))
+              settings (http2SettingsHandler (.newPromise ch))]
+          (if sslCtx
+            (configureSsl ch)
+            (configureClearText ch))))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF

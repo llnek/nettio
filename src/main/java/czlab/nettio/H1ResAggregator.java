@@ -10,10 +10,17 @@
 
 package czlab.nettio;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 /**
  * @author "Kenneth Leung"
  */
-public abstract class H1ResAggregator extends H1Aggregator {
+public abstract class H1ResAggregator extends DuplexHandler {
+
+  /**
+   */
+  public static final Logger TLOG = LoggerFactory.getLogger(H1ResAggregator.class);
 
   /**
    */
