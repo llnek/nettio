@@ -89,46 +89,58 @@
 (def ^:private ^ChannelHandler obj-agg (h1reqAggregator<>))
 (def ^:private ^ChannelHandler req-hdr (h1reqHandler<>))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(defmacro ^:private tmfda "" [] `(TrustManagerFactory/getDefaultAlgorithm))
+(defmacro ^:private kmfda "" [] `(KeyManagerFactory/getDefaultAlgorithm))
+(defmacro ^:private maybeCfgSSL
+  "" [s p] `(let [s# ~s] (if (hgl? s#) (cfgSSL?? s# ~p))))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- maybeCfgSSL
-  "" ^SslContext
-  [{:keys [serverKey passwd] :as args}]
-
-  (when-some+ [keyUrl (str serverKey)]
-    (let
-      [t (-> (TrustManagerFactory/getDefaultAlgorithm)
-             TrustManagerFactory/getInstance)
-       k (-> (KeyManagerFactory/getDefaultAlgorithm)
-             KeyManagerFactory/getInstance)
-       ^String kt (if (.endsWith
-                        keyUrl ".jks") "JKS" "PKCS12")
-       ks (KeyStore/getInstance kt)
-       pms (doto (java.util.ArrayList.)
-             (.add ApplicationProtocolNames/HTTP_2)
-             (.add ApplicationProtocolNames/HTTP_1_1))
-       cfg
-       (ApplicationProtocolConfig.
-         ApplicationProtocolConfig$Protocol/ALPN
-         ApplicationProtocolConfig$SelectorFailureBehavior/NO_ADVERTISE
-         ApplicationProtocolConfig$SelectedListenerFailureBehavior/ACCEPT
-         pms)
-       pwd (some-> passwd str .toCharArray)
-       ^SslProvider
-       p (if (OpenSsl/isAlpnSupported)
-           SslProvider/OPENSSL
-           SslProvider/JDK)]
-      (with-open [inp (-> (URL. keyUrl) .openStream)]
-        (.load ks inp pwd)
-        (.init t ks)
-        (.init k ks pwd))
-      (-> (SslContextBuilder/forServer k)
-          (.ciphers Http2SecurityUtil/CIPHERS
-                    SupportedCipherSuiteFilter/INSTANCE)
-          (.trustManager t)
-          (.sslProvider p)
-          (.applicationProtocolConfig cfg)
-          .build))))
+(defn- cfgSSL??
+  "" ^SslContext [serverKey passwd]
+  (let
+    [ctx
+     (if (= "selfsignedcert" serverKey)
+       (let [ssc (SelfSignedCertificate.)]
+         (SslContextBuilder/forServer (.certificate ssc)
+                                      (.privateKey ssc)))
+       (let [t (TrustManagerFactory/getInstance tmfda)
+             k (KeyManagerFactory/getInstance kmfda)
+             pwd (some-> passwd charsit)
+             ks (-> ^String
+                    (if (.endsWith
+                          serverKey ".jks")
+                      "JKS" "PKCS12")
+                 KeyStore/getInstance)
+             _ (with-open
+                 [inp (-> (URL. serverKey)
+                       .openStream)]
+                 (.load ks inp pwd)
+                 (.init t ks)
+                 (.init k ks pwd))]
+         (-> (SslContextBuilder/forServer k)
+             (.trustManager t))))
+     pms (doto (java.util.ArrayList.)
+           (.add ApplicationProtocolNames/HTTP_2)
+           (.add ApplicationProtocolNames/HTTP_1_1))
+     cfg
+     (ApplicationProtocolConfig.
+       ApplicationProtocolConfig$Protocol/ALPN
+       ApplicationProtocolConfig$SelectorFailureBehavior/NO_ADVERTISE
+       ApplicationProtocolConfig$SelectedListenerFailureBehavior/ACCEPT
+       pms)
+     ^SslProvider
+     p (if (OpenSsl/isAlpnSupported)
+         SslProvider/OPENSSL SslProvider/JDK)]
+    (->
+      (.ciphers ctx
+                Http2SecurityUtil/CIPHERS
+                SupportedCipherSuiteFilter/INSTANCE)
+      (.sslProvider p)
+      (.applicationProtocolConfig cfg)
+      (.build))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -244,7 +256,44 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- cfgSSLXXX
+(defn- buildH2 "" [args]
+  (let [conn (->> Http2CodecUtil/DEFAULT_MAX_RESERVED_STREAMS
+                  (DefaultHttp2Connection. true))
+        ss (->> Http2CodecUtil/DEFAULT_HEADER_LIST_SIZE
+                (.maxHeaderListSize (Http2Settings.)))
+        mhls (.maxHeaderListSize ss)
+        log (Http2FrameLogger. INFO "")
+        rdr (-> (DefaultHttp2FrameReader.
+                  (DefaultHttp2HeadersDecoder. true mhls))
+                (Http2InboundFrameLogger. log))
+        wtr (-> (DefaultHttp2FrameWriter.
+                  Http2HeadersEncoder/NEVER_SENSITIVE)
+                (Http2OutboundFrameLogger. log))
+        ec (DefaultHttp2ConnectionEncoder. conn wtr)
+        dc (doto
+             (DefaultHttp2ConnectionDecoder. conn ec rdr)
+             (.frameListener h2))
+        handler
+        (proxy [Http2ConnectionHandler][dc ec ss])]
+    (.gracefulShutdownTimeoutMillis handler
+                                    DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT_MILLIS)
+    handler))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(defn- cfgH2
+  "" [pp h2 args]
+
+  (doto ^ChannelPipeline pp
+    (.addLast (gczn HttpServerCodec) (HttpServerCodec.))
+    (.addLast "HOA" obj-agg)
+    (.addLast "H1RH" req-hdr)
+    (.addLast "CWH" (ChunkedWriteHandler.))
+    (.addLast user-handler-id ^ChannelHandler h1)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(defn- cfgH1
   "" [pp h1 args]
   {:pre [(ist? ChannelHandler h1)]}
 
@@ -258,30 +307,34 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- onSSL
-  "" [cpp {:keys [h1 h2]} args]
+  "" [^ChannelPipeline cpp {:keys [h1 h2]} args]
 
-  (if (ist? ChannelHandler h2)
+  (cond
+    (and h1 h2)
     (->>
       (proxy [SSLNegotiator][]
-        (configurePipeline [ctx pn]
-          (let [pp (cpipe ctx)]
+        (configurePipeline [ctx n]
+          (let [pp (cpipe ctx)
+                ^String pn n]
             (cond
               (AsciiString/contentEquals
-                ApplicationProtocolNames/HTTP_1_1 ^String pn)
-              (cfgSSLXXX pp h1 args)
+                ApplicationProtocolNames/HTTP_1_1 pn)
+              (cfgh1 pp h1 args)
               (AsciiString/contentEquals
-                ApplicationProtocolNames/HTTP_2 ^String pn)
-                (.addLast pp
-                          (gczn H2Connector) (newH2Builder<> h2))
+                ApplicationProtocolNames/HTTP_2 pn)
+              (cfgh2 pp h2 args)
+              ;;(.addLast pp (gczn H2Connector) (newH2Builder<> h2))
               :else
               (trap! IllegalStateException
                      (str "unknown protocol: " pn))))))
-      (. ^ChannelPipeline cpp addLast (gczn SSLNegotiator)))
-    (cfgSSLXXX cpp h1 args)))
+      (.addLast cpp (gczn SSLNegotiator)))
+    (some? h2)
+    (some? h1)
+    (cfgh1 cpp h1 args)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn chanInitor<>
+(defn udpInitor<>
   "" ^ChannelHandler [deco args]
 
   (proxy [ChannelInitializer][]
@@ -289,12 +342,23 @@
       (let [ch (cast? Channel ch)
             funcs (deco args)
             pp (.pipeline ch)]
-        (if-some
-          [ssl (maybeCfgSSL args)]
-          (do
-            (->> (.newHandler ssl (.alloc ch))
-                 (.addLast pp "ssl"))
-            (onSSL pp funcs args))
+        (onH1Proto ch funcs args)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(defn tcpInitor<>
+  "" ^ChannelHandler [deco sslCtx args]
+
+  (proxy [ChannelInitializer][]
+    (initChannel [ch]
+      (let [ch (cast? Channel ch)
+            funcs (deco args)
+            pp (.pipeline ch)]
+        (if (some? sslCtx)
+          (do (->> (.newHandler sslCtxl
+                                (.alloc ch))
+                   (.addLast pp "ssl"))
+              (onSSL pp funcs args))
           (onH1Proto ch funcs args))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -345,6 +409,7 @@
       [carg (if (fn? carg) {:ifunc carg} carg)
        {:keys [threads routes rcvBuf backlog
                sharedGroup? tempFileDir
+               serverKey passwd
                maxContentSize maxInMemory]
         :or {maxContentSize Integer/MAX_VALUE
              maxInMemory *membuf-limit*
@@ -357,10 +422,12 @@
         :as args}
        (dissoc carg :ifunc)
        p1 (:ifunc carg)
+       ctx (maybeCfgSSL
+             serverKey passwd)
        ci
        (cond
          (ist? ChannelInitializer p1) p1
-         (fn? p1) (chanInitor<> p1 args)
+         (fn? p1) (tcpInitor<> p1 ctx args)
          :else (trap! ClassCastException "wrong input"))
        tempFileDir (fpath (or tempFileDir
                               *tempfile-repo*))
@@ -432,7 +499,7 @@
        ci
        (cond
          (ist? ChannelInitializer p1) p1
-         (fn? p1) (chanInitor<> p1 args)
+         (fn? p1) (udpInitor<> p1 args)
          :else (trap! ClassCastException "wrong input"))
        [g z] (gAndC threads :udps)
        bs (Bootstrap.)
