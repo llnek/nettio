@@ -541,6 +541,46 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
+(defn- testSSL "" []
+  (let [out (atom nil)
+        w
+        (nettyWebServer<>
+          {:serverKey "selfsignedcert"
+           :passwd  ""
+           :ifunc (fn [_]
+                    {:h1
+                     (proxy [InboundHandler][]
+                       (channelRead0 [ctx msg]
+                         (let [ch (ch?? ctx)
+                               ^XData b (:body msg)
+                               res (http-result msg)]
+                           (reset! out (.content b))
+                           (->> (assoc res :body "hello joe")
+                                (reply-result )))))})})
+        _ (.start w {:port 5555 :host lhost-name})
+        po (h1post (str "http://" lhost-name ":5555/form")
+                   "a=b&c=3%209&name=john%27smith"
+                   {:headers {:content-type
+                              "application/x-www-form-urlencoded"}})
+        rc (deref po 5000 nil)
+        rmap
+        (when @out
+          (preduce<map>
+            #(let [^FileItem i %2]
+               (if (.isFormField i)
+                 (assoc! %1
+                         (keyword (.getFieldName i))
+                         (.getString i))
+                 %1))
+            (get-all-items @out)))
+        _ (.stop w)]
+    (and rc
+         (= "hello joe" (.strit ^XData (:body rc)))
+         (= (:a rmap) "b")
+         (= (:c rmap) "3 9")
+         (= (:name rmap) "john'smith"))))
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
 (deftest czlabtestconvoynettio-test
 
   (testing
