@@ -26,6 +26,7 @@
 
   (:import [io.netty.handler.codec.http.websocketx.extensions.compression
             WebSocketClientCompressionHandler]
+           [io.netty.handler.ssl.util InsecureTrustManagerFactory]
            [io.netty.channel.socket.nio NioSocketChannel]
            [io.netty.handler.codec.http.websocketx
             ContinuationWebSocketFrame
@@ -110,22 +111,16 @@
 (def ^:private ^AttributeKey cf-key  (akey<> "wsock-future"))
 (def ^:private ^AttributeKey cc-key  (akey<> "wsock-client"))
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- maybeSSL2
+(defn- maybeSSL
   "" ^SslContext
-  [{:keys [serverCert scheme] :as args}]
+  [serverCert scheme h2?]
 
   (when (and (not= "http" scheme)
              (hgl? serverCert))
     (let
-      [p (if (OpenSsl/isAlpnSupported)
-           SslProvider/OPENSSL
-           SslProvider/JDK)
-       #^"[Ljava.security.cert.X509Certificate;"
-       cs (->> (convCerts (io/as-url serverCert))
-               (vargs X509Certificate))
-       pms (doto (java.util.ArrayList.)
+      [pms (doto (java.util.ArrayList.)
              (.add ApplicationProtocolNames/HTTP_2)
              (.add ApplicationProtocolNames/HTTP_1_1))
        cfg
@@ -133,34 +128,26 @@
          ApplicationProtocolConfig$Protocol/ALPN
          ApplicationProtocolConfig$SelectorFailureBehavior/NO_ADVERTISE
          ApplicationProtocolConfig$SelectedListenerFailureBehavior/ACCEPT
-         pms)]
-      (-> (SslContextBuilder/forClient)
-          (.ciphers Http2SecurityUtil/CIPHERS
-                    SupportedCipherSuiteFilter/INSTANCE)
-          (.trustManager cs)
-          (.sslProvider  ^SslProvider p)
-          (.applicationProtocolConfig cfg)
-          .build))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- maybeSSL1
-  "" ^SslContext
-  [{:keys [serverCert scheme] :as args}]
-
-  (when (and (not= "http" scheme)
-             (hgl? serverCert))
-    (let
-      [p  (if (OpenSsl/isAlpnSupported)
+         pms)
+       ctx (SslContextBuilder/forClient)
+       ctx (if h2?
+             (-> (.ciphers ctx
+                       Http2SecurityUtil/CIPHERS
+                       SupportedCipherSuiteFilter/INSTANCE)
+                 (.applicationProtocolConfig cfg))
+             ctx)
+       ctx (if (= "selfsignedcert" serverCert)
+             (.trustManager ctx InsecureTrustManagerFactory/INSTANCE)
+             (let
+               [#^"[Ljava.security.cert.X509Certificate;"
+                cs (->> (convCerts (io/as-url serverCert))
+                        (vargs X509Certificate))]
+               (.trustManager ctx cs)))
+       ^SslProvider
+       p  (if (OpenSsl/isAlpnSupported)
             SslProvider/OPENSSL
-            SslProvider/JDK)
-       #^"[Ljava.security.cert.X509Certificate;"
-       cs (->> (convCerts (io/as-url serverCert))
-               (vargs X509Certificate))]
-      (-> (SslContextBuilder/forClient)
-          (.sslProvider ^SslProvider p)
-          (.trustManager cs)
-          .build))))
+            SslProvider/JDK)]
+      (-> (.sslProvider ctx p) .build))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -376,6 +363,7 @@
 (defn- boot!
   "" [{:keys [maxContentSize maxInMemory
               version tempFileDir
+              serverCert scheme
               threads rcvBuf options]
        :or {maxContentSize Integer/MAX_VALUE
             maxInMemory *membuf-limit*
@@ -386,8 +374,8 @@
 
   (let [tempFileDir (fpath (or tempFileDir
                                *tempfile-repo*))
-        ctx (if (= version "1.1")
-              (maybeSSL1 args) (maybeSSL2 args))
+        ctx (maybeSSL serverCert scheme
+                      (= version "2.0"))
         [g z] (gAndC threads :tcpc)
         bs (Bootstrap.)
         options (or options

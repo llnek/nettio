@@ -36,10 +36,22 @@
            [io.netty.handler.codec.http2
             Http2FrameListener
             Http2SecurityUtil
+            Http2FrameLogger
             Http2CodecUtil
+            Http2HeadersEncoder
+            Http2HeadersDecoder
+            DefaultHttp2ConnectionEncoder
+            DefaultHttp2ConnectionDecoder
+            DefaultHttp2HeadersEncoder
+            DefaultHttp2HeadersDecoder
+            DefaultHttp2FrameWriter
+            DefaultHttp2FrameReader
             Http2ServerUpgradeCodec
             Http2ConnectionDecoder
             Http2ConnectionEncoder
+            Http2OutboundFrameLogger
+            Http2InboundFrameLogger
+            Http2ConnectionHandler
             Http2Settings
             DefaultHttp2Connection
             HttpToHttp2ConnectionHandlerBuilder
@@ -47,6 +59,7 @@
             InboundHttp2ToHttpAdapterBuilder
             AbstractHttp2ConnectionHandlerBuilder]
            [io.netty.channel.epoll Epoll]
+           [io.netty.handler.ssl.util SelfSignedCertificate]
            [io.netty.handler.ssl
             SslContext
             OpenSsl
@@ -99,15 +112,15 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- cfgSSL??
-  "" ^SslContext [serverKey passwd]
+  "" ^SslContext [^String serverKey passwd]
   (let
     [ctx
      (if (= "selfsignedcert" serverKey)
        (let [ssc (SelfSignedCertificate.)]
          (SslContextBuilder/forServer (.certificate ssc)
                                       (.privateKey ssc)))
-       (let [t (TrustManagerFactory/getInstance tmfda)
-             k (KeyManagerFactory/getInstance kmfda)
+       (let [t (TrustManagerFactory/getInstance (tmfda))
+             k (KeyManagerFactory/getInstance (kmfda))
              pwd (some-> passwd charsit)
              ks (-> ^String
                     (if (.endsWith
@@ -227,42 +240,19 @@
       :else
       (trap! ClassCastException (format "wrong input %s" funcs)))))
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;not-used!
-(defn- newH2H1
-  "Handle http2 via http1 adapter"
-  [^ChannelHandlerContext ctx
-   {:keys [h2h1]}
-   {:keys [maxContentSize]
-    :or {maxContentSize (* 64 MegaBytes)} :as args}]
-
-  (let
-    [conn (DefaultHttp2Connection. true)
-     pp (.pipeline ctx)
-     ln (->
-          (doto
-            (InboundHttp2ToHttpAdapterBuilder. conn)
-            (.maxContentLength (int maxContentSize))
-            (.propagateSettings true)
-            (.validateHttpHeaders false))
-          .build)]
-    (doto pp
-      (.addLast "H1H2CH"
-                (-> (HttpToHttp2ConnectionHandlerBuilder.)
-                    (.frameListener ln)
-                    (.connection conn)
-                    .build))
-      (.addLast user-handler-id ^ChannelHandler h2h1))))
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- buildH2 "" [args]
-  (let [conn (->> Http2CodecUtil/DEFAULT_MAX_RESERVED_STREAMS
+(defn- buildH2
+  ""
+  ^ChannelHandler
+  [^Http2FrameListener h2 args]
+
+  (let [conn (->> Http2CodecUtil/SMALLEST_MAX_CONCURRENT_STREAMS
                   (DefaultHttp2Connection. true))
         ss (->> Http2CodecUtil/DEFAULT_HEADER_LIST_SIZE
                 (.maxHeaderListSize (Http2Settings.)))
         mhls (.maxHeaderListSize ss)
-        log (Http2FrameLogger. INFO "")
+        log (Http2FrameLogger. LogLevel/INFO "h2logger")
         rdr (-> (DefaultHttp2FrameReader.
                   (DefaultHttp2HeadersDecoder. true mhls))
                 (Http2InboundFrameLogger. log))
@@ -275,42 +265,34 @@
              (.frameListener h2))
         handler
         (proxy [Http2ConnectionHandler][dc ec ss])]
-    (.gracefulShutdownTimeoutMillis handler
-                                    DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT_MILLIS)
+    (.gracefulShutdownTimeoutMillis handler 30000)
     handler))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- cfgH2
-  "" [pp h2 args]
-
-  (doto ^ChannelPipeline pp
-    (.addLast (gczn HttpServerCodec) (HttpServerCodec.))
-    (.addLast "HOA" obj-agg)
-    (.addLast "H1RH" req-hdr)
-    (.addLast "CWH" (ChunkedWriteHandler.))
-    (.addLast user-handler-id ^ChannelHandler h1)))
+  "" [^ChannelPipeline pp ^ChannelHandler h2 args]
+  (doto pp
+    (.addLast user-handler-id (buildH2 h2 args))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- cfgH1
-  "" [pp h1 args]
-  {:pre [(ist? ChannelHandler h1)]}
-
-  (doto ^ChannelPipeline pp
+(defn- cfgH1 "" [^ChannelPipeline pp ^ChannelHandler h1 args]
+  (doto pp
     (.addLast (gczn HttpServerCodec) (HttpServerCodec.))
     (.addLast "HOA" obj-agg)
     (.addLast "H1RH" req-hdr)
     (.addLast "CWH" (ChunkedWriteHandler.))
-    (.addLast user-handler-id ^ChannelHandler h1)))
+    (.addLast user-handler-id h1)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- onSSL
-  "" [^ChannelPipeline cpp {:keys [h1 h2]} args]
+  "" [^ChannelPipeline cpp h1 h2 args]
 
   (cond
-    (and h1 h2)
+    (and (ist? ChannelHandler h1)
+         (ist? ChannelHandler h2))
     (->>
       (proxy [SSLNegotiator][]
         (configurePipeline [ctx n]
@@ -319,18 +301,18 @@
             (cond
               (AsciiString/contentEquals
                 ApplicationProtocolNames/HTTP_1_1 pn)
-              (cfgh1 pp h1 args)
+              (cfgH1 pp h1 args)
               (AsciiString/contentEquals
                 ApplicationProtocolNames/HTTP_2 pn)
-              (cfgh2 pp h2 args)
-              ;;(.addLast pp (gczn H2Connector) (newH2Builder<> h2))
+              (cfgH2 pp h2 args)
               :else
               (trap! IllegalStateException
                      (str "unknown protocol: " pn))))))
       (.addLast cpp (gczn SSLNegotiator)))
-    (some? h2)
-    (some? h1)
-    (cfgh1 cpp h1 args)))
+    (ist? ChannelHandler h2)
+    (cfgH2 cpp h2 args)
+    (ist? ChannelHandler h1)
+    (cfgH1 cpp h1 args)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -340,26 +322,28 @@
   (proxy [ChannelInitializer][]
     (initChannel [ch]
       (let [ch (cast? Channel ch)
-            funcs (deco args)
+            {:keys [udp]} (deco args)
             pp (.pipeline ch)]
-        (onH1Proto ch funcs args)))))
+        (.addLast pp
+                  user-handler-id
+                  ^ChannelHandler udp)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn tcpInitor<>
-  "" ^ChannelHandler [deco sslCtx args]
+  "" ^ChannelHandler [deco ^SslContext ctx args]
 
   (proxy [ChannelInitializer][]
     (initChannel [ch]
       (let [ch (cast? Channel ch)
-            funcs (deco args)
+            {:keys [h1 h2]} (deco args)
             pp (.pipeline ch)]
-        (if (some? sslCtx)
-          (do (->> (.newHandler sslCtxl
+        (if (some? ctx)
+          (do (->> (.newHandler ctx
                                 (.alloc ch))
                    (.addLast pp "ssl"))
-              (onSSL pp funcs args))
-          (onH1Proto ch funcs args))))))
+              (onSSL pp h1 h2 args))
+          (cfgH1 pp h1 args))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
