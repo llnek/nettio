@@ -35,6 +35,7 @@
             HttpServerUpgradeHandler$UpgradeCodecFactory]
            [io.netty.handler.codec.http2
             Http2FrameListener
+            Http2FrameAdapter
             Http2SecurityUtil
             Http2FrameLogger
             Http2CodecUtil
@@ -73,7 +74,7 @@
             ApplicationProtocolConfig$SelectorFailureBehavior
             ApplicationProtocolConfig$SelectedListenerFailureBehavior]
            [io.netty.handler.codec.http HttpMessage]
-           [czlab.jasal LifeCycle]
+           [czlab.jasal DataError LifeCycle]
            [java.util ArrayList]
            [java.security KeyStore]
            [io.netty.bootstrap
@@ -84,6 +85,7 @@
             H2Connector
             H2Builder
             H1DataFactory
+            InboundHandler
             InboundAdapter
             SSLNegotiator]
            [io.netty.channel
@@ -145,7 +147,7 @@
        ApplicationProtocolConfig$SelectedListenerFailureBehavior/ACCEPT
        pms)
      ^SslProvider
-     p (if (OpenSsl/isAlpnSupported)
+     p (if (and false (OpenSsl/isAlpnSupported))
          SslProvider/OPENSSL SslProvider/JDK)]
     (->
       (.ciphers ctx
@@ -271,19 +273,43 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- cfgH2
-  "" [^ChannelPipeline pp ^ChannelHandler h2 args]
-  (doto pp
-    (.addLast user-handler-id (buildH2 h2 args))))
+  "" [^ChannelPipeline pp h2 args]
+  (let
+    [u
+     (cond
+       (ist? Http2FrameListener h2) h2
+       (fn? h2)
+       (proxy [Http2FrameAdapter][]
+         (onDataRead [ctx sid data padding end?]
+           (h2 ctx sid data padding end?))
+         (onHeadersRead [ctx sid headers padding end?]
+           (h2 ctx sid headers padding end?)))
+       :else
+       (trap! DataError "Bad handler type"))]
+    (doto pp
+      (.addLast user-handler-id (buildH2 u args)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- cfgH1 "" [^ChannelPipeline pp ^ChannelHandler h1 args]
-  (doto pp
-    (.addLast (gczn HttpServerCodec) (HttpServerCodec.))
-    (.addLast "HOA" obj-agg)
-    (.addLast "H1RH" req-hdr)
-    (.addLast "CWH" (ChunkedWriteHandler.))
-    (.addLast user-handler-id h1)))
+(defn- cfgH1 "" [^ChannelPipeline pp h1 args]
+
+  (let
+    [^ChannelHandler
+     u
+     (cond
+       (ist? ChannelHandler h1) h1
+       (fn? h1)
+       (proxy [InboundHandler][]
+         (channelRead0 [ctx msg]
+           (h1 ctx msg)))
+       :else
+       (trap! DataError "bad handler type"))]
+    (doto pp
+      (.addLast "SC" (HttpServerCodec.))
+      (.addLast "OA" obj-agg)
+      (.addLast "RH" req-hdr)
+      (.addLast "CW" (ChunkedWriteHandler.))
+      (.addLast user-handler-id u))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -291,8 +317,8 @@
   "" [^ChannelPipeline cpp h1 h2 args]
 
   (cond
-    (and (ist? ChannelHandler h1)
-         (ist? ChannelHandler h2))
+    (and (some? h1)
+         (some? h2))
     (->>
       (proxy [SSLNegotiator][]
         (configurePipeline [ctx n]
@@ -309,7 +335,7 @@
               (trap! IllegalStateException
                      (str "unknown protocol: " pn))))))
       (.addLast cpp (gczn SSLNegotiator)))
-    (ist? ChannelHandler h2)
+    (ist? Http2FrameListener h2)
     (cfgH2 cpp h2 args)
     (ist? ChannelHandler h1)
     (cfgH1 cpp h1 args)))
@@ -317,33 +343,31 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn udpInitor<>
-  "" ^ChannelHandler [deco args]
-
+  "" ^ChannelHandler [hu args]
+  {:pre [(ist? ChannelHandler hu)]}
   (proxy [ChannelInitializer][]
     (initChannel [ch]
       (let [ch (cast? Channel ch)
-            {:keys [udp]} (deco args)
             pp (.pipeline ch)]
         (.addLast pp
                   user-handler-id
-                  ^ChannelHandler udp)))))
+                  ^ChannelHandler hu)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn tcpInitor<>
-  "" ^ChannelHandler [deco ^SslContext ctx args]
+  "" ^ChannelHandler [^SslContext ctx hh1 hh2 args]
 
   (proxy [ChannelInitializer][]
     (initChannel [ch]
       (let [ch (cast? Channel ch)
-            {:keys [h1 h2]} (deco args)
             pp (.pipeline ch)]
         (if (some? ctx)
           (do (->> (.newHandler ctx
                                 (.alloc ch))
                    (.addLast pp "ssl"))
-              (onSSL pp h1 h2 args))
-          (cfgH1 pp h1 args))))))
+              (onSSL pp hh1 hh2 args))
+          (cfgH1 pp hh1 args))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -390,9 +414,9 @@
   LifeCycle
   (init [me carg]
     (let
-      [carg (if (fn? carg) {:ifunc carg} carg)
-       {:keys [threads routes rcvBuf backlog
+      [{:keys [threads routes rcvBuf backlog
                sharedGroup? tempFileDir
+               ciz hh1 hh2
                serverKey passwd
                maxContentSize maxInMemory]
         :or {maxContentSize Integer/MAX_VALUE
@@ -402,20 +426,18 @@
              sharedGroup? true
              threads 0 routes nil}
         {:keys [server child]}
-        :options
-        :as args}
-       (dissoc carg :ifunc)
-       p1 (:ifunc carg)
+        :options }
+       carg
        ctx (maybeCfgSSL
              serverKey passwd)
        ci
        (cond
-         (ist? ChannelInitializer p1) p1
-         (fn? p1) (tcpInitor<> p1 ctx args)
+         (ist? ChannelInitializer ciz) ciz
+         (or hh1 hh2) (tcpInitor<> ctx hh1 hh2 carg)
          :else (trap! ClassCastException "wrong input"))
        tempFileDir (fpath (or tempFileDir
                               *tempfile-repo*))
-       args (dissoc args :routes :options)
+       args (dissoc carg :routes :options)
        [g z] (gAndC threads :tcps)
        bs (ServerBootstrap.)
        server (or server
@@ -472,18 +494,17 @@
   LifeCycle
   (init [me carg]
     (let
-      [carg (if (fn? carg) {:ifunc carg} carg)
-       {:keys [maxMsgsPerRead threads rcvBuf options]
+      [{:keys [maxMsgsPerRead threads
+               ciz hu
+               rcvBuf options]
         :or {maxMsgsPerRead Integer/MAX_VALUE
              rcvBuf (* 2 MegaBytes)
-             threads 0}
-        :as args}
-       (dissoc carg :ifunc)
-       p1 (:ifunc carg)
+             threads 0}}
+       carg
        ci
        (cond
-         (ist? ChannelInitializer p1) p1
-         (fn? p1) (udpInitor<> p1 args)
+         (ist? ChannelInitializer ciz) ciz
+         (some? hu) (udpInitor<> hu carg)
          :else (trap! ClassCastException "wrong input"))
        [g z] (gAndC threads :udps)
        bs (Bootstrap.)
@@ -520,20 +541,18 @@
 (defn nettyUdpServer<> "" {:tag LifeCycle}
   ([] (nettyUdpServer<> nil))
   ([carg]
-   (let [w (mutable<> NettyUdpServer)]
-     (if (some? carg)
-       (.init w carg))
-     w)))
+   (do-with [w (mutable<> NettyUdpServer)]
+            (if (some? carg)
+              (.init w carg)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn nettyWebServer<> "" {:tag LifeCycle}
   ([] (nettyWebServer<> nil))
   ([carg]
-   (let [w (mutable<> NettyWebServer)]
-     (if (some? carg)
-       (.init w carg))
-     w)))
+   (do-with [w (mutable<> NettyWebServer)]
+            (if (some? carg)
+              (.init w carg)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF

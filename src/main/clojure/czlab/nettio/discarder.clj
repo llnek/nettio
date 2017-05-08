@@ -56,10 +56,9 @@
 
   ([cb] (discardHTTPD<> cb nil))
   ([cb args]
-   (let [^LifeCycle w (mutable<> NettyWebServer)]
-     (.init w (merge args
-                     {:ifunc (fn [_] {:h1 (h1proxy cb)}) }))
-     w)))
+   (do-with [^LifeCycle w (mutable<> NettyWebServer)]
+     (.init w (assoc args
+                     :hh1 (h1proxy cb))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;

@@ -163,17 +163,15 @@
 
   ([] (snoopHTTPD<> nil))
   ([args]
-   (let [^LifeCycle w (mutable<> NettyWebServer)]
+   (do-with [^LifeCycle w (mutable<> NettyWebServer)]
      (.init w
             (merge
               args
-              {:ifunc (fn [_]
-                        {:h1
-                         (proxy [InboundHandler][]
-                           (channelRead0 [ctx msg]
-                             (handleReq ctx msg)
-                             (handleCnt ctx msg)))}) }))
-     w)))
+              {:hh1
+               (proxy [InboundHandler][]
+                 (channelRead0 [ctx msg]
+                   (handleReq ctx msg)
+                   (handleCnt ctx msg)))})))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;

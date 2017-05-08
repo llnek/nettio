@@ -209,16 +209,14 @@
 (defn- testFormPost "" []
   (let [out (atom nil)
         w
-        (-> (fn [_]
-              {:h1
-               (proxy [InboundHandler][]
-                 (channelRead0 [ctx msg]
-                   (let [ch (ch?? ctx)
-                         ^XData b (:body msg)
-                         res (http-result msg)]
-                     (reset! out (.content b))
-                     (->> (assoc res :body "hello joe")
-                          (reply-result )))))})
+        (-> {:hh1
+             (fn [ctx msg]
+               (let [ch (ch?? ctx)
+                     ^XData b (:body msg)
+                     res (http-result msg)]
+                 (reset! out (.content b))
+                 (->> (assoc res :body "hello joe")
+                      (reply-result ))))}
             (nettyWebServer<>))
         _ (.start w {:port 5555 :host lhost-name})
         po (h1post (str "http://" lhost-name ":5555/form")
@@ -248,12 +246,11 @@
 (defn- testFormMultipart "" []
   (let [out (atom nil)
         w
-        (-> (fn [_]
-              {:h1 (proxy [InboundHandler][]
-                     (channelRead0 [ctx msg]
-                       (let [^XData b (:body msg)]
-                         (reset! out (.content b))
-                         (replyStatus ctx 200))))})
+        (-> {:hh1
+             (fn [ctx msg]
+               (let [^XData b (:body msg)]
+                 (reset! out (.content b))
+                 (replyStatus ctx 200)))}
             (nettyWebServer<>))
         ctype "multipart/form-data; boundary=---1234"
         cbody TEST-FORM-MULTIPART
@@ -299,12 +296,10 @@
   (let [o (str "http://" lhost-name)
         port 5555
         w
-        (-> (fn [_]
-              {:h1
-               (proxy [InboundHandler][]
-                 (channelRead0 [ctx msg]
-                   (let [^XData b (:body msg)]
-                     (replyStatus ctx 200))))})
+        (-> {:hh1
+             (fn [ctx msg]
+               (let [^XData b (:body msg)]
+                 (replyStatus ctx 200)))}
             (nettyWebServer<>))
         _ (.start w {:port 5555 :host lhost-name})
         args {:headers
@@ -324,16 +319,12 @@
         port 5555
         args
         {:corsCfg {:enabled? true
-                   :anyOrigin? true}}
-        w
-        (->> (fn [_]
-               {:h1
-                (proxy [InboundHandler][]
-                  (channelRead0 [ctx msg]
-                    (let [^XData b (:body msg)]
-                      (replyStatus ctx 200))))})
-             (assoc args :ifunc)
-             (nettyWebServer<>))
+                   :anyOrigin? true}
+         :hh1
+         (fn [ctx msg]
+           (let [^XData b (:body msg)]
+             (replyStatus ctx 200)))}
+        w (nettyWebServer<> args)
         _ (.start w {:port 5555 :host lhost-name})
         args {:headers
               {:origin o
@@ -354,16 +345,12 @@
         {:corsCfg {:enabled? true
                    :anyOrigin? true
                    :nullable? false
-                   :credentials? true}}
-        w
-        (->> (fn [_]
-               {:h1
-                (proxy [InboundHandler][]
-                  (channelRead0 [ctx msg]
-                    (let [^XData b (:body msg)]
-                      (replyStatus ctx 200))))})
-             (assoc args :ifunc)
-             (nettyWebServer<>))
+                   :credentials? true}
+         :hh1
+         (fn [ctx msg]
+           (let [^XData b (:body msg)]
+             (replyStatus ctx 200)))}
+        w (nettyWebServer<> args)
         _ (.start w {:port 5555 :host lhost-name})
         args {:headers
               {:origin o
@@ -378,15 +365,12 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- testWebsockClose "" []
-  (let [args {:wsockPath "/web/sock"}
-        w
-        (->> (fn [_]
-               {:h1
-                (proxy [InboundHandler][]
-                  (channelRead0 [ctx msg]
-                    (println "msg = " msg)))})
-             (assoc args :ifunc)
-             (nettyWebServer<>))
+  (let [args
+        {:wsockPath "/web/sock"
+         :hh1
+         (fn [ctx msg]
+           (println "msg = " msg))}
+        w (nettyWebServer<> args)
         port 5556
         _ (.start w {:port port :host lhost-name})
         rcp (wsconnect<> lhost-name
@@ -403,16 +387,13 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- testWebsockBad "" []
-  (let [args {:wsockPath #{"/web/sock"}}
+  (let [args
+        {:wsockPath #{"/web/sock"}
+         :hh1
+         (fn [ctx msg]
+           (println "Oh no! msg = " msg))}
+        w (nettyWebServer<> args)
         host lhost-name
-        w
-        (->> (fn [_]
-               {:h1
-                (proxy [InboundHandler][]
-                  (channelRead0 [ctx msg]
-                    (println "Oh no! msg = " msg)))})
-             (assoc args :ifunc)
-             (nettyWebServer<>))
         port 5556
         _ (.start w {:port port :host host})
         rcp (wsconnect<> host
@@ -426,15 +407,12 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- testWebsock "" []
-  (let [args {:wsockPath #{"/web/sock"}}
-        w
-        (->> (fn [_]
-               {:h1
-                (proxy [InboundHandler][]
-                  (channelRead0 [ctx msg]
-                    (println "Why? msg = " msg)))})
-             (assoc args :ifunc)
-             (nettyWebServer<>))
+  (let [args
+        {:wsockPath #{"/web/sock"}
+         :hh1
+         (fn [ctx msg]
+           (println "Why? msg = " msg))}
+        w (nettyWebServer<> args)
         port 5556
         _ (.start w {:port port :host lhost-name})
         rcp (wsconnect<> lhost-name
@@ -448,18 +426,15 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- testWebsockText "" []
-  (let [args {:wsockPath "/web/sock"}
+  (let [args
+        {:wsockPath "/web/sock"
+         :hh1
+         (fn [ctx msg]
+           (let [^XData x (:body msg)
+                 m (TextWebSocketFrame. (.strit x))]
+             (.writeAndFlush ^ChannelHandlerContext ctx m)))}
+        w (nettyWebServer<> args)
         out (atom nil)
-        w
-        (->> (fn [_]
-               {:h1
-                (proxy [InboundHandler][]
-                  (channelRead0 [ctx msg]
-                    (let [^XData x (:body msg)
-                          m (TextWebSocketFrame. (.strit x))]
-                   (.writeAndFlush ^ChannelHandlerContext ctx m))))})
-             (assoc args :ifunc)
-             (nettyWebServer<>))
         port 5556
         _ (.start w {:port port :host lhost-name})
         rcp (wsconnect<> lhost-name
@@ -478,20 +453,17 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- testWebsockBlob "" []
-  (let [args {:wsockPath "/web/sock"}
+  (let [args
+        {:wsockPath "/web/sock"
+         :hh1
+         (fn [ctx msg]
+           (let [^ChannelHandlerContext ctx ctx
+                 m (-> (byteBuf?? (:body msg)
+                                  (ch?? ctx))
+                       (BinaryWebSocketFrame. ))]
+             (.writeAndFlush ctx m)))}
+        w (nettyWebServer<> args)
         out (atom nil)
-        w
-        (->> (fn [_]
-               {:h1
-                (proxy [InboundHandler][]
-                  (channelRead0 [ctx msg]
-                    (let [^ChannelHandlerContext ctx ctx
-                          m (-> (byteBuf?? (:body msg)
-                                           (ch?? ctx))
-                                (BinaryWebSocketFrame. ))]
-                      (.writeAndFlush ctx m))))})
-             (assoc args :ifunc)
-             (nettyWebServer<>))
         port 5556
         _ (.start w {:port port :host lhost-name})
         rcp (wsconnect<> lhost-name
@@ -511,17 +483,14 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- testWebsockPing "" []
-  (let [args {:wsockPath #{"/web/sock"}}
-        pong (atom false)
+  (let [pong (atom false)
         out (atom nil)
-        w
-        (->> (fn [_]
-               {:h1
-                (proxy [InboundHandler][]
-                  (channelRead0 [ctx msg]
-                    (reset! out "bad")))})
-             (assoc args :ifunc)
-             (nettyWebServer<>))
+        args
+        {:wsockPath #{"/web/sock"}
+         :hh1
+         (fn [ctx msg]
+           (reset! out "bad"))}
+        w (nettyWebServer<> args)
         port 5556
         _ (.start w {:port port :host lhost-name})
         rcp (wsconnect<> lhost-name
@@ -547,41 +516,28 @@
         (nettyWebServer<>
           {:serverKey "selfsignedcert"
            :passwd  ""
-           :ifunc (fn [_]
-                    {:h1
-                     (proxy [InboundHandler][]
-                       (channelRead0 [ctx msg]
-                         (let [ch (ch?? ctx)
-                               ^XData b (:body msg)
-                               res (http-result msg)]
-                           (reset! out (.content b))
-                           (->> (assoc res :body "hello joe")
-                                (reply-result )))))})})
-        _ (.start w {:port 5555 :host lhost-name})
-        po (h1post (str "http://" lhost-name ":5555/form")
-                   "a=b&c=3%209&name=john%27smith"
-                   {:headers {:content-type
-                              "application/x-www-form-urlencoded"}})
+           :hh1
+           (fn [ctx msg]
+             (let [ch (ch?? ctx)
+                   ^XData b (:body msg)
+                   res (http-result msg)]
+               (reset! out (.content b))
+               (->> (assoc res :body "hello joe")
+                    (reply-result ))))})
+        _ (.start w {:port 5555 :host lhost-name
+                     :serverCert "selfsignedcert"})
+        po (h1get (str "https://" lhost-name ":5555/form"))
         rc (deref po 5000 nil)
-        rmap
-        (when @out
-          (preduce<map>
-            #(let [^FileItem i %2]
-               (if (.isFormField i)
-                 (assoc! %1
-                         (keyword (.getFieldName i))
-                         (.getString i))
-                 %1))
-            (get-all-items @out)))
         _ (.stop w)]
     (and rc
-         (= "hello joe" (.strit ^XData (:body rc)))
-         (= (:a rmap) "b")
-         (= (:c rmap) "3 9")
-         (= (:name rmap) "john'smith"))))
+         (= "hello joe" (.strit ^XData (:body rc))))))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (deftest czlabtestconvoynettio-test
+
+  (is (testSSL))
+  (pause 11111)
 
   (testing
     "related to: web sockets"

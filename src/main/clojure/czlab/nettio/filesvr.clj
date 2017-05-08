@@ -138,12 +138,11 @@
 
   ([vdir] (memFileServer<> vdir nil))
   ([vdir args]
-   (let [^LifeCycle w (mutable<> NettyWebServer)]
-     (.init w
-            (merge args
-                   {:vdir vdir
-                    :ifunc #(do {:h1 (h1proxy %)}) }))
-     w)))
+   (do-with [^LifeCycle w (mutable<> NettyWebServer)]
+            (let [args (assoc args :vdir vdir)]
+              (.init w
+                     (assoc args
+                            :hh1 (h1proxy args)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; filesvr host port vdir

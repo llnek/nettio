@@ -144,7 +144,7 @@
                         (vargs X509Certificate))]
                (.trustManager ctx cs)))
        ^SslProvider
-       p  (if (OpenSsl/isAlpnSupported)
+       p  (if (and false (OpenSsl/isAlpnSupported))
             SslProvider/OPENSSL
             SslProvider/JDK)]
       (-> (.sslProvider ctx p) .build))))
