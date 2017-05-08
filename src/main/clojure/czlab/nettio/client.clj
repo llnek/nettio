@@ -113,41 +113,45 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
+(defn- buildCtx
+  "" ^SslContextBuilder [scert]
+  (let [ctx (SslContextBuilder/forClient)]
+    (if (= "selfsignedcert" scert)
+      (.trustManager ctx InsecureTrustManagerFactory/INSTANCE)
+      (let
+        [#^"[Ljava.security.cert.X509Certificate;"
+         cs (->> (convCerts (io/as-url scert))
+                 (vargs X509Certificate))]
+        (.trustManager ctx cs)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
 (defn- maybeSSL
   "" ^SslContext
-  [serverCert scheme h2?]
+  [scert scheme h2?]
 
   (when (and (not= "http" scheme)
-             (hgl? serverCert))
-    (let
-      [pms (doto (java.util.ArrayList.)
-             (.add ApplicationProtocolNames/HTTP_2)
-             (.add ApplicationProtocolNames/HTTP_1_1))
-       cfg
-       (ApplicationProtocolConfig.
-         ApplicationProtocolConfig$Protocol/ALPN
-         ApplicationProtocolConfig$SelectorFailureBehavior/NO_ADVERTISE
-         ApplicationProtocolConfig$SelectedListenerFailureBehavior/ACCEPT
-         pms)
-       ctx (SslContextBuilder/forClient)
-       ctx (if h2?
-             (-> (.ciphers ctx
-                       Http2SecurityUtil/CIPHERS
-                       SupportedCipherSuiteFilter/INSTANCE)
-                 (.applicationProtocolConfig cfg))
-             ctx)
-       ctx (if (= "selfsignedcert" serverCert)
-             (.trustManager ctx InsecureTrustManagerFactory/INSTANCE)
-             (let
-               [#^"[Ljava.security.cert.X509Certificate;"
-                cs (->> (convCerts (io/as-url serverCert))
-                        (vargs X509Certificate))]
-               (.trustManager ctx cs)))
-       ^SslProvider
-       p  (if (and false (OpenSsl/isAlpnSupported))
-            SslProvider/OPENSSL
-            SslProvider/JDK)]
-      (-> (.sslProvider ctx p) .build))))
+             (hgl? scert))
+    (let [ctx (buildCtx scert)]
+      (if-not h2?
+        (.build ctx)
+        (let [cfg
+              (ApplicationProtocolConfig.
+                ApplicationProtocolConfig$Protocol/ALPN
+                ApplicationProtocolConfig$SelectorFailureBehavior/NO_ADVERTISE
+                ApplicationProtocolConfig$SelectedListenerFailureBehavior/ACCEPT
+                (doto (java.util.ArrayList.)
+                  (.add ApplicationProtocolNames/HTTP_2)
+                  (.add ApplicationProtocolNames/HTTP_1_1)))
+              ^SslProvider
+              p  (if (and true (OpenSsl/isAlpnSupported))
+                   SslProvider/OPENSSL SslProvider/JDK)
+              ctx
+              (-> (.ciphers ctx
+                            Http2SecurityUtil/CIPHERS
+                            SupportedCipherSuiteFilter/INSTANCE)
+                  (.applicationProtocolConfig cfg))]
+          (-> (.sslProvider ctx p) .build))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -318,6 +322,7 @@
 (defn- h1pipe
   "" ^ChannelHandler [ctx args]
 
+  (log/debug "client:h1pipe: ssl ctx = %s" ctx)
   (proxy [ChannelInitializer][]
     (initChannel [ch]
       (if-some

@@ -8,11 +8,10 @@
   :description ""
   :url "https://github.com/llnek/nettio"
 
-  :dependencies [[io.netty/netty-tcnative "2.0.1.Final"]
+  :dependencies [[io.netty/netty-tcnative-boringssl-static "2.0.1.Final"]
                  [org.javassist/javassist "3.21.0-GA"]
                  [io.netty/netty-all "4.1.10.Final"]
                  [io.czlab/convoy "1.0.0"]]
-
 
   :plugins [[cider/cider-nrepl "0.14.0"]
             [lein-javadoc "0.3.0"]

@@ -524,9 +524,9 @@
                (reset! out (.content b))
                (->> (assoc res :body "hello joe")
                     (reply-result ))))})
-        _ (.start w {:port 5555 :host lhost-name
-                     :serverCert "selfsignedcert"})
-        po (h1get (str "https://" lhost-name ":5555/form"))
+        _ (.start w {:port 5555 :host lhost-name})
+        po (h1get (str "https://" lhost-name ":5555/form")
+                  {:serverCert "selfsignedcert"})
         rc (deref po 5000 nil)
         _ (.stop w)]
     (and rc

@@ -108,46 +108,50 @@
 ;;
 (defmacro ^:private tmfda "" [] `(TrustManagerFactory/getDefaultAlgorithm))
 (defmacro ^:private kmfda "" [] `(KeyManagerFactory/getDefaultAlgorithm))
-(defmacro ^:private maybeCfgSSL
-  "" [s p] `(let [s# ~s] (if (hgl? s#) (cfgSSL?? s# ~p))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- cfgSSL??
-  "" ^SslContext [^String serverKey passwd]
+(defn- buildCtx
+  "" ^SslContextBuilder [^String skey pwd]
+
+  (if (= "selfsignedcert" skey)
+    (let [ssc (SelfSignedCertificate.)]
+      (SslContextBuilder/forServer (.certificate ssc)
+                                   (.privateKey ssc)))
+    (let [t (TrustManagerFactory/getInstance (tmfda))
+          k (KeyManagerFactory/getInstance (kmfda))
+          cpwd (some-> pwd charsit)
+          ks (KeyStore/getInstance
+               ^String
+               (if (.endsWith skey ".jks") "JKS" "PKCS12"))
+          _ (with-open
+              [inp (.openStream (URL. skey))]
+              (.load ks inp cpwd)
+              (.init t ks)
+              (.init k ks cpwd))]
+      (-> (SslContextBuilder/forServer k) (.trustManager t)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(defn- maybeCfgSSL1
+  "" ^SslContext [skey pwd] (-> (buildCtx skey pwd) .build))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(defn- maybeCfgSSL2
+  "" ^SslContext [skey pwd]
   (let
-    [ctx
-     (if (= "selfsignedcert" serverKey)
-       (let [ssc (SelfSignedCertificate.)]
-         (SslContextBuilder/forServer (.certificate ssc)
-                                      (.privateKey ssc)))
-       (let [t (TrustManagerFactory/getInstance (tmfda))
-             k (KeyManagerFactory/getInstance (kmfda))
-             pwd (some-> passwd charsit)
-             ks (-> ^String
-                    (if (.endsWith
-                          serverKey ".jks")
-                      "JKS" "PKCS12")
-                 KeyStore/getInstance)
-             _ (with-open
-                 [inp (-> (URL. serverKey)
-                       .openStream)]
-                 (.load ks inp pwd)
-                 (.init t ks)
-                 (.init k ks pwd))]
-         (-> (SslContextBuilder/forServer k)
-             (.trustManager t))))
-     pms (doto (java.util.ArrayList.)
-           (.add ApplicationProtocolNames/HTTP_2)
-           (.add ApplicationProtocolNames/HTTP_1_1))
-     cfg
+    [cfg
      (ApplicationProtocolConfig.
        ApplicationProtocolConfig$Protocol/ALPN
        ApplicationProtocolConfig$SelectorFailureBehavior/NO_ADVERTISE
        ApplicationProtocolConfig$SelectedListenerFailureBehavior/ACCEPT
-       pms)
+       (doto (java.util.ArrayList.)
+           (.add ApplicationProtocolNames/HTTP_2)
+           (.add ApplicationProtocolNames/HTTP_1_1)))
+     ctx (buildCtx skey pwd)
      ^SslProvider
-     p (if (and false (OpenSsl/isAlpnSupported))
+     p (if (and true (OpenSsl/isAlpnSupported))
          SslProvider/OPENSSL SslProvider/JDK)]
     (->
       (.ciphers ctx
@@ -335,9 +339,9 @@
               (trap! IllegalStateException
                      (str "unknown protocol: " pn))))))
       (.addLast cpp (gczn SSLNegotiator)))
-    (ist? Http2FrameListener h2)
+    (some? h2)
     (cfgH2 cpp h2 args)
-    (ist? ChannelHandler h1)
+    (some? h1)
     (cfgH1 cpp h1 args)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -428,8 +432,9 @@
         {:keys [server child]}
         :options }
        carg
-       ctx (maybeCfgSSL
-             serverKey passwd)
+       ctx (if (some? hh2)
+             (maybeCfgSSL2 serverKey passwd)
+             (maybeCfgSSL1 serverKey passwd))
        ci
        (cond
          (ist? ChannelInitializer ciz) ciz
