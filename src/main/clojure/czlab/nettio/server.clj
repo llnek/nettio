@@ -114,10 +114,14 @@
 (defn- buildCtx
   "" ^SslContextBuilder [^String skey pwd]
 
-  (if (= "selfsignedcert" skey)
+  (cond
+    (nichts? skey)
+    nil
+    (= "*" skey)
     (let [ssc (SelfSignedCertificate.)]
       (SslContextBuilder/forServer (.certificate ssc)
                                    (.privateKey ssc)))
+    :else
     (let [t (TrustManagerFactory/getInstance (tmfda))
           k (KeyManagerFactory/getInstance (kmfda))
           cpwd (some-> pwd charsit)
@@ -134,117 +138,32 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- maybeCfgSSL1
-  "" ^SslContext [skey pwd] (-> (buildCtx skey pwd) .build))
+  "" ^SslContext [skey pwd] (some-> (buildCtx skey pwd) .build))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- maybeCfgSSL2
   "" ^SslContext [skey pwd]
-  (let
-    [cfg
-     (ApplicationProtocolConfig.
-       ApplicationProtocolConfig$Protocol/ALPN
-       ApplicationProtocolConfig$SelectorFailureBehavior/NO_ADVERTISE
-       ApplicationProtocolConfig$SelectedListenerFailureBehavior/ACCEPT
-       (doto (java.util.ArrayList.)
-           (.add ApplicationProtocolNames/HTTP_2)
-           (.add ApplicationProtocolNames/HTTP_1_1)))
-     ctx (buildCtx skey pwd)
-     ^SslProvider
-     p (if (and true (OpenSsl/isAlpnSupported))
-         SslProvider/OPENSSL SslProvider/JDK)]
-    (->
-      (.ciphers ctx
-                Http2SecurityUtil/CIPHERS
-                SupportedCipherSuiteFilter/INSTANCE)
-      (.sslProvider p)
-      (.applicationProtocolConfig cfg)
-      (.build))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- newH2Builder<>
-  "" ^H2Connector [h2handler]
-
-  (-> (proxy [H2Builder][]
-        (build [dc ec ss]
-          (doto->>
-            (H2Connector.
-              ^Http2ConnectionDecoder dc
-              ^Http2ConnectionEncoder ec
-              ^Http2Settings ss)
-            (.frameListener ^H2Builder this))))
-      .build))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- upgradeCodecFac' "" [h2handler]
-  (reify
-    HttpServerUpgradeHandler$UpgradeCodecFactory
-    (newUpgradeCodec [_ pn]
-      (if (-> Http2CodecUtil/HTTP_UPGRADE_PROTOCOL_NAME
-              (AsciiString/contentEquals pn))
-        (-> (newH2Builder<> h2handler)
-            Http2ServerUpgradeCodec.)))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(def ^:private upgradeCodecFac (memoize upgradeCodecFac'))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- onH1'
-  "No h2 upgrade, use standard h1 pipeline"
-  [h1 args] {:pre [(ist? ChannelHandler h1)]}
-
-  (proxy [InboundAdapter][]
-    (channelRead [ctx msg]
-      (let
-        [^ChannelHandlerContext ctx ctx
-         pp (.pipeline ctx)
-         cur (.handler ctx)]
-        (when (ist? HttpMessage msg)
-          (.replace pp cur "HOA" obj-agg)
-          (.addAfter pp "HOA" "H1RH" req-hdr)
-          (.addAfter pp "H1RH" "CWH" (ChunkedWriteHandler.))
-          (.addAfter pp "CWH" user-handler-id ^ChannelHandler h1)
-          (log/debug "removing h2-upgrader")
-          (.remove pp HttpServerUpgradeHandler))
-        (.fireChannelRead ctx msg)))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(def ^:private onH1 (memoize onH1'))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- onH1Proto
-  "Deal with possible http2 upgrade?"
-  [^Channel ch {:keys [h1 h2 h2h1] :as funcs} args]
-
-  (let
-    [dft (HttpServerCodec.)
-     pp (.pipeline ch)]
-    (.addLast pp (gczn HttpServerCodec) dft)
-    (cond
-      (ist? ChannelHandler h2)
-      (do
-        (log/debug "http2 handler provided, implement h2 upgrader")
-        (->> (upgradeCodecFac h2)
-             (HttpServerUpgradeHandler. dft)
-             (.addLast pp (gczn HttpServerUpgradeHandler)))
-        (->> ^ChannelHandler
-             (onH1 h1 args)
-             (.addLast pp "H1Only" )))
-      (ist? ChannelHandler h1)
-      (do
-        (log/debug "standard http1 pipeline only")
-        (.addLast pp "HOA" obj-agg)
-        (.addLast pp "H1RH" req-hdr)
-        (.addLast pp "CWH" (ChunkedWriteHandler.))
-        (.addLast pp user-handler-id ^ChannelHandler h1))
-      :else
-      (trap! ClassCastException (format "wrong input %s" funcs)))))
+  (if-some [ctx (buildCtx skey pwd)]
+    (let
+      [cfg
+       (ApplicationProtocolConfig.
+         ApplicationProtocolConfig$Protocol/ALPN
+         ApplicationProtocolConfig$SelectorFailureBehavior/NO_ADVERTISE
+         ApplicationProtocolConfig$SelectedListenerFailureBehavior/ACCEPT
+         (doto (java.util.ArrayList.)
+             (.add ApplicationProtocolNames/HTTP_2)
+             (.add ApplicationProtocolNames/HTTP_1_1)))
+       ^SslProvider
+       p (if (and true (OpenSsl/isAlpnSupported))
+           SslProvider/OPENSSL SslProvider/JDK)]
+      (->
+        (.ciphers ctx
+                  Http2SecurityUtil/CIPHERS
+                  SupportedCipherSuiteFilter/INSTANCE)
+        (.sslProvider p)
+        (.applicationProtocolConfig cfg)
+        (.build)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -408,7 +327,8 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- finz-ch [^Channel ch]
-  (try!
+  (trye!
+    nil
     (if (and ch
              (.isOpen ch)) (.close ch))))
 

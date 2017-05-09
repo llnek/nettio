@@ -427,7 +427,8 @@
 ;;
 (defn- testWebsockText "" []
   (let [args
-        {:wsockPath "/web/sock"
+        {:serverKey "*"
+         :wsockPath "/web/sock"
          :hh1
          (fn [ctx msg]
            (let [^XData x (:body msg)
@@ -435,7 +436,7 @@
              (.writeAndFlush ^ChannelHandlerContext ctx m)))}
         w (nettyWebServer<> args)
         out (atom nil)
-        port 5556
+        port 8443
         _ (.start w {:port port :host lhost-name})
         rcp (wsconnect<> lhost-name
                          port
@@ -443,7 +444,8 @@
                          (fn [^WSClientConnect cc msg]
                            (when-some [^XData s (:body msg)]
                              (reset! out (.strit s))
-                             (.write cc (CloseWebSocketFrame.)))))
+                             (.write cc (CloseWebSocketFrame.))))
+                         {:serverCert "*"})
         cc (deref rcp 5000 nil)
         _ (when-some [c (cast? WSClientConnect cc)] (.write c "hello"))
         _ (pause 1000)
@@ -510,11 +512,11 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- testSSL "" []
+(defn- test-h1-SSL "" []
   (let [out (atom nil)
         w
         (nettyWebServer<>
-          {:serverKey "selfsignedcert"
+          {:serverKey "*"
            :passwd  ""
            :hh1
            (fn [ctx msg]
@@ -524,20 +526,48 @@
                (reset! out (.content b))
                (->> (assoc res :body "hello joe")
                     (reply-result ))))})
-        _ (.start w {:port 5555 :host lhost-name})
-        po (h1get (str "https://" lhost-name ":5555/form")
-                  {:serverCert "selfsignedcert"})
+        _ (.start w {:port 8443 :host lhost-name})
+        po (h1get (str "https://"
+                       lhost-name ":8443/form")
+                  {:serverCert "*"})
         rc (deref po 5000 nil)
         _ (.stop w)]
     (and rc
          (= "hello joe" (.strit ^XData (:body rc))))))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(defn- h2handle "" [ctx sid inp padding end?]
+  (let []
+    (log/debug "end? ===== %s" end?)
+    (log/debug "padding ===== %s" padding)
+    (log/debug "sid ===== %s" sid)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(defn- test-h2-SSL "" []
+  (let [out (atom nil)
+        w
+        (nettyWebServer<>
+          {:serverKey "*"
+           :passwd  ""
+           :hh2 h2handle})
+        _ (.start w {:port 8443 :host lhost-name})
+        po (h2get (str "https://"
+                       lhost-name ":8443/form")
+                  {:serverCert "*"})
+        rc (deref po 5000 nil)
+        _ (.stop w)]
+    (some? rc)))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (deftest czlabtestconvoynettio-test
 
-  (is (testSSL))
-  (pause 11111)
+  (testing
+    "related to: SSL"
+    (is (test-h2-SSL))
+    (is (test-h1-SSL)))
 
   (testing
     "related to: web sockets"

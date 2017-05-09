@@ -116,7 +116,7 @@
 (defn- buildCtx
   "" ^SslContextBuilder [scert]
   (let [ctx (SslContextBuilder/forClient)]
-    (if (= "selfsignedcert" scert)
+    (if (= "*" scert)
       (.trustManager ctx InsecureTrustManagerFactory/INSTANCE)
       (let
         [#^"[Ljava.security.cert.X509Certificate;"
@@ -210,6 +210,7 @@
         (if (spos? clen)
           (HttpUtil/setContentLength req clen))))
     (log/debug "Netty client: about to flush out request (headers)")
+    (log/debug "Netty client: isKeepAlive= %s" ka?)
     (log/debug "Netty client: content has length %s" clen)
     (let [out (setAKey ch rsp-key (promise))
           cf (.write ch req)
@@ -343,6 +344,7 @@
 
   (proxy [ChannelInitializer][]
     (initChannel [ch]
+      (log/debug "client: wspipe is ssl? = %s" (some? ctx))
       (if-some
         [ssl (cast? SslContext ctx)]
         (->> (.newHandler ssl
@@ -422,9 +424,9 @@
               (BinaryWebSocketFrame. )))
         (.writeAndFlush ch )))
 
-
     (dispose [_]
-      (try!
+      (trye!
+        nil
         (if (.isOpen ch)
           (doto ch
             (.writeAndFlush (CloseWebSocketFrame.))
@@ -469,7 +471,7 @@
               (fn [_]
                 (log/debug "shutdown: netty ws-client")
                 (some-> f .cleanAllHttpData)
-                (try! (.. bs config group shutdownGracefully))))))
+                (trye! nil (.. bs config group shutdownGracefully))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -484,10 +486,11 @@
               (fn [_]
                 (log/debug "shutdown: netty h1-client")
                 (some-> f .cleanAllHttpData)
-                (try! (.. bs config group shutdownGracefully))))
+                (trye! nil (.. bs config group shutdownGracefully))))
     (reify ClientConnect
       (dispose [_]
-        (try! (if (.isOpen c)
+        (trye! nil
+               (if (.isOpen c)
                 (.close c)
                 (.. bs config group shutdownGracefully))))
       (channel [_] c)
@@ -503,7 +506,7 @@
    (wsconnect<> host port uri cb nil))
 
   ([host port uri cb args]
-   (let [pfx (if (:serverCert args) "wss" "ws")
+   (let [pfx (if (hgl? (:serverCert args)) "wss" "ws")
          uriStr (format "%s://%s:%d%s"
                         pfx host port uri)
          rc (promise)]

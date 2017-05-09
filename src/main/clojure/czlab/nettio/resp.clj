@@ -400,11 +400,13 @@
     (if (and (hgl? eTag)
              (not (get-in rhds [:etag :has?])))
       (.set hds HttpHeaderNames/ETAG eTag))
-    (let [cf (.write ch rsp)
+    (let [c? (HttpUtil/isKeepAlive rsp)
+          cf (.write ch rsp)
           cf (if body
                (.writeAndFlush ch body)
                (do (.flush ch) cf))]
-      (closeCF cf (HttpUtil/isKeepAlive rsp)))))
+      (log/debug "resp replied, keep-alive? = %s" c?)
+      (closeCF cf c?))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF
