@@ -14,29 +14,30 @@ import io.netty.handler.codec.http2.AbstractHttp2ConnectionHandlerBuilder;
 import static io.netty.handler.logging.LogLevel.INFO;
 import io.netty.handler.codec.http2.Http2FrameListener;
 import io.netty.handler.codec.http2.Http2FrameLogger;
+import io.netty.handler.codec.http2.Http2ConnectionHandler;
 
 /**
  * @author Kenneth Leung
  *
  */
-public abstract class H2Builder
+public abstract class H2ConnBuilder
   extends
-  AbstractHttp2ConnectionHandlerBuilder<H2Connector, H2Builder> {
+  AbstractHttp2ConnectionHandlerBuilder<Http2ConnectionHandler, H2ConnBuilder> {
 
-  private static Http2FrameLogger _log= new Http2FrameLogger(INFO, H2Connector.class);
+  private static Http2FrameLogger _log= new Http2FrameLogger(INFO, Http2ConnectionHandler.class);
 
   /**/
-  protected H2Builder() {
+  protected H2ConnBuilder() {
     frameLogger(_log);
   }
 
-  /**/
-  public H2Connector build() {
+  @Override
+  public Http2ConnectionHandler build() {
     return super.build();
   }
 
   @Override
-  public H2Builder frameListener(Http2FrameListener f) {
+  public H2ConnBuilder frameListener(Http2FrameListener f) {
     return super.frameListener(f);
   }
 

@@ -16,6 +16,7 @@
             [clojure.string :as cs])
 
   (:use [czlab.nettio.aggh11]
+        [czlab.nettio.aggh20]
         [czlab.nettio.aggwsk]
         [czlab.nettio.core]
         [czlab.convoy.util]
@@ -43,7 +44,9 @@
            [java.security.cert X509Certificate]
            [io.netty.handler.codec.http2
             Http2SecurityUtil
-            HttpConversionUtil]
+            HttpConversionUtil
+            Http2ConnectionHandler
+            AbstractHttp2ConnectionHandlerBuilder]
            [io.netty.handler.ssl
             ApplicationProtocolNames
             OpenSsl
@@ -95,6 +98,7 @@
            [czlab.nettio
             WholeResponse
             H1DataFactory
+            H2ConnBuilder
             ClientConnect
             InboundHandler
             InboundAdapter
@@ -320,6 +324,38 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
+(defn- h2cn<>
+  "" ^ChannelHandler [args]
+
+  (proxy [H2ConnBuilder][]
+    (build [dc ec ss]
+      (do-with
+        [h (proxy [Http2ConnectionHandler]
+                  [^Http2ConnectionDecoder dc
+                   ^Http2ConnectionEncoder ec
+                   ^Http2Settings ss])]
+        (.frameListener ^H2ConnBuilder this (h20Aggregator<>))))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(defn- h2pipe
+  "" ^ChannelHandler [ctx args]
+
+  (log/debug "client:h2pipe: ssl ctx = %s" ctx)
+  (proxy [ChannelInitializer][]
+    (initChannel [ch]
+      (if-some
+        [ssl (cast? SslContext ctx)]
+        (->> (.newHandler ssl
+                          (.alloc ^Channel ch))
+             (.addLast (cpipe ch) "ssl")))
+      (doto (cpipe ch)
+        (.addLast "codec" (h2cn<> args))
+        (.addLast "cw" (ChunkedWriteHandler.))
+        (.addLast "user-cb" user-hdlr)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
 (defn- h1pipe
   "" ^ChannelHandler [ctx args]
 
@@ -475,6 +511,30 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
+(defn- h2BootAndConn
+  "" [host port args]
+
+  (let [[^Bootstrap bs ctx] (boot! args)
+        _ (.handler bs (h2pipe ctx args))
+        c (connect bs host port (some? ctx))
+        ^H1DataFactory f (getAKey c dfac-key)]
+    (futureCB (.closeFuture c)
+              (fn [_]
+                (log/debug "shutdown: netty h2-client")
+                (some-> f .cleanAllHttpData)
+                (trye! nil (.. bs config group shutdownGracefully))))
+    (reify ClientConnect
+      (dispose [_]
+        (trye! nil
+               (if (.isOpen c)
+                (.close c)
+                (.. bs config group shutdownGracefully))))
+      (channel [_] c)
+      (port [_] port)
+      (host [_] host))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
 (defn- h1BootAndConn
   "" [host port args]
 
@@ -519,6 +579,15 @@
                             :uri (URI. uriStr)
                             :version "1.1"}))
      rc)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(defn h2connect<>
+  "" {:tag ClientConnect}
+
+  ([host port] (h2connect<> host port nil))
+  ([host port args]
+   (h2BootAndConn host port (merge args {:version "2"}))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;

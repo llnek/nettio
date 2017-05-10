@@ -82,12 +82,9 @@
             ServerBootstrap
             AbstractBootstrap]
            [czlab.nettio
-            H2Connector
-            H2Builder
             H1DataFactory
             InboundHandler
-            InboundAdapter
-            SSLNegotiator]
+            InboundAdapter]
            [io.netty.channel
             ChannelInitializer
             ChannelPipeline
@@ -243,7 +240,8 @@
     (and (some? h1)
          (some? h2))
     (->>
-      (proxy [SSLNegotiator][]
+      (proxy [ApplicationProtocolNegotiationHandler]
+             [ApplicationProtocolNames/HTTP_1_1]
         (configurePipeline [ctx n]
           (let [pp (cpipe ctx)
                 ^String pn n]
@@ -257,7 +255,7 @@
               :else
               (trap! IllegalStateException
                      (str "unknown protocol: " pn))))))
-      (.addLast cpp (gczn SSLNegotiator)))
+      (.addLast cpp "SSLNegotiator"))
     (some? h2)
     (cfgH2 cpp h2 args)
     (some? h1)
