@@ -537,28 +537,25 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- h2handle "" [ctx sid inp padding end?]
+(defn- h2handle "" [ctx msg]
   (let []
-    (log/debug "end? ===== %s" end?)
-    (log/debug "padding ===== %s" padding)
-    (log/debug "sid ===== %s" sid)))
+    (log/debug "got h2 msg === %s" msg)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- test-h2-SSL "" []
   (let [out (atom nil)
-        w
-        (nettyWebServer<>
-          {:serverKey "*"
-           :passwd  ""
-           :hh2 h2handle})
-        _ (.start w {:port 8443 :host lhost-name})
+        ;;w (nettyWebServer<> {:serverKey "*" :passwd  "" :hh2 h2handle})
+        ;;_ (.start w {:port 8443 :host lhost-name})
         po (h2get (str "https://"
-                       lhost-name ":8443/form")
+                       "www.google.com")
+                       ;;lhost-name ":8443/form")
                   {:serverCert "*"})
         rc (deref po 5000 nil)
-        _ (.stop w)]
-    (some? rc)))
+        s (and rc
+               (ist? XData (:body rc))
+               (.strit ^XData (:body rc)))]
+    (hgl? s)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;

@@ -36,6 +36,7 @@
            [java.util HashMap Map]
            [io.netty.channel
             ChannelHandler
+            ChannelPromise
             ChannelHandlerContext]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -96,8 +97,10 @@
 (defn h20Aggregator<>
   "A handler which aggregates frames into a full message"
   ^Http2FrameListener
-  []
+  [^ChannelPromise pm]
   (proxy [Http2FrameAdapter][]
+    (onSettingsRead [ctx ss]
+      (trye! nil (some-> pm .setSuccess)))
     (onDataRead [ctx sid data pad end?]
       (log/debug "rec'ved data: sid#%s, end?=%s" sid end?)
       (do-with [b (+ pad (.readableBytes ^ByteBuf data))]

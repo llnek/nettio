@@ -30,6 +30,9 @@ public interface ClientConnect extends Disposable {
    */
   public int port();
 
+  /**
+   */
+  public void await(long millis);
 }
 
 

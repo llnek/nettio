@@ -42,10 +42,15 @@
            [io.netty.channel.nio NioEventLoopGroup]
            [clojure.lang IDeref APersistentVector]
            [java.security.cert X509Certificate]
+           [java.util.concurrent TimeUnit]
            [io.netty.handler.codec.http2
-            Http2SecurityUtil
+            HttpConversionUtil$ExtensionHeaderNames
             HttpConversionUtil
+            Http2SecurityUtil
+            Http2FrameAdapter
+            Http2Settings
             Http2ConnectionHandler
+            HttpToHttp2ConnectionHandlerBuilder
             AbstractHttp2ConnectionHandlerBuilder]
            [io.netty.handler.ssl
             ApplicationProtocolNames
@@ -56,6 +61,7 @@
             SupportedCipherSuiteFilter
             ApplicationProtocolConfig
             ApplicationProtocolConfig$Protocol
+            ApplicationProtocolNegotiationHandler
             ApplicationProtocolConfig$SelectorFailureBehavior
             ApplicationProtocolConfig$SelectedListenerFailureBehavior]
            [io.netty.util ReferenceCountUtil AttributeKey]
@@ -110,10 +116,11 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(def ^:private ^ChannelHandler msg-agg (h1resAggregator<>))
+(def ^:private ^AttributeKey h2s-key  (akey<> "h2settings-promise"))
 (def ^:private ^AttributeKey rsp-key  (akey<> "rsp-result"))
 (def ^:private ^AttributeKey cf-key  (akey<> "wsock-future"))
 (def ^:private ^AttributeKey cc-key  (akey<> "wsock-client"))
+(def ^:private ^ChannelHandler msg-agg (h1resAggregator<>))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -145,8 +152,8 @@
                 ApplicationProtocolConfig$SelectorFailureBehavior/NO_ADVERTISE
                 ApplicationProtocolConfig$SelectedListenerFailureBehavior/ACCEPT
                 (doto (java.util.ArrayList.)
-                  (.add ApplicationProtocolNames/HTTP_2)
-                  (.add ApplicationProtocolNames/HTTP_1_1)))
+                  (.add ApplicationProtocolNames/HTTP_2)))
+                  ;;(.add ApplicationProtocolNames/HTTP_1_1)))
               ^SslProvider
               p  (if (and true (OpenSsl/isAlpnSupported))
                    SslProvider/OPENSSL SslProvider/JDK)
@@ -159,19 +166,18 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- send2 "" ^ChannelFuture [^Channel ch ^String op ^XData xs args] nil)
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- send1
+(defn- sendHttp
   "" [^Channel ch op ^URI uri data args]
 
   (let [mt (HttpMethod/valueOf (ucase (name op)))
-        cs (stror (:encoding args) "utf-8")
-        headers (:headers args)
+        {:keys [encoding
+                headers
+                version
+                override isKeepAlive?]}
+        args
+        cs (stror encoding "utf-8")
         body (byteBuf?? data ch cs)
-        mo (stror (:override args) "")
-        ka? (:isKeepAlive? args)
+        mo (stror override "")
         path (.getPath uri)
         qy (.getQuery uri)
         uriStr (if (hgl? qy)
@@ -195,11 +201,15 @@
           (addHeader req kw vv))
         (setHeader req kw v)))
     (setHeader req HttpHeaderNames/HOST (:host args))
-    (setHeader req
-               HttpHeaderNames/CONNECTION
-               (if ka?
-                 HttpHeaderValues/KEEP_ALIVE
-                 HttpHeaderValues/CLOSE))
+    (if (= version "2")
+      (setHeader req
+                 (.text HttpConversionUtil$ExtensionHeaderNames/SCHEME)
+                 (.getScheme uri))
+      (setHeader req
+                 HttpHeaderNames/CONNECTION
+                 (if isKeepAlive?
+                   HttpHeaderValues/KEEP_ALIVE
+                   HttpHeaderValues/CLOSE)))
     (if (hgl? mo)
       (setHeader req "X-HTTP-Method-Override" mo))
     (if (== 0 clen)
@@ -214,7 +224,7 @@
         (if (spos? clen)
           (HttpUtil/setContentLength req clen))))
     (log/debug "Netty client: about to flush out request (headers)")
-    (log/debug "Netty client: isKeepAlive= %s" ka?)
+    (log/debug "Netty client: isKeepAlive= %s" isKeepAlive?)
     (log/debug "Netty client: content has length %s" clen)
     (let [out (setAKey ch rsp-key (promise))
           cf (.write ch req)
@@ -237,9 +247,10 @@
 (defn- connect
   "" ^Channel [^Bootstrap bs host port ssl?]
 
-  (log/debug "netty client about to connect")
+  (log/debug "netty client about to connect to host: %s" host)
   (let
     [port  (if (< port 0) (if ssl? 443 80) port)
+     _ (log/debug "netty client about to connect to port: %s" port)
      sock (InetSocketAddress. (str host)
                               (int port))
      cf (some-> (.connect bs sock) .sync)
@@ -247,6 +258,7 @@
     (if (or (nil? cf)
             (not (.isSuccess cf)) (nil? ch))
       (throwIOE "Connect error: %s" (.cause cf)))
+    (log/debug "netty client connected to host: %s, port: %s" host port)
     ch))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -324,17 +336,15 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- h2cn<>
-  "" ^ChannelHandler [args]
+(defn- h2ss<>
+  "" ^ChannelHandler [^ChannelPromise pm]
 
-  (proxy [H2ConnBuilder][]
-    (build [dc ec ss]
-      (do-with
-        [h (proxy [Http2ConnectionHandler]
-                  [^Http2ConnectionDecoder dc
-                   ^Http2ConnectionEncoder ec
-                   ^Http2Settings ss])]
-        (.frameListener ^H2ConnBuilder this (h20Aggregator<>))))))
+  (proxy [InboundHandler][]
+    (channelRead0 [ctx msg]
+      (log/debug "WTF is this %s" msg)
+      (when (ist? Http2Settings msg)
+        (.setSuccess pm)
+        (.remove (cpipe ctx) ^ChannelHandler this)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -343,16 +353,31 @@
 
   (log/debug "client:h2pipe: ssl ctx = %s" ctx)
   (proxy [ChannelInitializer][]
-    (initChannel [ch]
-      (if-some
-        [ssl (cast? SslContext ctx)]
-        (->> (.newHandler ssl
-                          (.alloc ^Channel ch))
-             (.addLast (cpipe ch) "ssl")))
-      (doto (cpipe ch)
-        (.addLast "codec" (h2cn<> args))
-        (.addLast "cw" (ChunkedWriteHandler.))
-        (.addLast "user-cb" user-hdlr)))))
+    (initChannel [c]
+      (let [hh (HttpToHttp2ConnectionHandlerBuilder.)
+            _ (.server hh false)
+            ^Channel ch c
+            ^ChannelPipeline pp (.pipeline ch)
+            pm (.newPromise ch)
+            _ (.frameListener hh
+                              (h20Aggregator<> pm))
+            ssl (cast? SslContext ctx)]
+        (setAKey c h2s-key pm)
+        (some->> (some-> ssl (.newHandler (.alloc ch)))
+                 (.addLast pp "ssl"))
+        (->>
+          (proxy [ApplicationProtocolNegotiationHandler][""]
+            (configurePipeline [cx pn]
+              (if (.equals ApplicationProtocolNames/HTTP_2 ^String pn)
+                (doto (cpipe cx)
+                  (.addLast "codec" (.build hh))
+                  (.addLast "cw" (ChunkedWriteHandler.))
+                  (.addLast "user-cb" user-hdlr))
+                (do
+                  (.close ^ChannelHandlerContext cx)
+                  (throw (IllegalStateException.
+                           (str "unknown protocol: " pn)))))))
+          (.addLast pp "apn"))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -410,7 +435,6 @@
               threads rcvBuf options]
        :or {maxContentSize Integer/MAX_VALUE
             maxInMemory *membuf-limit*
-            version "1.1"
             rcvBuf (* 2 MegaBytes)
             threads 0}
        :as args}]
@@ -418,7 +442,7 @@
   (let [tempFileDir (fpath (or tempFileDir
                                *tempfile-repo*))
         ctx (maybeSSL serverCert scheme
-                      (= version "2.0"))
+                      (= version "2"))
         [g z] (gAndC threads :tcpc)
         bs (Bootstrap.)
         options (or options
@@ -470,12 +494,13 @@
           (.. (.config ^Bootstrap bs)
               group shutdownGracefully))))
 
+    (await [_ ms] (pause ms))
+
     (channel [_] ch)
 
     (port [_] port)
 
     (host [_] host)))
-
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -517,13 +542,21 @@
   (let [[^Bootstrap bs ctx] (boot! args)
         _ (.handler bs (h2pipe ctx args))
         c (connect bs host port (some? ctx))
-        ^H1DataFactory f (getAKey c dfac-key)]
+        ^H1DataFactory f (getAKey c dfac-key)
+        ^ChannelPromise pm (getAKey c h2s-key)]
     (futureCB (.closeFuture c)
               (fn [_]
                 (log/debug "shutdown: netty h2-client")
                 (some-> f .cleanAllHttpData)
                 (trye! nil (.. bs config group shutdownGracefully))))
     (reify ClientConnect
+      (await [_ ms]
+        (log/debug "client waits %s[ms] for h2 settings..... " ms)
+        (if-not (.awaitUninterruptibly pm ms TimeUnit/MILLISECONDS)
+          (throw (IllegalStateException. "Timed out waiting for settings")))
+        (if-not (.isSuccess pm)
+          (throw (RuntimeException. (.cause pm))))
+        (log/debug "client waited %s[ms] ok!" ms))
       (dispose [_]
         (trye! nil
                (if (.isOpen c)
@@ -548,6 +581,7 @@
                 (some-> f .cleanAllHttpData)
                 (trye! nil (.. bs config group shutdownGracefully))))
     (reify ClientConnect
+      (await [_ ms] (pause ms))
       (dispose [_]
         (trye! nil
                (if (.isOpen c)
@@ -600,6 +634,19 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
+(defn h2send* ""
+
+  ([conn method uri data]
+   (h2send* conn method uri data nil))
+
+  ([^ClientConnect conn method uri data args]
+   (let [args (merge args
+                     {:version "2"
+                      :host (.host conn)})]
+     (sendHttp (.channel conn) method uri data args))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
 (defn h1send* ""
 
   ([conn method uri data]
@@ -609,40 +656,82 @@
    (let [args (merge args
                      {:isKeepAlive? true
                       :host (.host conn)})]
-     (send1 (.channel conn) method uri data args))))
+     (sendHttp (.channel conn) method uri data args))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn h1send
+(defn hxsend
   "Gives back a promise" {:tag IDeref}
 
   ([target method data]
-   (h1send target method data nil))
+   (hxsend target method data nil))
 
   ([target method data args]
    (let [url (io/as-url target)
-         args (merge args
-                     {:scheme (.getProtocol url)
-                      :isKeepAlive? false
-                      :host (.getHost url)})
-         cc (h1connect<> (.getHost url)
-                         (.getPort url) args)]
-     (send1 (.channel cc)
-            method (.toURI url) data args))))
+         h (.getHost url)
+         p (.getPort url)
+         {:keys [version]
+          :as cargs}
+         (merge args
+                {:scheme (.getProtocol url)
+                 :isKeepAlive? false
+                 :host (.getHost url)})
+         cc (if (= "2" version)
+              (h2connect<> h p cargs)
+              (h1connect<> h p cargs))]
+     (.await cc 5000)
+     (log/debug "about to send http request via ch: %s " (.channel cc))
+     (sendHttp (.channel cc)
+               method (.toURI url) data cargs))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(defmacro h2send
+  "Gives back a promise"
+
+  ([target method data]
+   `(h2send ~target ~method ~data nil))
+  ([target method data args]
+   `(hxsend ~target ~method ~data (merge ~args {:version "2"}))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(defmacro h1send
+  "Gives back a promise"
+
+  ([target method data] `(h1send ~target ~method ~data nil))
+  ([target method data args] `(hxsend ~target ~method ~data ~args)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn h1post
-  "Gives back a promise" {:tag IDeref}
-  ([target data] (h1post target data nil))
-  ([target data args] (h1send target :post data args)))
+(defmacro h1post
+  "Gives back a promise"
+  ([target data] `(h1post ~target ~data nil))
+  ([target data args] `(hxsend ~target :post ~data ~args)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn h1get
-  "Gives back a promise" {:tag IDeref}
-  ([target] (h1get target nil))
-  ([target args] (h1send target :get nil args)))
+(defmacro h1get
+  "Gives back a promise"
+  ([target] `(h1get ~target nil))
+  ([target args] `(hxsend ~target :get nil ~args)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(defmacro h2post
+  "Gives back a promise"
+  ([target data]
+   `(h2post ~target ~data nil))
+  ([target data args]
+   `(hxsend ~target :post ~data (merge ~args {:version "2"}))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(defmacro h2get
+  "Gives back a promise"
+  ([target] `(h1get ~target nil))
+  ([target args]
+   `(hxsend ~target :get nil (merge ~args {:version "2"}))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF

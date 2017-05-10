@@ -31,13 +31,15 @@ public abstract class H2ConnBuilder
     frameLogger(_log);
   }
 
-  @Override
-  public Http2ConnectionHandler build() {
+  /**
+   */
+  public Http2ConnectionHandler newHandler() {
     return super.build();
   }
 
-  @Override
-  public H2ConnBuilder frameListener(Http2FrameListener f) {
+  /**
+   */
+  public H2ConnBuilder setListener(Http2FrameListener f) {
     return super.frameListener(f);
   }
 

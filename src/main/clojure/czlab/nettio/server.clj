@@ -16,6 +16,7 @@
             [clojure.string :as cs])
 
   (:use [czlab.nettio.aggh11]
+        [czlab.nettio.aggh20]
         [czlab.nettio.http11]
         [czlab.nettio.core]
         [czlab.convoy.routes]
@@ -83,6 +84,7 @@
             AbstractBootstrap]
            [czlab.nettio
             H1DataFactory
+            H2ConnBuilder
             InboundHandler
             InboundAdapter]
            [io.netty.channel
@@ -169,45 +171,32 @@
   ^ChannelHandler
   [^Http2FrameListener h2 args]
 
-  (let [conn (->> Http2CodecUtil/SMALLEST_MAX_CONCURRENT_STREAMS
-                  (DefaultHttp2Connection. true))
-        ss (->> Http2CodecUtil/DEFAULT_HEADER_LIST_SIZE
-                (.maxHeaderListSize (Http2Settings.)))
-        mhls (.maxHeaderListSize ss)
-        log (Http2FrameLogger. LogLevel/INFO "h2logger")
-        rdr (-> (DefaultHttp2FrameReader.
-                  (DefaultHttp2HeadersDecoder. true mhls))
-                (Http2InboundFrameLogger. log))
-        wtr (-> (DefaultHttp2FrameWriter.
-                  Http2HeadersEncoder/NEVER_SENSITIVE)
-                (Http2OutboundFrameLogger. log))
-        ec (DefaultHttp2ConnectionEncoder. conn wtr)
-        dc (doto
-             (DefaultHttp2ConnectionDecoder. conn ec rdr)
-             (.frameListener h2))
-        handler
-        (proxy [Http2ConnectionHandler][dc ec ss])]
-    (.gracefulShutdownTimeoutMillis handler 30000)
-    handler))
+  (-> (proxy [H2ConnBuilder][]
+        (build [dc ec ss]
+          (proxy [Http2ConnectionHandler]
+                 [^Http2ConnectionDecoder dc
+                  ^Http2ConnectionEncoder ec
+                  ^Http2Settings ss])))
+      (.setListener h2) .newHandler))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- cfgH2
   "" [^ChannelPipeline pp h2 args]
   (let
-    [u
+    [c
      (cond
        (ist? Http2FrameListener h2) h2
-       (fn? h2)
-       (proxy [Http2FrameAdapter][]
-         (onDataRead [ctx sid data padding end?]
-           (h2 ctx sid data padding end?))
-         (onHeadersRead [ctx sid headers padding end?]
-           (h2 ctx sid headers padding end?)))
+       (fn? h2) (h20Aggregator<>)
        :else
-       (trap! DataError "Bad handler type"))]
+       (trap! DataError "Bad handler type"))
+     p
+     (proxy [InboundHandler][]
+       (channelRead0 [ctx msg]
+         (h2 ctx msg)))]
     (doto pp
-      (.addLast user-handler-id (buildH2 u args)))))
+      (.addLast "codec" (buildH2 c args))
+      (.addLast user-handler-id p))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
