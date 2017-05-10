@@ -52,18 +52,25 @@
         ^Map hh (getAKey ctx h2msg-h-key)
         ^Map dd (getAKey ctx h2msg-d-key)
         [^HttpRequest fake
-         ^Attribute attr] (.get dd sid)
-        hds (.get hh sid)]
-    (.removeHttpDataFromClean df fake attr)
-    (.remove dd sid)
-    (.remove hh sid)
-    (let [x (xdata<>
-              (if (.isInMemory attr)
-                (.get attr)
-                (doto->> (.getFile attr) (.renameTo attr))))]
-      (.release attr)
-      (->> (object<> NettyH2Msg {:headers hds :body x})
-           (.fireChannelRead ctx)))))
+         ^Attribute attr]
+        (some-> dd (.get sid))
+        hds (some-> hh (.get sid))]
+    (if fake
+      (.removeHttpDataFromClean df fake attr))
+    (some-> dd (.remove sid))
+    (some-> hh (.remove sid))
+    (let [x
+          (if attr
+            (xdata<> (if (.isInMemory attr)
+                       (.get attr)
+                       (doto->> (.getFile attr)
+                                (.renameTo attr))))
+            (xdata<>))
+          msg (object<> NettyH2Msg
+                        {:headers hds :body x})]
+      (some-> attr .release)
+      (log/debug "finito: fire msg upstream: %s" msg)
+      (.fireChannelRead ctx msg))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -96,27 +103,28 @@
 ;;
 (defn h20Aggregator<>
   "A handler which aggregates frames into a full message"
-  ^Http2FrameListener
-  [^ChannelPromise pm]
-  (proxy [Http2FrameAdapter][]
-    (onSettingsRead [ctx ss]
-      (trye! nil (some-> pm .setSuccess)))
-    (onDataRead [ctx sid data pad end?]
-      (log/debug "rec'ved data: sid#%s, end?=%s" sid end?)
-      (do-with [b (+ pad (.readableBytes ^ByteBuf data))]
-        (readFrame ctx sid)
-        (readFrameEx ctx sid data end?)))
-    (onHeadersRead
-      ([ctx sid hds pad end?]
-       (log/debug "rec'ved headers: sid#%s, end?=%s" sid end?)
-       (let [^Map m (or (getAKey ctx h2msg-h-key)
-                        (doto->> (HashMap.)
-                                 (setAKey ctx h2msg-h-key)))]
-         (.put m sid hds)
-         (if end? (finito ctx sid))))
-      ([ctx sid hds
-        dep wgt ex? pad end?]
-       (.onHeadersRead ^Http2FrameAdapter this ctx sid hds pad end?)))))
+  {:tag Http2FrameListener}
+  ([] (h20Aggregator<> nil))
+  ([^ChannelPromise pm]
+   (proxy [Http2FrameAdapter][]
+     (onSettingsRead [ctx ss]
+       (trye! nil (some-> pm .setSuccess)))
+     (onDataRead [ctx sid data pad end?]
+       (log/debug "rec'ved data: sid#%s, end?=%s" sid end?)
+       (do-with [b (+ pad (.readableBytes ^ByteBuf data))]
+                (readFrame ctx sid)
+                (readFrameEx ctx sid data end?)))
+     (onHeadersRead
+       ([ctx sid hds pad end?]
+        (log/debug "rec'ved headers: sid#%s, end?=%s" sid end?)
+        (let [^Map m (or (getAKey ctx h2msg-h-key)
+                         (doto->> (HashMap.)
+                                  (setAKey ctx h2msg-h-key)))]
+          (.put m sid hds)
+          (if end? (finito ctx sid))))
+       ([ctx sid hds
+         dep wgt ex? pad end?]
+        (.onHeadersRead ^Http2FrameAdapter this ctx sid hds pad end?))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF

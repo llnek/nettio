@@ -336,18 +336,6 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- h2ss<>
-  "" ^ChannelHandler [^ChannelPromise pm]
-
-  (proxy [InboundHandler][]
-    (channelRead0 [ctx msg]
-      (log/debug "WTF is this %s" msg)
-      (when (ist? Http2Settings msg)
-        (.setSuccess pm)
-        (.remove (cpipe ctx) ^ChannelHandler this)))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
 (defn- h2pipe
   "" ^ChannelHandler [ctx args]
 

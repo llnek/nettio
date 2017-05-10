@@ -177,25 +177,30 @@
                  [^Http2ConnectionDecoder dc
                   ^Http2ConnectionEncoder ec
                   ^Http2Settings ss])))
-      (.setListener h2) .newHandler))
+      (.setListener h2) (.newHandler true)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- cfgH2
   "" [^ChannelPipeline pp h2 args]
   (let
-    [c
+    [hh (HttpToHttp2ConnectionHandlerBuilder.)
+     _ (.server hh true)
+     c
      (cond
        (ist? Http2FrameListener h2) h2
        (fn? h2) (h20Aggregator<>)
        :else
        (trap! DataError "Bad handler type"))
+     _ (.frameListener hh c)
      p
      (proxy [InboundHandler][]
        (channelRead0 [ctx msg]
          (h2 ctx msg)))]
     (doto pp
-      (.addLast "codec" (buildH2 c args))
+      ;;(.addLast "in-codec" (buildH2 c args))
+      (.addLast "out-codec" (.build hh))
+      (.addLast "cw" (ChunkedWriteHandler.))
       (.addLast user-handler-id p))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

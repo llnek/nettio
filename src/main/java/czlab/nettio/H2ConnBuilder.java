@@ -33,7 +33,8 @@ public abstract class H2ConnBuilder
 
   /**
    */
-  public Http2ConnectionHandler newHandler() {
+  public Http2ConnectionHandler newHandler(boolean asServer) {
+    server(asServer);
     return super.build();
   }
 

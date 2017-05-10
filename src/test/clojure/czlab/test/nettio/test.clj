@@ -537,25 +537,30 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- h2handle "" [ctx msg]
-  (let []
-    (log/debug "got h2 msg === %s" msg)))
+(defn- h2handle "" [^ChannelHandlerContext ctx msg]
+  (let [ch (.channel ctx)
+        rsp (httpFullReply<> 200
+                             (bytesit "hello")
+                             (.alloc ch))]
+    (.writeAndFlush ctx rsp)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- test-h2-SSL "" []
   (let [out (atom nil)
-        ;;w (nettyWebServer<> {:serverKey "*" :passwd  "" :hh2 h2handle})
-        ;;_ (.start w {:port 8443 :host lhost-name})
+        w (nettyWebServer<>
+            {:serverKey "*"
+             :passwd  "" :hh2 h2handle})
+        _ (.start w {:port 8443 :host lhost-name})
         po (h2get (str "https://"
-                       "www.google.com")
-                       ;;lhost-name ":8443/form")
+                       lhost-name ":8443/form")
                   {:serverCert "*"})
         rc (deref po 5000 nil)
         s (and rc
                (ist? XData (:body rc))
                (.strit ^XData (:body rc)))]
-    (hgl? s)))
+    (.stop w)
+    (= "hello" s)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
