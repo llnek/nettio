@@ -11,15 +11,14 @@
 
   czlab.nettio.aggwsk
 
-  (:require [czlab.basal.logging :as log]
+  (:require [czlab.basal.log :as log]
             [clojure.java.io :as io]
-            [clojure.string :as cs])
-
-  (:use [czlab.nettio.core]
-        [czlab.convoy.core]
-        [czlab.basal.str]
-        [czlab.basal.io]
-        [czlab.basal.core])
+            [clojure.string :as cs]
+            [czlab.nettio.core :as nc]
+            [czlab.convoy.core :as cc]
+            [czlab.basal.str :as s]
+            [czlab.basal.io :as i]
+            [czlab.basal.core :as c])
 
   (:import [io.netty.util AttributeKey ReferenceCountUtil]
            [io.netty.handler.codec.http.multipart
@@ -45,7 +44,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;(set! *warn-on-reflection* false)
-(defonce ^:private ^AttributeKey wsock-res-key (akey<> "wsock-res"))
+(defonce ^:private ^AttributeKey wsock-res-key (nc/akey<> "wsock-res"))
 (def ^:private ^String body-attr-id "--body--")
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -53,21 +52,21 @@
 (defn- readFrameEx "" [^ChannelHandlerContext ctx
                        ^ContinuationWebSocketFrame msg]
 
-  (let [^HttpDataFactory df (getAKey ctx dfac-key)
+  (let [^HttpDataFactory df (nc/getAKey ctx nc/dfac-key)
         last? (.isFinalFragment msg)
         {:keys [^Attribute attr fake] :as rc}
-        (getAKey ctx wsock-res-key)]
+        (nc/getAKey ctx wsock-res-key)]
     (.addContent attr (.. msg content retain) last?)
     (ReferenceCountUtil/release msg)
     (when last?
       (.removeHttpDataFromClean df fake attr)
-      (let [x (xdata<>
+      (let [x (i/xdata<>
                 (if (.isInMemory attr)
                   (.get attr)
-                  (doto->> (.getFile attr) (.renameTo attr))))]
+                  (c/doto->> (.getFile attr) (.renameTo attr))))]
         (.release attr)
         (->> (assoc (dissoc rc :attr :fake) :body x)
-             (object<> NettyWsockMsg )
+             (c/object<> NettyWsockMsg )
              (.fireChannelRead ctx))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -75,60 +74,52 @@
 (defn- readFrame
   "" [^ChannelHandlerContext ctx ^WebSocketFrame msg]
 
-  (let [rc {:isText? (ist? TextWebSocketFrame msg)
+  (let [rc {:isText? (c/ist? TextWebSocketFrame msg)
             :charset (Charset/forName "utf-8")} ]
     (cond
       (ist? PongWebSocketFrame msg)
-      (->> (object<> NettyWsockMsg
-                     (assoc rc :pong? true))
+      (->> (c/object<> NettyWsockMsg
+                       (assoc rc :pong? true))
            (.fireChannelRead ctx ))
       (.isFinalFragment msg)
-      (->> (object<> NettyWsockMsg
-                     (assoc rc
-                            :body (xdata<>
-                                    (toByteArray
-                                      (.content msg)))))
+      (->> (c/object<> NettyWsockMsg
+                       (assoc rc
+                              :body (i/xdata<>
+                                      (toByteArray
+                                        (.content msg)))))
            (.fireChannelRead ctx ))
       :else
-      (let [^HttpDataFactory df (getAKey ctx dfac-key)
-            req (fakeARequest<>)
+      (let [^HttpDataFactory df (nc/getAKey ctx nc/dfac-key)
+            req (nc/fakeARequest<>)
             ^Attribute a (.createAttribute df
                                            req body-attr-id)
             rc (assoc rc :attr a)]
         (.addContent a (.. msg content retain) false)
-        (setAKey ctx wsock-res-key rc)))
+        (nc/setAKey ctx wsock-res-key rc)))
     (ReferenceCountUtil/release msg)))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- aggRead "" [^ChannelHandlerContext ctx msg]
-
-  (cond
-    (ist? ContinuationWebSocketFrame msg)
-    (readFrameEx ctx msg)
-    (ist? TextWebSocketFrame msg)
-    (readFrame ctx msg)
-    (ist? BinaryWebSocketFrame msg)
-    (readFrame ctx msg)
-    (ist? PongWebSocketFrame msg)
-    (readFrame ctx msg)
-    :else
-    (.fireChannelRead ctx msg)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (def ^:private wsock-agg
   (proxy [DuplexHandler][]
-    (channelRead [ctx msg] (aggRead ctx msg))))
+    (onRead [ctx msg]
+      (cond
+        (c/ist? ContinuationWebSocketFrame msg)
+        (readFrameEx ctx msg)
+        (c/ist? TextWebSocketFrame msg)
+        (readFrame ctx msg)
+        (c/ist? BinaryWebSocketFrame msg)
+        (readFrame ctx msg)
+        (c/ist? PongWebSocketFrame msg)
+        (readFrame ctx msg)
+        :else
+        (.fireChannelRead ctx msg)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn wsockAggregator<>
-  "A handler which aggregates frames into a full message"
-  ^ChannelHandler
-  []
-  wsock-agg)
-
+  "A handler that
+  aggregates frames into a full message" ^ChannelHandler [] wsock-agg)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF

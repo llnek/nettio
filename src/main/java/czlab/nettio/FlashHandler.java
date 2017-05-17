@@ -26,7 +26,7 @@ import io.netty.util.ReferenceCountUtil;
  *
  * @author Kenneth Leung
  */
-public class FlashHandler extends InboundAdapter {
+public class FlashHandler extends InboundHandler {
 
   public static final Logger TLOG = getLogger(FlashHandler.class);
 
@@ -67,7 +67,7 @@ public class FlashHandler extends InboundAdapter {
 
   /**/
   @Override
-  public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+  protected void onRead(ChannelHandlerContext ctx, Object msg) throws Exception {
     ByteBuf bmsg = (msg instanceof ByteBuf) ? (ByteBuf)msg : null;
     Channel ch = ctx.channel();
 

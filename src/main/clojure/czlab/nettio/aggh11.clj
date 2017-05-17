@@ -11,18 +11,19 @@
 
   czlab.nettio.aggh11
 
-  (:require [czlab.basal.logging :as log]
+  (:require [czlab.basal.log :as log]
             [clojure.java.io :as io]
-            [clojure.string :as cs])
-
-  (:use [czlab.nettio.core]
-        [czlab.convoy.upload]
-        [czlab.convoy.core]
-        [czlab.basal.str]
-        [czlab.basal.io]
-        [czlab.basal.core])
+            [clojure.string :as cs]
+            [czlab.nettio.wmsg11 :as nw]
+            [czlab.nettio.core :as nc]
+            [czlab.convoy.upload :as cu]
+            [czlab.convoy.core :as cc]
+            [czlab.basal.str :as s]
+            [czlab.basal.io :as i]
+            [czlab.basal.core :as c])
 
   (:import [io.netty.util AttributeKey ReferenceCountUtil]
+           [czlab.nettio DuplexHandler H1DataFactory]
            [io.netty.handler.codec.http.multipart
             AbstractDiskHttpData
             HttpDataFactory
@@ -52,13 +53,6 @@
            [io.netty.handler.codec
             DecoderResult
             DecoderResultProvider]
-           [czlab.nettio
-            WholeMessage
-            WholeRequest
-            H1ReqAggregator
-            H1ResAggregator
-            H1DataFactory
-            WholeResponse]
            [java.nio.charset Charset]
            [java.util List ArrayList]
            [java.io OutputStream]
@@ -76,106 +70,66 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;(set! *warn-on-reflection* false)
-(defonce ^:private ^AttributeKey h1pipe-Q-key (akey<> "h1pipe-q"))
-(defonce ^:private ^AttributeKey h1pipe-C-key (akey<> "h1pipe-c"))
-(defonce ^:private ^AttributeKey h1pipe-M-key (akey<> "h1pipe-m"))
-(def ^:private ^String body-attr-id "--body--")
+(defonce ^:private ^AttributeKey h1pipe-Q-key (nc/akey<> "h1pipe-q"))
+(defonce ^:private ^AttributeKey h1pipe-C-key (nc/akey<> "h1pipe-c"))
+(defonce ^:private ^AttributeKey h1pipe-M-key (nc/akey<> "h1pipe-m"))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- fireMsg
-  "" [^ChannelHandlerContext ctx msg]
-
+(defn- fireMsg "" [ctx msg]
   (some->>
-    (or (some-> (gistH1Message ctx msg) nettyMsg<> ) msg)
-    (.fireChannelRead ctx)))
+    (or (some-> (nc/gistH1Msg ctx msg) nc/nettyMsg<>) msg)
+    (.fireChannelRead ^ChannelHandlerContext ctx)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
+;; rename to self ,trick code to not delete the file
 (defn- getHttpData "" [^HttpData d]
-
   (if (.isInMemory d)
     (.get d)
-    (doto->> (.getFile d) (.renameTo d ))))
-  ;; trick code to not delete the file
+    (c/doto->> (.getFile d) (.renameTo d ))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- parsePost
   "" [^HttpPostRequestDecoder deco]
-
   (reduce
     #(when-some
        [z (cond
-            (ist? FileUpload %2)
-            (let [u (cast? FileUpload %2)
+            (c/ist? FileUpload %2)
+            (let [u (c/cast? FileUpload %2)
                   c (getHttpData u)]
-              (fileItem<> false
-                          (.getContentType u)
-                          nil
-                          (.getName u)
-                          (.getFilename u) c))
-            (ist? Attribute %2)
-            (let [a (cast? Attribute %2)
+              (cu/fileItem<> false
+                             (.getContentType u)
+                             nil
+                             (.getName u)
+                             (.getFilename u) c))
+            (c/ist? Attribute %2)
+            (let [a (c/cast? Attribute %2)
                   c (getHttpData a)]
-              (fileItem<> true "" nil (.getName a) "" c)))]
-       (if-some [d (cast? AbstractDiskHttpData %2)]
+              (cu/fileItem<> true "" nil (.getName a) "" c)))]
+       (if-some [d (c/cast? AbstractDiskHttpData %2)]
          (if-not (.isInMemory d)
            (.removeHttpDataFromClean deco ^HttpData %2)))
        ;;no need to release since we will call destroy on the decoder
        ;;(.release x)
-       (add-item %1 z))
-    (formItems<>)
+       (cu/add-item %1 z))
+    (cu/formItems<>)
     (.getBodyHttpDatas deco)))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- h11res<>
-  "" ^WholeResponse [ctx rsp]
-
-  (doto
-    (proxy [WholeResponse][rsp]
-      (prepareBody [df msg]
-        (. ^HttpDataFactory
-           df
-           createAttribute ^HttpRequest msg body-attr-id))
-      (endContent [arg] (getHttpData arg)))
-    (.init ^HttpDataFactory (getAKey ctx dfac-key))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- h11req<>
-  "" ^WholeRequest [ctx req]
-
-  (doto
-    (proxy [WholeRequest][req]
-      (prepareBody [df msg]
-        (if (-> (chkFormPost msg)
-                (eqAny? ["multipart" "post"]))
-          (HttpPostRequestDecoder.
-            ^HttpDataFactory df ^HttpRequest msg (getMsgCharset msg))
-          (. ^HttpDataFactory
-             df
-             createAttribute ^HttpRequest msg body-attr-id)))
-      (endContent [c]
-        (cond
-          (ist? HttpPostRequestDecoder c)
-          (parsePost c)
-          (ist? Attribute c)
-          (getHttpData c))))
-    (.init ^HttpDataFactory (getAKey ctx dfac-key))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- handleExpect? "" [ctx msg]
   (let [{:keys
          [maxContentSize]}
-        (getAKey ctx chcfg-key)] (maybeHandle100? ctx msg maxContentSize)))
+        (nc/getAKey ctx nc/chcfg-key)]
+    (nc/maybeHandle100? ctx msg maxContentSize)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- h11Msg<> "" [ctx msg]
-  (if (ist? HttpRequest msg) (h11req<> ctx msg) (h11res<> ctx msg)))
+  (if (c/ist? HttpRequest msg)
+    (nw/wholeRequest (nc/getAKey ctx nc/dfac-key) msg)
+    (nw/wholeResponse (nc/getAKey ctx nc/dfac-key) msg)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -183,15 +137,15 @@
   "" [ctx part pipelining?]
   ;;(log/debug "received chunk for msg")
   (let
-    [last? (ist? LastHttpContent part)
-     msg (getAKey ctx h1pipe-M-key)]
+    [last? (c/ist? LastHttpContent part)
+     msg (nc/getAKey ctx h1pipe-M-key)]
     (try
-      (if-not (decoderSuccess? part)
-        (if (ist? HttpRequest msg)
-          (replyStatus ctx
-                       (.code HttpResponseStatus/BAD_REQUEST))
-          (. ^ChannelHandlerContext ctx close))
-        (. ^WholeMessage msg appendContent ^HttpContent part last?))
+      (if-not (nc/decoderSuccess? part)
+        (if (c/ist? HttpRequest msg)
+          (nc/replyStatus ctx
+                          (.code HttpResponseStatus/BAD_REQUEST))
+          (.close ^ChannelHandlerContext ctx))
+        (append-msg-content msg part last?))
       (finally
         (ReferenceCountUtil/release part)))))
 
@@ -202,16 +156,16 @@
 
   (readChunk ctx part pipelining?)
   (let
-    [q (getAKey ctx h1pipe-Q-key)
-     msg (getAKey ctx h1pipe-M-key)
-     cur (getAKey ctx h1pipe-C-key)]
+    [q (nc/getAKey ctx h1pipe-Q-key)
+     msg (nc/getAKey ctx h1pipe-M-key)
+     cur (nc/getAKey ctx h1pipe-C-key)]
     (log/debug "got last chunk for msg %s" msg)
-    (delAKey ctx h1pipe-M-key)
+    (nc/delAKey ctx h1pipe-M-key)
     (if pipelining?
       (cond
         (nil? cur)
         (do
-          (setAKey ctx h1pipe-C-key msg)
+          (nc/setAKey ctx h1pipe-C-key msg)
           (fireMsg ctx msg))
         :else
         (do (.add ^List q msg)))
@@ -223,20 +177,20 @@
   "" [ctx msg pipelining?]
   ;;no need to release msg -> request or response
   (let [{:keys [maxContentSize
-                maxInMemory]} (getAKey ctx chcfg-key)]
+                maxInMemory]} (nc/getAKey ctx nc/chcfg-key)]
     (log/debug "reading message: %s" msg)
     (cond
-      (not (decoderSuccess? msg))
-      (if (ist? HttpRequest msg)
-        (replyStatus ctx
-                     (.code HttpResponseStatus/BAD_REQUEST))
-        (. ^ChannelHandlerContext ctx close))
-      (not (handleExpect? ctx msg))
+      (not (nc/decoderSuccess? msg))
+      (if (c/ist? HttpRequest msg)
+        (nc/replyStatus ctx
+                        (.code HttpResponseStatus/BAD_REQUEST))
+        (.close ^ChannelHandlerContext ctx))
+      (not (nc/handleExpect? ctx msg))
       nil
       :else
       (let [wo (h11Msg<> ctx msg)]
-        (setAKey ctx h1pipe-M-key wo)
-        (if (ist? LastHttpContent msg)
+        (nc/setAKey ctx h1pipe-M-key wo)
+        (if (c/ist? LastHttpContent msg)
           (readLastChunk ctx msg pipelining?))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -245,14 +199,34 @@
   "" [ctx msg pipelining?]
 
   (cond
-    (ist? HttpMessage msg)
+    (c/ist? HttpMessage msg)
     (readMessage ctx msg pipelining?)
-    (ist? LastHttpContent msg)
+    (c/ist? LastHttpContent msg)
     (readLastChunk ctx msg pipelining?)
-    (ist? HttpContent msg)
+    (c/ist? HttpContent msg)
     (readChunk ctx msg pipelining?)
     :else
     (fireMsg ctx msg)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(defn- dequeueReq "" [^ChannelHandlerContext ctx msg pipe?]
+
+  (when (and (or (c/ist? FullHttpResponse msg)
+                 (c/ist? LastHttpContent msg))
+             pipe?)
+    (let [^List q (nc/getAKey ctx nc/h1pipe-Q-key)
+          cur (nc/getAKey ctx nc/h1pipe-C-key)]
+      (if (nil? cur)
+        (c/trap! IllegalStateException
+                 "response but no request"))
+      (if (nil? q)
+        (c/trap! IllegalStateException
+                 "request queue is null"))
+      (let [c (if-not (.isEmpty q)
+                (.remove q 0))]
+        (nc/setAKey ctx nc/h1pipe-C-key c)
+        (fireMsg ctx c)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -264,35 +238,25 @@
 
   ([] (h1reqAggregator<> true))
   ([pipelining?]
-   (proxy [H1ReqAggregator][]
-     (onChannelActive [ctx]
+   (proxy [DuplexHandler][]
+     (onActive [ctx]
        (setAKey* ctx
                  h1pipe-Q-key (ArrayList.)
                  h1pipe-M-key nil
                  h1pipe-C-key nil))
-     (onChannelInactive [ctx]
+     (onInactive [ctx]
        (delAKey* ctx
                  h1pipe-Q-key
                  h1pipe-M-key h1pipe-C-key))
-     (channelRead [ctx msg]
+     (onRead [ctx msg]
        (aggRead ctx msg pipelining?))
-     (dequeue [ctx msg]
-       (when (and (or (ist? FullHttpResponse msg)
-                      (ist? LastHttpContent msg))
-                  pipelining?)
-         (let [^List q (getAKey ctx h1pipe-Q-key)
-               cur (getAKey ctx h1pipe-C-key)]
-           (if (nil? cur)
-             (trap! IllegalStateException
-                    "response but no request"))
-           (if (nil? q)
-             (trap! IllegalStateException
-                    "request queue is null"))
-           (let
-             [c (if-not (.isEmpty q)
-                  (.remove q 0))]
-             (setAKey ctx h1pipe-C-key c)
-             (fireMsg ctx c))))))))
+     (onWrite [ctx msg cp]
+       (let [skip?
+             (and (c/ist? FullHttpResponse msg)
+                  (= (.status ^FullHttpResponse msg)
+                     HttpResponseStatus/CONTINUE))]
+         (if-not skip?
+           (dequeueReq ctx msg)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -300,8 +264,8 @@
   "A handler which aggregates chunks into a full response"
   ^ChannelHandler
   []
-  (proxy [H1ResAggregator][]
-    (channelRead [ctx msg] (aggRead ctx msg false))))
+  (proxy [DuplexHandler][]
+    (onRead [ctx msg] (aggRead ctx msg false))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF

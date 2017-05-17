@@ -11,15 +11,14 @@
 
   czlab.nettio.aggh20
 
-  (:require [czlab.basal.logging :as log]
+  (:require [czlab.basal.log :as log]
             [clojure.java.io :as io]
-            [clojure.string :as cs])
-
-  (:use [czlab.nettio.core]
-        [czlab.convoy.core]
-        [czlab.basal.str]
-        [czlab.basal.io]
-        [czlab.basal.core])
+            [clojure.string :as cs]
+            [czlab.nettio.core :as nc]
+            [czlab.convoy.core :as cc]
+            [czlab.basal.str :as s]
+            [czlab.basal.io :as i]
+            [czlab.basal.core :as c])
 
   (:import [io.netty.util AttributeKey ReferenceCountUtil]
            [io.netty.handler.codec.http2
@@ -41,16 +40,16 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;(set! *warn-on-reflection* false)
-(defonce ^:private ^AttributeKey h2msg-h-key (akey<> "h2msg-hdrs"))
-(defonce ^:private ^AttributeKey h2msg-d-key (akey<> "h2msg-data"))
+(defonce ^:private ^AttributeKey h2msg-h-key (nc/akey<> "h2msg-hdrs"))
+(defonce ^:private ^AttributeKey h2msg-d-key (nc/akey<> "h2msg-data"))
 (def ^:private ^String body-attr-id "--body--")
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- finito "" [^ChannelHandlerContext ctx sid]
-  (let [^HttpDataFactory df (getAKey ctx dfac-key)
-        ^Map hh (getAKey ctx h2msg-h-key)
-        ^Map dd (getAKey ctx h2msg-d-key)
+  (let [^HttpDataFactory df (nc/getAKey ctx dfac-key)
+        ^Map hh (nc/getAKey ctx h2msg-h-key)
+        ^Map dd (nc/getAKey ctx h2msg-d-key)
         [^HttpRequest fake
          ^Attribute attr]
         (some-> dd (.get sid))
@@ -61,13 +60,13 @@
     (some-> hh (.remove sid))
     (let [x
           (if attr
-            (xdata<> (if (.isInMemory attr)
-                       (.get attr)
-                       (doto->> (.getFile attr)
-                                (.renameTo attr))))
-            (xdata<>))
-          msg (object<> NettyH2Msg
-                        {:headers hds :body x})]
+            (i/xdata<> (if (.isInMemory attr)
+                         (.get attr)
+                         (c/doto->> (.getFile attr)
+                                    (.renameTo attr))))
+            (i/xdata<>))
+          msg (c/object<> NettyH2Msg
+                          {:headers hds :body x})]
       (some-> attr .release)
       (log/debug "finito: fire msg upstream: %s" msg)
       (.fireChannelRead ctx msg))))
@@ -77,8 +76,8 @@
 (defn- readFrameEx "" [^ChannelHandlerContext ctx
                        sid
                        ^ByteBuf data end?]
-  (let [^HttpDataFactory df (getAKey ctx dfac-key)
-        ^Map m (getAKey ctx h2msg-d-key)
+  (let [^HttpDataFactory df (nc/getAKey ctx nc/dfac-key)
+        ^Map m (nc/getAKey ctx h2msg-d-key)
         [_ ^Attribute attr] (.get m sid)]
     (.addContent attr (.retain data) end?)
     (if end? (finito ctx sid))))
@@ -88,13 +87,13 @@
 (defn- readFrame
   "" [^ChannelHandlerContext ctx sid]
 
-  (let [^HttpDataFactory df (getAKey ctx dfac-key)
-        ^Map m (or (getAKey ctx h2msg-d-key)
-                   (doto->> (HashMap.)
-                            (setAKey ctx h2msg-d-key)))
+  (let [^HttpDataFactory df (nc/getAKey ctx nc/dfac-key)
+        ^Map m (or (nc/getAKey ctx h2msg-d-key)
+                   (c/doto->> (HashMap.)
+                              (nc/setAKey ctx h2msg-d-key)))
         [fake attr] (.get m sid)]
     (if (nil? fake)
-      (let [r (fakeARequest<>)]
+      (let [r (nc/fakeARequest<>)]
         (.put m
               sid
               [r (.createAttribute df r body-attr-id)])))))
@@ -111,15 +110,15 @@
        (trye! nil (some-> pm .setSuccess)))
      (onDataRead [ctx sid data pad end?]
        (log/debug "rec'ved data: sid#%s, end?=%s" sid end?)
-       (do-with [b (+ pad (.readableBytes ^ByteBuf data))]
-                (readFrame ctx sid)
-                (readFrameEx ctx sid data end?)))
+       (c/do-with [b (+ pad (.readableBytes ^ByteBuf data))]
+                  (readFrame ctx sid)
+                  (readFrameEx ctx sid data end?)))
      (onHeadersRead
        ([ctx sid hds pad end?]
         (log/debug "rec'ved headers: sid#%s, end?=%s" sid end?)
-        (let [^Map m (or (getAKey ctx h2msg-h-key)
-                         (doto->> (HashMap.)
-                                  (setAKey ctx h2msg-h-key)))]
+        (let [^Map m (or (nc/getAKey ctx h2msg-h-key)
+                         (c/doto->> (HashMap.)
+                                    (nc/setAKey ctx h2msg-h-key)))]
           (.put m sid hds)
           (if end? (finito ctx sid))))
        ([ctx sid hds
