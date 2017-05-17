@@ -13,23 +13,19 @@
 
   (:gen-class)
 
-  (:require [czlab.basal.process :refer [exitHook]]
-            [czlab.basal.logging :as log])
-
-  (:use [czlab.nettio.server]
-        [czlab.basal.core]
-        [czlab.basal.str]
-        [czlab.nettio.core])
+  (:require [czlab.basal.process :as p :refer [exitHook]]
+            [czlab.nettio.server :as sv]
+            [czlab.nettio.core :as nc]
+            [czlab.basal.log :as log]
+            [czlab.basal.core :as c]
+            [czlab.basal.str :as s])
 
   (:import [io.netty.handler.codec.http HttpResponseStatus]
            [io.netty.handler.codec.http LastHttpContent]
            [czlab.nettio.server NettyWebServer]
+           [czlab.nettio InboundHandler]
            [clojure.lang APersistentMap]
            [czlab.jasal CU LifeCycle]
-           [czlab.nettio
-            WholeMessage
-            WholeRequest
-            InboundHandler]
            [io.netty.channel
             ChannelPipeline
             ChannelHandler
@@ -45,9 +41,9 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- h1proxy "" [cb]
-  (proxy [InboundHandler][]
-    (channelRead0 [ctx msg]
-      (replyStatus ctx) (try! (cb)))))
+  (proxy [InboundHandler][true]
+    (onRead [ctx _]
+      (replyStatus ctx) (c/trye!! nil (cb)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -56,14 +52,14 @@
 
   ([cb] (discardHTTPD<> cb nil))
   ([cb args]
-   (do-with [^LifeCycle w (mutable<> NettyWebServer)]
+   (c/do-with [^LifeCycle
+               w (c/mutable<> NettyWebServer)]
      (.init w (assoc args
                      :hh1 (h1proxy cb))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn finzServer "" []
-  (.stop ^LifeCycle @svr) (reset! svr nil))
+(defn finzServer "" [] (.stop ^LifeCycle @svr) (reset! svr nil))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -72,11 +68,12 @@
     (< (count args) 2)
     (println "usage: discard host port")
     :else
-    (let [^LifeCycle s (discardHTTPD<>
-                         #(println "hello, poked by discarder"))]
+    (let [^LifeCycle
+          s (discardHTTPD<>
+              #(println "hello, poked by discarder"))]
       (.start s {:host (nth args 0)
-                 :port (convInt (nth args 1) 8080)})
-      (exitHook #(.stop s))
+                 :port (c/convInt (nth args 1) 8080)})
+      (p/exitHook #(.stop s))
       (reset! svr s)
       (CU/block))))
 

@@ -13,24 +13,20 @@
 
   (:gen-class)
 
-  (:require [czlab.basal.logging :as log]
+  (:require [czlab.basal.log :as log]
             [clojure.java.io :as io]
-            [clojure.string :as cs])
-
-  (:use [czlab.nettio.server]
-        [czlab.basal.process]
-        [czlab.basal.core]
-        [czlab.basal.str]
-        [czlab.basal.io]
-        [czlab.nettio.core])
+            [clojure.string :as cs]
+            [czlab.nettio.server :as sv]
+            [czlab.basal.process :as p]
+            [czlab.basal.core :as c]
+            [czlab.basal.str :as s]
+            [czlab.basal.io :as i]
+            [czlab.nettio.core :as nc])
 
   (:import [io.netty.handler.stream ChunkedFile ChunkedStream]
            [io.netty.bootstrap ServerBootstrap]
            [czlab.nettio.server NettyWebServer]
-           [czlab.nettio
-            WholeMessage
-            WholeRequest
-            InboundHandler]
+           [czlab.nettio InboundHandler]
            [io.netty.channel
             Channel
             ChannelPipeline
@@ -60,25 +56,25 @@
   [^ChannelHandlerContext ctx req ^XData xdata]
 
   (let [keep? (:isKeepAlive? req)
-        res (httpReply<>)
+        res (nc/httpReply<>)
         ch (.channel ctx)
         clen (.size xdata)]
     (doto res
-      (setHeader "Content-Type" "application/octet-stream")
-      (setHeader "Connection" (if keep? "keep-alive" "close"))
-      (setHeader "Transfer-Encoding" "chunked")
+      (nc/setHeader "Content-Type" "application/octet-stream")
+      (nc/setHeader "Connection" (if keep? "keep-alive" "close"))
+      (nc/setHeader "Transfer-Encoding" "chunked")
       (HttpHeaders/setContentLength clen))
     (log/debug "Flushing file of %s bytes to client" clen)
     (.write ctx res)
     (->
-      (->> (. xdata fileRef)
+      (->> (.fileRef xdata)
            ChunkedFile.
            HttpChunkedInput.
            ;;test non chunk
            ;;(.javaBytes xdata)
            ;;(Unpooled/wrappedBuffer )
            (.writeAndFlush ctx ))
-      (closeCF keep?))))
+      (nc/closeCF keep?))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -89,12 +85,12 @@
         ^XData body (:body req)]
     (if (.isFile body)
       (log/debug "fPutter orig= %s" (.fileRef body)))
-    (->> (try!!
-           (.code HttpResponseStatus/INTERNAL_SERVER_ERROR)
+    (->> (c/try!!
+           (nc/scode HttpResponseStatus/INTERNAL_SERVER_ERROR)
            (do
              (saveFile vdir fname body)
-             (.code HttpResponseStatus/OK)))
-         (replyStatus ctx ))))
+             (nc/scode HttpResponseStatus/OK)))
+         (nc/replyStatus ctx ))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -102,16 +98,16 @@
 
   (log/debug "fGetter: file= %s" (io/file (:vdir args) fname))
   (let [vdir (io/file (:vdir args))
-        xdata (getFile vdir fname)]
+        xdata (nc/getFile vdir fname)]
     (if (.hasContent xdata)
       (replyGetVFile ctx req xdata)
-      (replyStatus ctx (.code HttpResponseStatus/NO_CONTENT)))))
+      (nc/replyStatus ctx (nc/scode HttpResponseStatus/NO_CONTENT)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- h1proxy "" [args]
-  (proxy [InboundHandler][]
-    (channelRead0 [ctx msg]
+  (proxy [InboundHandler][true]
+    (onRead [ctx msg]
       (let
         [^String uri (:uri2 msg)
          mtd (:method msg)
@@ -119,7 +115,7 @@
          p (if (< pos 0)
              uri
              (.substring uri (inc pos)))
-         nm (stror p (str (jid<>) ".dat"))]
+         nm (s/stror p (str (c/jid<>) ".dat"))]
         (log/debug "%s: uri= %s, file= %s" mtd uri nm)
         (log/debug "args= %s" args)
         (cond
@@ -128,8 +124,8 @@
           (= mtd "GET")
           (fGetter ctx msg nm args)
           :else
-          (replyStatus ctx
-                       (.code HttpResponseStatus/METHOD_NOT_ALLOWED)))))))
+          (nc/replyStatus ctx
+                          (nc/scode HttpResponseStatus/METHOD_NOT_ALLOWED)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; make a In memory File Server
@@ -138,16 +134,16 @@
 
   ([vdir] (memFileServer<> vdir nil))
   ([vdir args]
-   (do-with [^LifeCycle w (mutable<> NettyWebServer)]
-            (let [args (assoc args :vdir vdir)]
-              (.init w
-                     (assoc args
-                            :hh1 (h1proxy args)))))))
+   (c/do-with [^LifeCycle
+               w (c/mutable<> NettyWebServer)]
+              (let [args (assoc args :vdir vdir)]
+                (.init w
+                       (assoc args
+                              :hh1 (h1proxy args)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; filesvr host port vdir
-(defn finzServer "" []
-  (.stop ^LifeCycle @svr) (reset! svr nil))
+(defn finzServer "" [] (.stop ^LifeCycle @svr) (reset! svr nil))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; filesvr host port vdir
@@ -157,10 +153,11 @@
     (< (count args) 3)
     (println "usage: filesvr host port <rootdir>")
     :else
-    (let [^LifeCycle w (memFileServer<> (nth args 2))]
+    (let [^LifeCycle
+          w (memFileServer<> (nth args 2))]
       (.start w {:host (nth args 0)
-                 :port (convInt (nth args 1) 8080)})
-      (exitHook #(.stop w))
+                 :port (c/convInt (nth args 1) 8080)})
+      (p/exitHook #(.stop w))
       (reset! svr w)
       (CU/block))))
 

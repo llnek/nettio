@@ -11,19 +11,18 @@
 
   czlab.nettio.resp
 
-  (:require [czlab.convoy.mime :refer [guessContentType]]
-            [czlab.basal.logging :as log]
+  (:require [czlab.convoy.mime :as mm :refer [guessContentType]]
+            [czlab.basal.log :as log]
             [clojure.java.io :as io]
-            [clojure.string :as cs])
-
-  (:use [czlab.nettio.core]
-        [czlab.convoy.core]
-        [czlab.convoy.wess]
-        [czlab.basal.dates]
-        [czlab.basal.meta]
-        [czlab.basal.str]
-        [czlab.basal.io]
-        [czlab.basal.core])
+            [clojure.string :as cs]
+            [czlab.nettio.core :as nc]
+            [czlab.convoy.core :as cc]
+            [czlab.convoy.wess :as ss]
+            [czlab.basal.dates :as d]
+            [czlab.basal.meta :as m]
+            [czlab.basal.str :as s]
+            [czlab.basal.io :as i]
+            [czlab.basal.core :as c])
 
   (:import [io.netty.channel ChannelFuture Channel ChannelHandlerContext]
            [io.netty.buffer Unpooled ByteBuf ByteBufAllocator]
@@ -31,7 +30,6 @@
            [io.netty.util ReferenceCountUtil]
            [clojure.lang APersistentVector]
            [czlab.nettio HttpRanges]
-           [czlab.convoy MvcUtils]
            [java.nio.charset Charset]
            [java.net HttpCookie URL]
            [czlab.jasal XData]
@@ -72,9 +70,9 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(decl-object NettyResultObj
-  HttpResultMsg
-  HttpMsgGist
+(c/decl-object NettyResultObj
+  cc/HttpResultMsg
+  cc/HttpMsgGist
   (msgHeader? [msg h]
     (.contains (mg-headers?? msg) (mg-cs?? h)))
   (msgHeader [msg h]
@@ -89,13 +87,13 @@
 (defn- result<> "" [theReq status]
   {:pre [(or (nil? status)
              (number? status))]}
-  (object<> NettyResultObj
-            {:status (or status (.code HttpResponseStatus/OK))
-             :ver (.text HttpVersion/HTTP_1_1)
-             :headers (DefaultHttpHeaders.)
-             :request theReq
-             :cookies {}
-             :framework :netty}))
+  (c/object<> NettyResultObj
+              {:status (or status (nc/scode HttpResponseStatus/OK))
+               :ver (.text HttpVersion/HTTP_1_1)
+               :headers (DefaultHttpHeaders.)
+               :request theReq
+               :cookies {}
+               :framework :netty}))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
