@@ -9,7 +9,7 @@
 (ns ^{:doc "Sample netty app - accepts and discards the request."
       :author "Kenneth Leung"}
 
-  czlab.nettio.discarder
+  czlab.nettio.discard
 
   (:gen-class)
 
@@ -42,8 +42,8 @@
 ;;
 (defn- h1proxy "" [cb]
   (proxy [InboundHandler][true]
-    (onRead [ctx _]
-      (replyStatus ctx) (c/trye!! nil (cb)))))
+    (readMsg [ctx _]
+      (nc/replyStatus ctx) (c/trye!! nil (cb)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;

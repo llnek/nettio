@@ -13,6 +13,7 @@ package czlab.nettio;
 import static org.slf4j.LoggerFactory.getLogger;
 import org.slf4j.Logger;
 import io.netty.buffer.ByteBuf;
+import io.netty.channel.ChannelPromise;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
@@ -67,7 +68,7 @@ public class FlashHandler extends InboundHandler {
 
   /**/
   @Override
-  protected void onRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+  public void readMsg(ChannelHandlerContext ctx, Object msg) throws Exception {
     ByteBuf bmsg = (msg instanceof ByteBuf) ? (ByteBuf)msg : null;
     Channel ch = ctx.channel();
 

@@ -6,6 +6,7 @@ import io.netty.util.ReferenceCountUtil;
 import io.netty.channel.ChannelDuplexHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelPromise;
+import io.netty.channel.ChannelHandler;
 
 import static org.slf4j.LoggerFactory.getLogger;
 import org.slf4j.Logger;
@@ -37,13 +38,14 @@ public abstract class DuplexHandler extends ChannelDuplexHandler {
     onActive(ctx);
   }
 
-  protected void onWrite(ChannelHandlerContext ctx, Object msg, ChannelPromise cp) throws Exception {}
-  protected void onWriteChanged(ChannelHandlerContext ctx) throws Exception {}
-  protected void onRead(ChannelHandlerContext ctx, Object m) throws Exception {}
-  protected void onInactive(ChannelHandlerContext ctx) throws Exception {}
-  protected void onActive(ChannelHandlerContext ctx) throws Exception {}
-  protected void onUnreg(ChannelHandlerContext ctx) throws Exception {}
-  protected void onReg(ChannelHandlerContext ctx) throws Exception {}
+  public void onWrite(ChannelHandlerContext ctx, Object msg, ChannelPromise cp) throws Exception {}
+  public void readMsg(ChannelHandlerContext ctx, Object msg) throws Exception {}
+  public void onWriteChanged(ChannelHandlerContext ctx) throws Exception {}
+  public void onRead(ChannelHandlerContext ctx, Object m) throws Exception {}
+  public void onInactive(ChannelHandlerContext ctx) throws Exception {}
+  public void onActive(ChannelHandlerContext ctx) throws Exception {}
+  public void onUnreg(ChannelHandlerContext ctx) throws Exception {}
+  public void onReg(ChannelHandlerContext ctx) throws Exception {}
 
   @Override
   public void channelInactive(ChannelHandlerContext ctx) throws Exception {
@@ -89,8 +91,7 @@ public abstract class DuplexHandler extends ChannelDuplexHandler {
   @Override
   public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
     try {
-      onRead(ctx, msg);
-    } catch (Exception e) {
+      readMsg(ctx, msg);
     } finally {
       if (_rel) ReferenceCountUtil.release(msg);
     }

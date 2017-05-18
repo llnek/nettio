@@ -8,30 +8,31 @@
 
 (ns czlab.test.nettio.test
 
-  (:require [czlab.nettio.discarder :refer [discardHTTPD<>]]
-            [czlab.nettio.filesvr :refer :all]
-            [czlab.basal.logging :as log]
+  (:require [czlab.nettio.discard :refer [discardHTTPD<>]]
+            [czlab.nettio.snoop :refer [snoopHTTPD<>]]
+            [czlab.nettio.files :refer :all]
+            [czlab.basal.log :as log]
             [clojure.java.io :as io]
-            [czlab.nettio.snooper :refer [snoopHTTPD<>]])
+            [czlab.nettio.msgs :as mg]
+            [czlab.convoy.routes :as cr]
+            [czlab.nettio.http11 :as h1]
+            [czlab.nettio.core :as nc]
+            [czlab.nettio.resp :as rs]
+            [czlab.nettio.server :as sv]
+            [czlab.nettio.client :as cl]
+            [czlab.convoy.core :as cc]
+            [czlab.convoy.upload :as cu]
+            [czlab.basal.process :as p]
+            [czlab.basal.meta :as m]
+            [czlab.basal.io :as i]
+            [czlab.basal.core :as c]
+            [czlab.basal.str :as s])
 
-  (:use [czlab.nettio.aggh11]
-        [czlab.convoy.routes]
-        [czlab.nettio.http11]
-        [czlab.nettio.core]
-        [czlab.nettio.resp]
-        [czlab.nettio.server]
-        [czlab.nettio.client]
-        [czlab.convoy.core]
-        [czlab.convoy.upload]
-        [czlab.basal.process]
-        [czlab.basal.meta]
-        [czlab.basal.io]
-        [czlab.basal.core]
-        [czlab.basal.str]
-        [clojure.test])
+  (:use [clojure.test])
 
   (:import [io.netty.buffer Unpooled ByteBuf ByteBufHolder]
            [org.apache.commons.fileupload FileItem]
+           [czlab.jasal Disposable LifeCycle XData]
            [io.netty.handler.codec.http.websocketx
             BinaryWebSocketFrame
             TextWebSocketFrame
@@ -46,15 +47,9 @@
             HttpResponseStatus]
            [java.nio.charset Charset]
            [java.net URL URI]
-           [czlab.jasal LifeCycle XData]
            [jregex Matcher]
            [czlab.nettio
-            WholeResponse
-            WholeRequest
-            WholeMessage
             H1DataFactory
-            WSClientConnect
-            ClientConnect
             InboundHandler]
            [io.netty.channel
             ChannelHandler
@@ -65,40 +60,40 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- serverHandler<> "" []
-  (proxy [InboundHandler][]
-    (channelRead0 [ctx msg]
+  (proxy [InboundHandler][true]
+    (readMsg [ctx msg]
       (let [c (.getBytes ^XData (:body msg))
-            ch (ch?? ctx)
-            r (httpFullReply<>
-                (.code HttpResponseStatus/OK) c (.alloc ch))]
+            ch (nc/ch?? ctx)
+            r (nc/httpFullReply<>
+                (nc/scode HttpResponseStatus/OK) c (.alloc ch))]
         (.writeAndFlush ^ChannelHandlerContext ctx r)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- bbuf "" ^ByteBuf
   [^Channel ch ^String s]
-  (Unpooled/wrappedBuffer (bytesit s)))
+  (Unpooled/wrappedBuffer (c/bytesit s)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- testPipelining "" []
   (let [ec (EmbeddedChannel.
              #^"[Lio.netty.channel.ChannelHandler;"
-             (vargs* ChannelHandler
-                     (h1reqAggregator<>)
-                     (h1reqHandler<>)
-                     (serverHandler<>)))
+             (c/vargs* ChannelHandler
+                       (mg/h1reqAggregator<>)
+                       (h1/h1reqHandler<>)
+                       (serverHandler<>)))
         dfac (H1DataFactory. 1000000)
-        r3 (httpPost<+> "/r3" (bbuf ec "r3"))
-        r2 (httpPost<+> "/r2" (bbuf ec "r2"))
-        r1 (httpPost<+> "/r1" (bbuf ec "r1"))]
+        r3 (nc/httpPost<+> "/r3" (bbuf ec "r3"))
+        r2 (nc/httpPost<+> "/r2" (bbuf ec "r2"))
+        r1 (nc/httpPost<+> "/r1" (bbuf ec "r1"))]
     ;;(.set (.headers r2) "expect" "100-continue")
-    (.set (.attr ec dfac-key) dfac)
+    (.set (.attr ec nc/dfac-key) dfac)
     (.writeOneInbound ec r1)
     (.writeOneInbound ec r2)
     (.writeOneInbound ec r3)
     (.flushInbound ec)
-    (pause 1000)
+    (c/pause 1000)
     (.flushOutbound ec)
     (let [q (.outboundMessages ec)
           ^ByteBufHolder r1 (.poll q)
@@ -107,9 +102,9 @@
           r4 (.poll q)
           rc
           (str
-            (strit (toByteArray (.content r1)))
-            (strit (toByteArray (.content r2)))
-            (strit (toByteArray (.content r3))))]
+            (c/strit (nc/toByteArray (.content r1)))
+            (c/strit (nc/toByteArray (.content r2)))
+            (c/strit (nc/toByteArray (.content r3))))]
       (.close ec)
       (and (nil? r4)
            (= "r1r2r3" rc)))))
@@ -119,27 +114,27 @@
 (defn- testPipe "" [pipe?]
   (let [ec (EmbeddedChannel.
              #^"[Lio.netty.channel.ChannelHandler;"
-             (vargs* ChannelHandler
-                     (h1reqAggregator<> pipe?)
-                     (h1reqHandler<>)
-                     (serverHandler<>)))
+             (c/vargs* ChannelHandler
+                       (mg/h1reqAggregator<> pipe?)
+                       (h1/h1reqHandler<>)
+                       (serverHandler<>)))
         dfac (H1DataFactory. 1000000)
         outq (.outboundMessages ec)
-        r2 (httpPost<+> "/r2" (bbuf ec "r2"))
-        r1 (httpPost<+> "/r1" (bbuf ec "r1"))]
-    (.set (.attr ec dfac-key) dfac)
+        r2 (nc/httpPost<+> "/r2" (bbuf ec "r2"))
+        r1 (nc/httpPost<+> "/r1" (bbuf ec "r1"))]
+    (.set (.attr ec nc/dfac-key) dfac)
     (doseq [p [r1 r2]]
       (.writeOneInbound ec p)
       (.flushInbound ec)
-      (pause 1000)
+      (c/pause 1000)
       (.flushOutbound ec))
     (let
       [^ByteBufHolder b1 (.poll outq)
        ^ByteBufHolder b2 (.poll outq)
        rc
        (str
-         (strit (toByteArray (.content b1)))
-         (strit (toByteArray (.content b2))))]
+         (c/strit (nc/toByteArray (.content b1)))
+         (c/strit (nc/toByteArray (.content b2))))]
       (.close ec)
       (= "r1r2" rc))))
 
@@ -147,10 +142,10 @@
 ;;
 (defn- testDiscarder "" []
   (let [^LifeCycle w (discardHTTPD<> rand)
-        _ (.start w {:port 5555 :host lhost-name})
-        po (h1get (str "http://"
-                       lhost-name
-                       ":5555/test/discarder?a=1&b=john%27smith"))
+        _ (.start w {:port 5555 :host nc/lhost-name})
+        po (cl/h1get (str "http://"
+                          nc/lhost-name
+                          ":5555/test/discarder?a=1&b=john%27smith"))
         rc (deref po 3000 nil)
         _ (.stop w)]
     (and rc (== 0 (.size ^XData (:body rc))))))
@@ -159,10 +154,10 @@
 ;;
 (defn- testSnooper "" []
   (let [^LifeCycle w (snoopHTTPD<>)
-        _ (.start w {:port 5555 :host lhost-name})
-        po (h1get (str "http://"
-                       lhost-name
-                       ":5555/test/snooper?a=1&b=john%27smith"))
+        _ (.start w {:port 5555 :host nc/lhost-name})
+        po (cl/h1get (str "http://"
+                          nc/lhost-name
+                          ":5555/test/snooper?a=1&b=john%27smith"))
         rc (deref po 3000 nil)
         _ (.stop w)]
     (and rc (.hasContent ^XData (:body rc)))))
@@ -170,13 +165,13 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- testFileSvrGet "" []
-  (let [^LifeCycle w (memFileServer<> *tempfile-repo*)
+  (let [^LifeCycle w (memFileServer<> i/*tempfile-repo*)
         s "test content"
         tn "testget.txt"
         port 5555
-        _ (spit (io/file *tempfile-repo* tn) s)
-        _ (.start w {:port port :host lhost-name})
-        po (h1get (format "http://%s:%d/%s" lhost-name port tn))
+        _ (spit (io/file i/*tempfile-repo* tn) s)
+        _ (.start w {:port port :host nc/lhost-name})
+        po (cl/h1get (format "http://%s:%d/%s" nc/lhost-name port tn))
         rc (deref po 5000 nil)
         _ (.stop w)]
     (and rc
@@ -186,18 +181,18 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- testFileSvrPut "" []
-  (let [^LifeCycle w (memFileServer<> *tempfile-repo*)
-        src (tempFile)
+  (let [^LifeCycle w (memFileServer<> i/*tempfile-repo*)
+        src (i/tempFile)
         s "test content"
         tn "testput.txt"
         port 5555
-        _ (deleteQ (io/file *tempfile-repo* tn))
+        _ (i/deleteQ (io/file i/*tempfile-repo* tn))
         _ (spit src s)
-        _ (.start w {:port port :host lhost-name})
-        po (h1post (format "http://%s:%d/%s"
-                           lhost-name port tn) src)
+        _ (.start w {:port port :host nc/lhost-name})
+        po (cl/h1post (format "http://%s:%d/%s"
+                              nc/lhost-name port tn) src)
         rc (deref po 5000 nil)
-        des (io/file *tempfile-repo* tn)
+        des (io/file i/*tempfile-repo* tn)
         _ (.stop w)]
     (and rc
          (== 0 (.size ^XData (:body rc)))
@@ -211,29 +206,29 @@
         w
         (-> {:hh1
              (fn [ctx msg]
-               (let [ch (ch?? ctx)
+               (let [ch (nc/ch?? ctx)
                      ^XData b (:body msg)
-                     res (http-result msg)]
+                     res (cc/http-result msg)]
                  (reset! out (.content b))
                  (->> (assoc res :body "hello joe")
-                      (reply-result ))))}
-            (nettyWebServer<>))
-        _ (.start w {:port 5555 :host lhost-name})
-        po (h1post (str "http://" lhost-name ":5555/form")
-                   "a=b&c=3%209&name=john%27smith"
-                   {:headers {:content-type
-                              "application/x-www-form-urlencoded"}})
+                      (cc/reply-result ))))}
+            sv/nettyWebServer<>)
+        _ (.start w {:port 5555 :host nc/lhost-name})
+        po (cl/h1post (str "http://" nc/lhost-name ":5555/form")
+                      "a=b&c=3%209&name=john%27smith"
+                      {:headers {:content-type
+                                 "application/x-www-form-urlencoded"}})
         rc (deref po 5000 nil)
         rmap
         (when @out
-          (preduce<map>
+          (c/preduce<map>
             #(let [^FileItem i %2]
                (if (.isFormField i)
                  (assoc! %1
                          (keyword (.getFieldName i))
                          (.getString i))
                  %1))
-            (get-all-items @out)))
+            (cu/get-all-items @out)))
         _ (.stop w)]
     (and rc
          (= "hello joe" (.strit ^XData (:body rc)))
@@ -250,18 +245,18 @@
              (fn [ctx msg]
                (let [^XData b (:body msg)]
                  (reset! out (.content b))
-                 (replyStatus ctx 200)))}
-            (nettyWebServer<>))
+                 (nc/replyStatus ctx 200)))}
+            sv/nettyWebServer<>)
         ctype "multipart/form-data; boundary=---1234"
-        cbody TEST-FORM-MULTIPART
-        _ (.start w {:port 5555 :host lhost-name})
-        po (h1post (str "http://" lhost-name ":5555/form")
-                   cbody
-                   {:headers {:content-type ctype }})
+        cbody cu/TEST-FORM-MULTIPART
+        _ (.start w {:port 5555 :host nc/lhost-name})
+        po (cl/h1post (str "http://" nc/lhost-name ":5555/form")
+                      cbody
+                      {:headers {:content-type ctype }})
         rc (deref po 5000 nil)
         rmap
         (when @out
-          (preduce<map>
+          (c/preduce<map>
             #(let [^FileItem i %2]
                (if (.isFormField i)
                  (assoc! %1
@@ -269,18 +264,18 @@
                                        "+" (.getString i)))
                          (.getString i))
                  %1))
-            (get-all-items @out)))
+            (cu/get-all-items @out)))
         fmap
         (when @out
-          (preduce<map>
+          (c/preduce<map>
             #(let [^FileItem i %2]
                (if-not (.isFormField i)
                  (assoc! %1
                          (keyword (str (.getFieldName i)
                                        "+" (.getName i)))
-                         (strit (.get i)))
+                         (c/strit (.get i)))
                  %1))
-            (get-all-items @out)))
+            (cu/get-all-items @out)))
         _ (.stop w)]
     (and rc
          (== 0 (.size ^XData (:body rc)))
@@ -293,21 +288,21 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- testPreflightNotAllowed "" []
-  (let [o (str "http://" lhost-name)
+  (let [o (str "http://" nc/lhost-name)
         port 5555
         w
         (-> {:hh1
              (fn [ctx msg]
                (let [^XData b (:body msg)]
-                 (replyStatus ctx 200)))}
-            (nettyWebServer<>))
-        _ (.start w {:port 5555 :host lhost-name})
+                 (nc/replyStatus ctx 200)))}
+            sv/nettyWebServer<>)
+        _ (.start w {:port 5555 :host nc/lhost-name})
         args {:headers
               {:origin o
                :Access-Control-Request-Method "PUT"
                :Access-Control-Request-Headers "X-Custom-Header"}}
-        rc (h1send (format "http://%s:%d/cors" lhost-name port)
-                   "OPTIONS" nil args)
+        rc (cl/h1send (format "http://%s:%d/cors" nc/lhost-name port)
+                      "OPTIONS" nil args)
         p (deref rc 3000 nil)
         _ (.stop w)]
     (and p (== 405 (:code (:status p))))))
@@ -315,7 +310,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- testPreflightStar "" []
-  (let [o (str "http://" lhost-name)
+  (let [o (str "http://" nc/lhost-name)
         port 5555
         args
         {:corsCfg {:enabled? true
@@ -323,23 +318,23 @@
          :hh1
          (fn [ctx msg]
            (let [^XData b (:body msg)]
-             (replyStatus ctx 200)))}
-        w (nettyWebServer<> args)
-        _ (.start w {:port 5555 :host lhost-name})
+             (nc/replyStatus ctx 200)))}
+        w (sv/nettyWebServer<> args)
+        _ (.start w {:port 5555 :host nc/lhost-name})
         args {:headers
               {:origin o
                :Access-Control-Request-Method "PUT"
                :Access-Control-Request-Headers "X-Custom-Header"}}
-        rc (h1send (format "http://%s:%d/cors" lhost-name port)
-                   "OPTIONS" nil args)
+        rc (cl/h1send (format "http://%s:%d/cors" nc/lhost-name port)
+                      "OPTIONS" nil args)
         p (deref rc 3000 nil)
         _ (.stop w)]
-    (and p (= "*" (msgHeader p "access-control-allow-origin")))))
+    (and p (= "*" (cc/msgHeader p "access-control-allow-origin")))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- testPreflight "" []
-  (let [o (str "http://" lhost-name)
+  (let [o (str "http://" nc/lhost-name)
         port 5555
         args
         {:corsCfg {:enabled? true
@@ -349,18 +344,18 @@
          :hh1
          (fn [ctx msg]
            (let [^XData b (:body msg)]
-             (replyStatus ctx 200)))}
-        w (nettyWebServer<> args)
-        _ (.start w {:port 5555 :host lhost-name})
+             (nc/replyStatus ctx 200)))}
+        w (sv/nettyWebServer<> args)
+        _ (.start w {:port 5555 :host nc/lhost-name})
         args {:headers
               {:origin o
                :Access-Control-Request-Method "PUT"
                :Access-Control-Request-Headers "X-Custom-Header"}}
-        rc (h1send (format "http://%s:%d/cors" lhost-name port)
-                   "OPTIONS" nil args)
+        rc (cl/h1send (format "http://%s:%d/cors" nc/lhost-name port)
+                      "OPTIONS" nil args)
         p (deref rc 3000 nil)
         _ (.stop w)]
-    (and p (= o (msgHeader p "access-control-allow-origin")))))
+    (and p (= o (cc/msgHeader p "access-control-allow-origin")))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -370,19 +365,17 @@
          :hh1
          (fn [ctx msg]
            (println "msg = " msg))}
-        w (nettyWebServer<> args)
+        w (sv/nettyWebServer<> args)
         port 5556
-        _ (.start w {:port port :host lhost-name})
-        rcp (wsconnect<> lhost-name
-                         port
-                         "/web/sock"
-                         (fn [_ _]))
+        _ (.start w {:port port :host nc/lhost-name})
+        rcp (cl/wsconnect<> nc/lhost-name
+                            port "/web/sock" (fn [_ _]))
         cc (deref rcp 5000 nil)
-        _ (when-some [c (cast? ClientConnect cc)] (.dispose c))
-        _ (pause 1000)
+        _ (when-some [c (c/cast? Disposable cc)] (.dispose c))
+        _ (c/pause 1000)
         _ (.stop w)]
-    (and (ist? ClientConnect cc)
-         (not (.isOpen (.channel ^ClientConnect cc))))))
+    (and (c/ist? czlab.nettio.client.ClientConnect cc)
+         (not (.isOpen ^Channel (cl/c-channel cc))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -392,17 +385,15 @@
          :hh1
          (fn [ctx msg]
            (println "Oh no! msg = " msg))}
-        w (nettyWebServer<> args)
-        host lhost-name
+        w (sv/nettyWebServer<> args)
+        host nc/lhost-name
         port 5556
         _ (.start w {:port port :host host})
-        rcp (wsconnect<> host
-                         port
-                         "/websock"
-                         (fn [_ _]))
-        cc (deref rcp 3000 nil)
+        rcp (cl/wsconnect<> host
+                            port "/websock" (fn [_ _]))
+        cc (deref rcp 5000 nil)
         _ (.stop w)]
-    (ist? Throwable cc)))
+    (c/ist? Throwable cc)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -412,16 +403,14 @@
          :hh1
          (fn [ctx msg]
            (println "Why? msg = " msg))}
-        w (nettyWebServer<> args)
+        w (sv/nettyWebServer<> args)
         port 5556
-        _ (.start w {:port port :host lhost-name})
-        rcp (wsconnect<> lhost-name
-                         port
-                         "/web/sock"
-                         (fn [_ _]))
+        _ (.start w {:port port :host nc/lhost-name})
+        rcp (cl/wsconnect<> nc/lhost-name
+                            port "/web/sock" (fn [_ _]))
         cc (deref rcp 5000 nil)
         _ (.stop w)]
-    (and cc (== 5556 (.port ^ClientConnect cc)))))
+    (and cc (== 5556 (cl/remote-port cc)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -434,21 +423,22 @@
            (let [^XData x (:body msg)
                  m (TextWebSocketFrame. (.strit x))]
              (.writeAndFlush ^ChannelHandlerContext ctx m)))}
-        w (nettyWebServer<> args)
+        w (sv/nettyWebServer<> args)
         out (atom nil)
         port 8443
-        _ (.start w {:port port :host lhost-name})
-        rcp (wsconnect<> lhost-name
-                         port
-                         "/web/sock"
-                         (fn [^WSClientConnect cc msg]
-                           (when-some [^XData s (:body msg)]
-                             (reset! out (.strit s))
-                             (.write cc (CloseWebSocketFrame.))))
-                         {:serverCert "*"})
+        _ (.start w {:port port :host nc/lhost-name})
+        rcp (cl/wsconnect<> nc/lhost-name
+                            port
+                            "/web/sock"
+                            (fn [cc msg]
+                              (when-some [^XData s (:body msg)]
+                                (reset! out (.strit s))
+                                (cl/write-ws-msg cc (CloseWebSocketFrame.))))
+                            {:serverCert "*"})
         cc (deref rcp 5000 nil)
-        _ (when-some [c (cast? WSClientConnect cc)] (.write c "hello"))
-        _ (pause 1000)
+        _ (when (c/ist? czlab.nettio.client.WSMsgWriter cc)
+            (cl/write-ws-msg cc "hello"))
+        _ (c/pause 1000)
         _ (.stop w)]
     (= "hello" @out)))
 
@@ -460,25 +450,25 @@
          :hh1
          (fn [ctx msg]
            (let [^ChannelHandlerContext ctx ctx
-                 m (-> (byteBuf?? (:body msg)
-                                  (ch?? ctx))
-                       (BinaryWebSocketFrame. ))]
+                 m (-> (nc/byteBuf?? (:body msg)
+                                     (nc/ch?? ctx))
+                       BinaryWebSocketFrame. )]
              (.writeAndFlush ctx m)))}
-        w (nettyWebServer<> args)
+        w (sv/nettyWebServer<> args)
         out (atom nil)
         port 5556
-        _ (.start w {:port port :host lhost-name})
-        rcp (wsconnect<> lhost-name
-                         port
-                         "/web/sock"
-                         (fn [^WSClientConnect cc msg]
-                           (when-some [^XData b (:body msg)]
-                             (reset! out (.strit b))
-                             (.write cc (CloseWebSocketFrame.)))))
+        _ (.start w {:port port :host nc/lhost-name})
+        rcp (cl/wsconnect<> nc/lhost-name
+                            port
+                            "/web/sock"
+                            (fn [cc msg]
+                              (when-some [^XData b (:body msg)]
+                                (reset! out (.strit b))
+                                (cl/write-ws-msg cc (CloseWebSocketFrame.)))))
         cc (deref rcp 5000 nil)
-        _ (when-some [c (cast? WSClientConnect cc)]
-            (.write c (.getBytes "hello")))
-        _ (pause 1000)
+        _ (when (c/ist? czlab.nettio.client.WSMsgWriter cc)
+            (cl/write-ws-msg cc (.getBytes "hello")))
+        _ (c/pause 1000)
         _ (.stop w)]
     (= "hello" @out)))
 
@@ -492,20 +482,20 @@
          :hh1
          (fn [ctx msg]
            (reset! out "bad"))}
-        w (nettyWebServer<> args)
+        w (sv/nettyWebServer<> args)
         port 5556
-        _ (.start w {:port port :host lhost-name})
-        rcp (wsconnect<> lhost-name
-                         port
-                         "/web/sock"
-                         (fn [^WSClientConnect cc msg]
-                           (when (:pong? msg)
-                             (reset! pong true)
-                             (.write cc (CloseWebSocketFrame.)))))
+        _ (.start w {:port port :host nc/lhost-name})
+        rcp (cl/wsconnect<> nc/lhost-name
+                            port
+                            "/web/sock"
+                            (fn [cc msg]
+                              (when (:pong? msg)
+                                (reset! pong true)
+                                (cl/write-ws-msg cc (CloseWebSocketFrame.)))))
         cc (deref rcp 5000 nil)
-        _ (when-some [c (cast? WSClientConnect cc)]
-            (.write c (PingWebSocketFrame.)))
-        _ (pause 1000)
+        _ (when (c/ist? czlab.nettio.client.WSMsgWriter cc)
+            (cl/write-ws-msg cc (PingWebSocketFrame.)))
+        _ (c/pause 1000)
         _ (.stop w)]
     (and (nil? @out)
          (true? @pong))))
@@ -515,21 +505,20 @@
 (defn- test-h1-SSL "" []
   (let [out (atom nil)
         w
-        (nettyWebServer<>
+        (sv/nettyWebServer<>
           {:serverKey "*"
            :passwd  ""
            :hh1
            (fn [ctx msg]
-             (let [ch (ch?? ctx)
+             (let [ch (nc/ch?? ctx)
                    ^XData b (:body msg)
-                   res (http-result msg)]
-               (reset! out (.content b))
+                   res (cc/http-result msg)]
                (->> (assoc res :body "hello joe")
-                    (reply-result ))))})
-        _ (.start w {:port 8443 :host lhost-name})
-        po (h1get (str "https://"
-                       lhost-name ":8443/form")
-                  {:serverCert "*"})
+                    (cc/reply-result ))))})
+        _ (.start w {:port 8443 :host nc/lhost-name})
+        po (cl/h1get (str "https://"
+                          nc/lhost-name ":8443/form")
+                     {:serverCert "*"})
         rc (deref po 5000 nil)
         _ (.stop w)]
     (and rc
@@ -539,25 +528,25 @@
 ;;
 (defn- h2handle "" [^ChannelHandlerContext ctx msg]
   (let [ch (.channel ctx)
-        rsp (httpFullReply<> 200
-                             (bytesit "hello")
-                             (.alloc ch))]
+        rsp (nc/httpFullReply<> 200
+                                (c/bytesit "hello")
+                                (.alloc ch))]
     (.writeAndFlush ctx rsp)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- test-h2-SSL "" []
   (let [out (atom nil)
-        w (nettyWebServer<>
+        w (sv/nettyWebServer<>
             {:serverKey "*"
              :passwd  "" :hh2 h2handle})
-        _ (.start w {:port 8443 :host lhost-name})
-        po (h2get (str "https://"
-                       lhost-name ":8443/form")
-                  {:serverCert "*"})
+        _ (.start w {:port 8443 :host nc/lhost-name})
+        po (cl/h2get (str "https://"
+                          nc/lhost-name ":8443/form")
+                     {:serverCert "*"})
         rc (deref po 5000 nil)
         s (and rc
-               (ist? XData (:body rc))
+               (c/ist? XData (:body rc))
                (.strit ^XData (:body rc)))]
     (.stop w)
     (= "hello" s)))

@@ -119,14 +119,33 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
+(defprotocol WholeMsgProto
+  ""
+  (append-msg-content [_ c last?] "")
+  (add-msg-content [_ c last?] "")
+  (deref-msg [_] "")
+  (end-msg-content [_] ""))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
 (defn mg-headers??
   "" ^HttpHeaders [msg] (:headers (if (c/ist? IDeref msg) @msg msg)))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
 (defn mg-cs?? "" ^CharSequence [s] s)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(c/decl-object NettyWsockMsg WsockMsg WsockMsgGist)
+(defmacro ref-del "" [r] `(io.netty.util.ReferenceCountUtil/release ~r))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(defmacro ref-add "" [r] `(io.netty.util.ReferenceCountUtil/retain ~r))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(c/decl-object NettyWsockMsg cc/WsockMsg cc/WsockMsgGist)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -589,24 +608,24 @@
        (nil? msg)
        (DefaultFullHttpResponse. ver code)
        :else
-       (let [bb (some-> alloc
-                        .directBuffer)]
-         (cond
-           (nil? bb)
-           (c/throwIOE "No bytebuf")
-           (m/instBytes? msg)
-           (.writeBytes bb ^bytes msg)
-           (map? msg)
-           (.writeCharSequence bb
-                               ^String (:string msg)
-                               ^Charset (:encoding msg))
-           (string? msg)
-           (.writeCharSequence bb
-                               ^String msg
-                               CharsetUtil/UTF_8)
-           :else
-           (c/throwIOE "Rouge content %s" (type msg)))
-         (DefaultFullHttpResponse. ver code bb)))))
+       (let [bb (some-> alloc .directBuffer)
+             _
+             (cond
+               (nil? bb)
+               (c/throwIOE "No bytebuf")
+               (m/instBytes? msg)
+               (.writeBytes bb ^bytes msg)
+               (map? msg)
+               (.writeCharSequence bb
+                                   ^String (:string msg)
+                                   ^Charset (:encoding msg))
+               (string? msg)
+               (.writeCharSequence bb
+                                   ^String msg
+                                   CharsetUtil/UTF_8)
+               :else
+               (c/throwIOE "Rouge content %s" (type msg)))]
+         (DefaultFullHttpResponse. ver code ^ByteBuf bb)))))
 
   ([code] (httpFullReply<> code nil nil))
 
@@ -697,7 +716,7 @@
       (.remove pp (str handler)))
     (dbgPipeline pp)
     (if retain?
-      (ReferenceCountUtil/retain msg))
+      (ref-add msg))
     (.fireChannelRead ctx msg)))
 
   ([ctx handler msg]
@@ -787,11 +806,11 @@
   "Detects if a websock req" [req]
 
   (let [cn (->> HttpHeaderNames/CONNECTION
-                (msgHeader req)
+                (cc/msgHeader req)
                 str
                 s/lcase)
         ws (->> HttpHeaderNames/UPGRADE
-                (msgHeader req)
+                (cc/msgHeader req)
                 str
                 s/lcase)]
     (log/debug "checking if it's a websock request......")
@@ -965,16 +984,13 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defmacro gistH1Msg "" [ctx m]
-  `(let [c# ~ctx m# ~m]
-     (when (satisfies? czlab.nettio.wmsg11.WholeMsgProto m#)
-       (cond
-         (czlab.basal.core/ist?
-           io.netty.handler.codec.http.HttpRequest m#)
-         (gistH1Request c# m#)
-         (czlab.basal.core/ist?
-           io.netty.handler.codec.http.HttpResponse m#)
-         (gistH1Response c# m#)))))
+(defn gistH1Msg "" [ctx msg]
+  (if (satisfies? WholeMsgProto msg)
+    (cond
+      (c/ist? HttpRequest msg)
+      (gistH1Request ctx msg)
+      (c/ist? HttpResponse msg)
+      (gistH1Response ctx msg))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -1026,7 +1042,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(extend-protocol WsockMsgReplyer
+(extend-protocol cc/WsockMsgReplyer
   io.netty.channel.Channel
   (send-ws-string [me s]
     (->> (TextWebSocketFrame. ^String s)
@@ -1046,7 +1062,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(extend-protocol SocketAttrProvider
+(extend-protocol cc/SocketAttrProvider
   io.netty.channel.Channel
   (set-socket-attr [me k a]
     (setAKey me (maybeAKey k) a))

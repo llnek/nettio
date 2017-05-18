@@ -11,14 +11,12 @@
 
   czlab.nettio.client
 
-  (:require [czlab.basal.log :as log]
-            [clojure.java.io :as io]
-            [clojure.string :as cs]
-            [czlab.nettio.aggh11 :as n11]
-            [czlab.nettio.aggh20 :as n20]
-            [czlab.nettio.aggwsk :as nws]
+  (:require [czlab.nettio.msgs :as mg]
             [czlab.nettio.core :as nc]
             [czlab.convoy.util :as ct]
+            [czlab.basal.log :as log]
+            [clojure.java.io :as io]
+            [clojure.string :as cs]
             [czlab.basal.core :as c]
             [czlab.basal.meta :as m]
             [czlab.basal.str :as s]
@@ -104,7 +102,7 @@
             H1DataFactory
             H2ConnBuilder
             InboundHandler]
-           [czlab.jasal XData]))
+           [czlab.jasal Disposable XData]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;(set! *warn-on-reflection* false)
@@ -115,7 +113,7 @@
 (def ^:private ^AttributeKey rsp-key  (nc/akey<> "rsp-result"))
 (def ^:private ^AttributeKey cf-key  (nc/akey<> "wsock-future"))
 (def ^:private ^AttributeKey cc-key  (nc/akey<> "wsock-client"))
-(def ^:private ^ChannelHandler msg-agg (h1resAggregator<>))
+(def ^:private ^ChannelHandler msg-agg (mg/h1resAggregator<>))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -281,8 +279,8 @@
       (when-some [p (nc/getAKey ctx rsp-key)]
         (nc/delAKey ctx rsp-key)
         (deliver p err))
-      (.close ^ChannelHandlerContext ctx))
-    (onRead [ctx msg]
+      (nc/closeCH ctx))
+    (readMsg [ctx msg]
       (when-some [p (nc/getAKey ctx rsp-key)]
         (nc/delAKey ctx rsp-key)
         (deliver p msg)))))
@@ -294,8 +292,8 @@
 
   (proxy [InboundHandler][true]
     (exceptionCaught [ctx err]
-      (.close ^ChannelHandlerContext ctx))
-    (onRead [ctx msg]
+      (nc/closeCH ctx))
+    (readMsg [ctx msg]
       (let [wcc (nc/getAKey ctx cc-key)]
         (user wcc msg)))))
 
@@ -320,8 +318,8 @@
         (if-not (.isDone f)
           (.setFailure f ^Throwable err)))
       (log/warn "%s" (.getMessage ^Throwable err))
-      (.close ^ChannelHandlerContext ctx))
-    (onRead [ctx msg]
+      (nc/closeCH ctx))
+    (readMsg [ctx msg]
       (let [^ChannelPromise f (nc/getAKey ctx cf-key)
             ch (nc/ch?? ctx)]
         (cond
@@ -329,17 +327,19 @@
           (do
             (log/debug "attempt to finz the hand-shake...")
             (.finishHandshake handshaker ch ^FullHttpResponse msg)
+            (log/debug "finz'ed the hand-shake... success!")
             (.setSuccess f))
           (c/ist? FullHttpResponse msg)
-          (throw (IllegalStateException.
-                   (str "Unexpected FullHttpResponse (status="
-                        (.status ^FullHttpResponse msg))))
+          (do
+            (c/throwISE
+              "Unexpected FullHttpResponse (status=%s"
+              (.status ^FullHttpResponse msg)))
           (c/ist? CloseWebSocketFrame msg)
           (do
             (log/debug "received close frame")
-            (.close ^ChannelHandlerContext ctx))
+            (nc/closeCH ctx))
           :else
-          (->> (ReferenceCountUtil/retain msg)
+          (->> (nc/ref-add msg)
                (.fireChannelRead ^ChannelHandlerContext ctx )))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -353,10 +353,10 @@
       (let [hh (HttpToHttp2ConnectionHandlerBuilder.)
             _ (.server hh false)
             ch (nc/ch?? c)
-            pp (cpipe ch)
+            pp (nc/cpipe ch)
             pm (.newPromise ch)
             _ (.frameListener hh
-                              (h20Aggregator<> pm))
+                              (mg/h20Aggregator<> pm))
             ssl (c/cast? SslContext ctx)]
         (nc/setAKey c h2s-key pm)
         (some->> (some-> ssl (.newHandler (.alloc ch)))
@@ -365,14 +365,13 @@
           (proxy [ApplicationProtocolNegotiationHandler][""]
             (configurePipeline [cx pn]
               (if (.equals ApplicationProtocolNames/HTTP_2 ^String pn)
-                (doto (cpipe cx)
+                (doto (nc/cpipe cx)
                   (.addLast "codec" (.build hh))
                   (.addLast "cw" (ChunkedWriteHandler.))
                   (.addLast "user-cb" user-hdlr))
                 (do
-                  (.close ^ChannelHandlerContext cx)
-                  (throw (IllegalStateException.
-                           (str "unknown protocol: " pn)))))))
+                  (nc/closeCH cx)
+                  (c/throwISE "unknown protocol: %s" pn)))))
           (.addLast pp "apn"))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -387,8 +386,8 @@
         [ssl (c/cast? SslContext ctx)]
         (->> (.newHandler ssl
                           (.alloc ^Channel ch))
-             (.addLast (cpipe ch) "ssl")))
-      (doto (cpipe ch)
+             (.addLast (nc/cpipe ch) "ssl")))
+      (doto (nc/cpipe ch)
         (.addLast "codec" (HttpClientCodec.))
         (.addLast "msg-agg" msg-agg)
         (.addLast "cw" (ChunkedWriteHandler.))
@@ -406,8 +405,8 @@
         [ssl (c/cast? SslContext ctx)]
         (->> (.newHandler ssl
                           (.alloc ^Channel ch))
-             (.addLast (cpipe ch) "ssl")))
-      (doto (cpipe ch)
+             (.addLast (nc/cpipe ch) "ssl")))
+      (doto (nc/cpipe ch)
         (.addLast "codec" (HttpClientCodec.))
         (.addLast "agg" (HttpObjectAggregator. 96000))
         (.addLast "wcc" WebSocketClientCompressionHandler/INSTANCE)
@@ -419,7 +418,7 @@
                       nil true (DefaultHttpHeaders.))
                     cb
                     args))
-        (.addLast "ws-agg" (wsockAggregator<>))
+        (.addLast "ws-agg" (mg/wsockAggregator<>))
         (.addLast "ws-user" (wsock-hdlr user))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -435,8 +434,8 @@
             threads 0}
        :as args}]
 
-  (let [tempFileDir (fpath (or tempFileDir
-                               i/*tempfile-repo*))
+  (let [tempFileDir (c/fpath (or tempFileDir
+                                 i/*tempfile-repo*))
         ctx (maybeSSL serverCert scheme
                       (= version "2"))
         [g z] (nc/gAndC threads :tcpc)
@@ -521,11 +520,11 @@
         _ (.handler bs (wspipe ctx cb user args))
         c (connect bs host port (some? ctx))
         ^H1DataFactory f (nc/getAKey c nc/dfac-key)]
-    (futureCB (.closeFuture c)
-              (fn [_]
-                (log/debug "shutdown: netty ws-client")
-                (some-> f .cleanAllHttpData)
-                (c/trye! nil (.. bs config group shutdownGracefully))))))
+    (nc/futureCB (.closeFuture c)
+                 (fn [_]
+                   (log/debug "shutdown: netty ws-client")
+                   (some-> f .cleanAllHttpData)
+                   (c/trye! nil (.. bs config group shutdownGracefully))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -537,16 +536,16 @@
         ch (connect bs host port (some? ctx))
         ^H1DataFactory f (nc/getAKey ch nc/dfac-key)
         ^ChannelPromise pm (nc/getAKey ch h2s-key)]
-    (futureCB (.closeFuture ch)
-              (fn [_]
-                (log/debug "shutdown: netty h2-client")
-                (some-> f .cleanAllHttpData)
-                (c/trye! nil (.. bs config group shutdownGracefully))))
+    (nc/futureCB (.closeFuture ch)
+                 (fn [_]
+                   (log/debug "shutdown: netty h2-client")
+                   (some-> f .cleanAllHttpData)
+                   (c/trye! nil (.. bs config group shutdownGracefully))))
     (reify ClientConnect
       (await-connect [_ ms]
         (log/debug "client waits %s[ms] for h2 settings..... " ms)
         (if-not (.awaitUninterruptibly pm ms TimeUnit/MILLISECONDS)
-          (throw (IllegalStateException. "Timed out waiting for settings")))
+          (c/throwISE "Timed out waiting for settings"))
         (if-not (.isSuccess pm)
           (throw (RuntimeException. (.cause pm))))
         (log/debug "client waited %s[ms] ok!" ms))
@@ -569,11 +568,11 @@
         _ (.handler bs (h1pipe ctx args))
         ch (connect bs host port (some? ctx))
         ^H1DataFactory f (nc/getAKey ch nc/dfac-key)]
-    (futureCB (.closeFuture ch)
-              (fn [_]
-                (log/debug "shutdown: netty h1-client")
-                (some-> f .cleanAllHttpData)
-                (c/trye! nil (.. bs config group shutdownGracefully))))
+    (nc/futureCB (.closeFuture ch)
+                 (fn [_]
+                   (log/debug "shutdown: netty h1-client")
+                   (some-> f .cleanAllHttpData)
+                   (c/trye! nil (.. bs config group shutdownGracefully))))
     (reify ClientConnect
       (await-connect [_ ms] (c/pause ms))
       (c-channel [_] ch)

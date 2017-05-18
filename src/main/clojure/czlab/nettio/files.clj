@@ -9,7 +9,7 @@
 (ns ^{:doc "Sample netty file server."
       :author "Kenneth Leung"}
 
-  czlab.nettio.filesvr
+  czlab.nettio.files
 
   (:gen-class)
 
@@ -88,7 +88,7 @@
     (->> (c/try!!
            (nc/scode HttpResponseStatus/INTERNAL_SERVER_ERROR)
            (do
-             (saveFile vdir fname body)
+             (i/saveFile vdir fname body)
              (nc/scode HttpResponseStatus/OK)))
          (nc/replyStatus ctx ))))
 
@@ -98,7 +98,7 @@
 
   (log/debug "fGetter: file= %s" (io/file (:vdir args) fname))
   (let [vdir (io/file (:vdir args))
-        xdata (nc/getFile vdir fname)]
+        xdata (i/getFile vdir fname)]
     (if (.hasContent xdata)
       (replyGetVFile ctx req xdata)
       (nc/replyStatus ctx (nc/scode HttpResponseStatus/NO_CONTENT)))))
@@ -107,7 +107,7 @@
 ;;
 (defn- h1proxy "" [args]
   (proxy [InboundHandler][true]
-    (onRead [ctx msg]
+    (readMsg [ctx msg]
       (let
         [^String uri (:uri2 msg)
          mtd (:method msg)

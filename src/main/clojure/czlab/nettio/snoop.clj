@@ -9,19 +9,18 @@
 (ns ^{:doc "Sample netty app - snoops on the request."
       :author "Kenneth Leung"}
 
-  czlab.nettio.snooper
+  czlab.nettio.snoop
 
   (:gen-class)
 
-  (:require [czlab.basal.process :refer [exitHook]]
-            [czlab.basal.logging :as log]
-            [clojure.string :as cs])
-
-  (:use [czlab.nettio.server]
-        [czlab.basal.core]
-        [czlab.basal.str]
-        [czlab.convoy.core]
-        [czlab.nettio.core])
+  (:require [czlab.basal.process :as p :refer [exitHook]]
+            [czlab.basal.log :as log]
+            [clojure.string :as cs]
+            [czlab.basal.core :as c]
+            [czlab.basal.str :as s]
+            [czlab.convoy.core :as cc]
+            [czlab.nettio.core :as nc]
+            [czlab.nettio.server :as sv])
 
   (:import [io.netty.util Attribute AttributeKey CharsetUtil]
            [czlab.nettio.server NettyWebServer]
@@ -54,10 +53,9 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;(set! *warn-on-reflection* true)
-
-(def ^:private keep-alive (akey<> "keepalive"))
-(def ^:private cookie-buf (akey<> "cookies"))
-(def ^:private msg-buf (akey<> "msg"))
+(def ^:private keep-alive (nc/akey<> "keepalive"))
+(def ^:private cookie-buf (nc/akey<> "cookies"))
+(def ^:private msg-buf (nc/akey<> "msg"))
 (defonce ^:private svr (atom nil))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -67,16 +65,18 @@
   [^ChannelHandlerContext ctx curObj]
 
   (let [cookies (:cookies curObj)
-        buf (getAKey ctx msg-buf)
-        res (httpFullReply<>
-              (.code HttpResponseStatus/OK) (str buf) (.alloc ctx))
+        buf (nc/getAKey ctx msg-buf)
+        res (nc/httpFullReply<>
+              (nc/scode HttpResponseStatus/OK) (str buf) (.alloc ctx))
         hds (.headers res)
         ce ServerCookieEncoder/STRICT
         clen (-> (.content res) .readableBytes)]
     (.set hds "Content-Length" (str clen))
     (.set hds "Content-Type"
               "text/plain; charset=UTF-8")
-    (.set hds "Connection" (if (getAKey ctx keep-alive) "keep-alive" "close"))
+    (.set hds
+          "Connection"
+          (if (nc/getAKey ctx keep-alive) "keep-alive" "close"))
     (if (empty? cookies)
       (doto hds
         (.add "Set-Cookie"
@@ -86,7 +86,7 @@
       (doseq [v cookies]
         (.add hds
               "Set-Cookie"
-              (.encode ce (nettyCookie<> v)))))
+              (.encode ce (nc/nettyCookie<> v)))))
     (.writeAndFlush ctx res)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -94,12 +94,11 @@
 (defn- handleReq
   "Introspect the inbound request"
   [^ChannelHandlerContext ctx req]
-
   (let [^HttpHeaders headers (:headers req)
         ka? (:isKeepAlive? req)
-        buf (strbf<>)]
-    (setAKey ctx keep-alive ka?)
-    (setAKey ctx msg-buf buf)
+        buf (s/strbf<>)]
+    (nc/setAKey ctx keep-alive ka?)
+    (nc/setAKey ctx msg-buf buf)
     (doto buf
       (.append "WELCOME TO THE TEST WEB SERVER\r\n")
       (.append "==============================\r\n")
@@ -107,13 +106,13 @@
       (.append (:version req))
       (.append "\r\n")
       (.append "HOSTNAME: ")
-      (.append (str (msgHeader req "host")))
+      (.append (str (cc/msgHeader req "host")))
       (.append "\r\n")
       (.append "REQUEST_URI: ")
       (.append (:uri2 req))
       (.append "\r\n\r\n"))
     (->>
-      (sreduce<>
+      (c/sreduce<>
         (fn [memo ^String n]
           (-> ^StringBuilder
               memo
@@ -126,7 +125,7 @@
       (.append buf))
     (.append buf "\r\n")
     (->>
-      (sreduce<>
+      (c/sreduce<>
         (fn [memo ^Map$Entry en]
           (-> ^StringBuilder
               memo
@@ -145,7 +144,7 @@
   "Handle the request content"
   [^ChannelHandlerContext ctx msg]
 
-  (let [^StringBuilder buf (getAKey ctx msg-buf)
+  (let [^StringBuilder buf (nc/getAKey ctx msg-buf)
         ^XData ct (:body msg)]
     (when (.hasContent ct)
       (-> buf
@@ -163,13 +162,13 @@
 
   ([] (snoopHTTPD<> nil))
   ([args]
-   (do-with [^LifeCycle w (mutable<> NettyWebServer)]
+   (c/do-with [^LifeCycle w (c/mutable<> NettyWebServer)]
      (.init w
             (merge
               args
               {:hh1
-               (proxy [InboundHandler][]
-                 (channelRead0 [ctx msg]
+               (proxy [InboundHandler][true]
+                 (readMsg [ctx msg]
                    (handleReq ctx msg)
                    (handleCnt ctx msg)))})))))
 
@@ -188,8 +187,8 @@
     :else
     (let [^LifeCycle w (snoopHTTPD<>)]
       (.start w {:host (nth args 0)
-                 :port (convInt (nth args 1) 8080)})
-      (exitHook #(.stop w))
+                 :port (c/convInt (nth args 1) 8080)})
+      (p/exitHook #(.stop w))
       (reset! svr w)
       (CU/block))))
 

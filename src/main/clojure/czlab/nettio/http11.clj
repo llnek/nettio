@@ -14,7 +14,7 @@
   (:require [czlab.basal.log :as log]
             [clojure.java.io :as io]
             [clojure.string :as cs]
-            [czlab.nettio.aggwsk :as ws]
+            [czlab.nettio.msgs :as mg]
             [czlab.nettio.core :as nc]
             [czlab.convoy.core :as cc]
             [czlab.basal.str :as s]
@@ -95,15 +95,15 @@
 (defn- corsPreflight? "" [req]
   (and (= (.name HttpMethod/OPTIONS)
           (:method req))
-       (nc/msgHeader? req HttpHeaderNames/ORIGIN)
-       (nc/msgHeader? req HttpHeaderNames/ACCESS_CONTROL_REQUEST_METHOD)))
+       (cc/msgHeader? req HttpHeaderNames/ORIGIN)
+       (cc/msgHeader? req HttpHeaderNames/ACCESS_CONTROL_REQUEST_METHOD)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- validOrigin? "" [ctx corsCfg]
   (let [req (nc/getAKey ctx nc/h1msg-key)
-        origin (nc/msgHeader req HttpHeaderNames/ORIGIN)
-        o? (nc/msgHeader? req HttpHeaderNames/ORIGIN)
+        origin (cc/msgHeader req HttpHeaderNames/ORIGIN)
+        o? (cc/msgHeader? req HttpHeaderNames/ORIGIN)
         allowed (:origins corsCfg)]
     (cond
       (or (:anyOrigin? corsCfg)
@@ -187,8 +187,8 @@
 ;;
 (defn- setOrigin? "" [ctx rsp corsCfg]
   (let [req (nc/getAKey ctx nc/h1msg-key)
-        origin (nc/msgHeader req HttpHeaderNames/ORIGIN)
-        o? (nc/msgHeader? req HttpHeaderNames/ORIGIN)]
+        origin (cc/msgHeader req HttpHeaderNames/ORIGIN)
+        o? (cc/msgHeader? req HttpHeaderNames/ORIGIN)]
     (if o?
       (cond
         (and (= "null" origin)
@@ -257,7 +257,7 @@
                    (WebSocketServerProtocolHandler. uri nil true))
         (.addAfter pp
                    "WSSPH"
-                   "wsock-aggregator" (ws/wsockAggregator<>))
+                   "wsock-aggregator" (mg/wsockAggregator<>))
         (nc/safeRemoveHandler pp HttpContentDecompressor)
         (nc/safeRemoveHandler pp HttpContentCompressor)
         (nc/safeRemoveHandler pp ChunkedWriteHandler)
@@ -271,8 +271,8 @@
   "" [^ChannelHandler this ctx req]
 
   (let
-    [origin (nc/msgHeader req HttpHeaderNames/ORIGIN)
-     o? (nc/msgHeader? req HttpHeaderNames/ORIGIN)
+    [origin (cc/msgHeader req HttpHeaderNames/ORIGIN)
+     o? (cc/msgHeader? req HttpHeaderNames/ORIGIN)
      {:keys [corsCfg]} (nc/getAKey ctx nc/chcfg-key)
      ka? (:isKeepAlive? req)
      _ (log/debug "processRequest: %s" req)
@@ -299,7 +299,7 @@
        (c/do->true
          (.fireChannelRead ^ChannelHandlerContext ctx req)))]
     (if-not rc
-      (ReferenceCountUtil/release req))))
+      (nc/ref-del req))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -323,12 +323,12 @@
 (defn h1reqHandler<>
   "" ^ChannelHandler []
 
-  (proxy [DuplexHandler][]
-    (onRead [ctx msg]
-      (if (satisfies? HttpMsgGist msg)
+  (proxy [DuplexHandler][false]
+    (readMsg [ctx msg]
+      (if (satisfies? cc/HttpMsgGist msg)
         (processRequest this ctx msg)
         (processOther ctx msg)))
-    (onWrite [ctx msg _]
+    (Write [ctx msg _]
       (processWrite ctx msg _))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

@@ -37,12 +37,12 @@ public abstract class InboundHandler extends ChannelInboundHandlerAdapter {
     onActive(ctx);
   }
 
-  protected void readMsg(ChannelHandlerContext ctx, Object m) throws Exception {}
-  protected void onWriteChanged(ChannelHandlerContext ctx) throws Exception {}
-  protected void onInactive(ChannelHandlerContext ctx) throws Exception {}
-  protected void onActive(ChannelHandlerContext ctx) throws Exception {}
-  protected void onUnreg(ChannelHandlerContext ctx) throws Exception {}
-  protected void onReg(ChannelHandlerContext ctx) throws Exception {}
+  public void readMsg(ChannelHandlerContext ctx, Object msg) throws Exception {}
+  public void onWriteChanged(ChannelHandlerContext ctx) throws Exception {}
+  public void onInactive(ChannelHandlerContext ctx) throws Exception {}
+  public void onActive(ChannelHandlerContext ctx) throws Exception {}
+  public void onUnreg(ChannelHandlerContext ctx) throws Exception {}
+  public void onReg(ChannelHandlerContext ctx) throws Exception {}
 
   @Override
   public void channelInactive(ChannelHandlerContext ctx) throws Exception {
@@ -83,7 +83,6 @@ public abstract class InboundHandler extends ChannelInboundHandlerAdapter {
   public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
     try {
       readMsg(ctx, msg);
-    } catch (Exception e) {
     } finally {
       if (_rel) ReferenceCountUtil.release(msg);
     }
