@@ -36,6 +36,7 @@
             ByteBuf
             ByteBufAllocator]
            [java.io
+            InputStream
             IOException
             Closeable
             File
@@ -63,7 +64,7 @@
   ""
   (c-init [_])
   (c-size [_] "")
-  (total-size [_] "")
+  (calc-size [_] "")
   (readable-bytes [_] "")
   (c-pack [_ out offset] "")
   (c-read [_ out pos len] ""))
@@ -75,7 +76,7 @@
   ByteRangeChunk
   (c-size [me]
     (let [{:keys [start end]} @me] (+ (- end start) 1)))
-  (total-size [me]
+  (calc-size [me]
     (+ (.c-size me)
        (alength ^bytes (:preamble @me))))
   (readable-bytes [me]
@@ -84,32 +85,35 @@
     (let [^bytes pre (:preamble @me)
           bufsz (alength ^bytes out)
           plen (alength pre)
-          pos (c/long-var offset)
-          count (c/long-var 0)
-          ppos (c/long-var (:preamblePos @me))]
-      (while (and (< (c/lvar pos) bufsz)
-                  (< (c/lvar ppos) plen))
+          pos (c/decl-int-var offset)
+          count (c/decl-int-var 0)
+          ppos (c/decl-int-var (:preamblePos @me))]
+      (while (and (< (c/int-var pos) bufsz)
+                  (< (c/int-var ppos) plen))
         (aset ^bytes
               out
-              (c/lvar pos)
-              (aget pre (c/lvar ppos)))
-        (c/lvar ppos + 1)
-        (c/lvar pos 1)
-        (c/lvar count 1))
-      (c/setf! me :preamblePos (c/lvar ppos))
-      (when (< (c/lvar pos) bufsz)
+              (c/int-var pos)
+              (aget pre (c/int-var ppos)))
+        (c/int-var ppos + 1)
+        (c/int-var pos + 1)
+        (c/int-var count + 1))
+      (c/setf! me
+               :preamblePos (c/int-var ppos))
+      (when (< (c/int-var pos) bufsz)
         (let [r (.readable-bytes me)
-              d (- bufsz (c/lvar pos))
+              d (- bufsz (c/int-var pos))
               len (if (> r d) d r)
-              ;;len (if (> len  Integer/MAX_VALUE) Integer/MAX_VALUE len)
-              c (.c-read me out (c/lvar pos) (int len))]
+              c (.c-read me
+                         out
+                         (c/int-var pos) (int len))
+              {:keys [start rangePos length]} @me]
           (if (< c 0)
             (c/throwIOE
               "error reading file: length=%s, seek=%s"
-              (:length @me) (+ (:start @me) (:rangePos @me))))
-          (c/setf! me :rangePos (+ (:rangePos @me) c))
-          (c/lvar count + c)))
-      (c/lvar count)))
+              length (+ start rangePos)))
+          (c/setf! me :rangePos (+ rangePos c))
+          (c/int-var count + c)))
+      (c/int-var count)))
   (c-read [me out pos len]
     (let [{:keys [start rangePos source]}
           @me
@@ -119,8 +123,8 @@
         (let [^RandomAccessFile f source]
           (.seek f target)
           (.read f out pos len))
-        (c/ist? ByteArrayInputStream source)
-        (let [^ByteArrayInputStream inp source]
+        (c/ist? InputStream source)
+        (let [^InputStream inp source]
           (.reset inp)
           (.skip inp target)
           (.read inp out pos len))
@@ -137,22 +141,21 @@
               [f (.length f)])
             (m/instBytes? source)
             (let [^bytes b source
-                  inp (ByteArrayInputStream. b)]
+                  inp (i/streamit b)]
               (.mark inp 0)
               [inp (alength b)])
-            :else (throw (IllegalArgumentException.)))]
-      (c/setf! me :length ln)
-      (c/setf! me :source s))))
+            :else (c/throwBadArg  "bad source"))]
+      (c/copy* me {:length ln :source s}))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- byteRangeChunk<> "" [src ctype start end]
   (c/do-with [b (c/mutable<> ByteRangeChunkObj
                              {:preamble (byte-array 0)
-                              :source src
-                              :length 0
                               :preamblePos 0
                               :rangePos 0
+                              :source src
+                              :length 0
                               :start start
                               :end end
                               :cType ctype})]
@@ -228,47 +231,49 @@
   (readChunk [me ^ChannelHandlerContext ctx]
     (.readChunk me (.alloc ctx)))
   (readChunk [me ^ByteBufAllocator allocator]
-    (let [buff (byte-array 8192)
+    (let [buff (byte-array (* 2 c/FourK))
           mlen (alength buff)
-          ^List rgs (:ranges @me)
-          cur (c/long-var (:current @me))
-          count (c/long-var 0)]
-      (while (and (< (c/lvar count) mlen)
-                  (< (c/lvar cur) (.size rgs))
-                  (some? (.get rgs (c/lvar cur))))
-        (if (> (readable-bytes (.get rgs (c/lvar cur))) 0)
-          (c/lvar count
-                  +
-                  (c-pack (.get rgs (c/lvar cur))
-                          buff
-                          (c/lvar count)))
-          (c/lvar cur + 1)))
-      (c/setf! me :current (c/lvar cur))
-      (when (> 0 (c/lvar count))
+          {:keys [^List
+                  ranges current]} @me
+          count (c/decl-int-var 0)
+          cur (c/decl-int-var current)]
+      (while (and (< (c/int-var count) mlen)
+                  (< (c/int-var cur) (.size ranges))
+                  (some? (.get ranges (c/int-var cur))))
+        (if (> (readable-bytes (.get ranges
+                                     (c/int-var cur))) 0)
+          (c/int-var count
+                     +
+                     (c-pack (.get ranges
+                                   (c/int-var cur))
+                             buff (c/int-var count)))
+          (c/int-var cur + 1)))
+      (c/setf! me :current (c/int-var cur))
+      (when (> 0 (c/int-var count))
         (c/setf! me
                  :bytesRead
-                 (+ (:bytesRead @me) (c/lvar count)))
-        (Unpooled/wrappedBuffer buff))))
+                 (+ (:bytesRead @me) (c/int-var count)))
+        (Unpooled/wrappedBuffer buff 0 (int (c/int-var count))))))
   (length [me] (:totalBytes @me))
   (progress [me] (:bytesRead @me))
   (isEndOfInput [me] (not (.has-next? me)))
   (close [me]
-    (let [s (:source @me)]
-      (if (c/ist? Closeable s)
-        (i/closeQ s))
-      (c/setf! me :source nil)))
+    (if-some [s (c/cast? Closeable
+                         (:source @me))]
+      (i/closeQ s))
+    (c/setf! me :source nil))
   HttpRanges
   (fmt-response [me rsp]
     (let [hds (.headers ^HttpResponse rsp)
-          ^List rgs (:ranges @me)]
+          {:keys [^List ranges]} @me]
       (.setStatus ^HttpResponse
                   rsp HttpResponseStatus/PARTIAL_CONTENT)
       (.add hds
             HttpHeaderNames/ACCEPT_RANGES
             HttpHeaderValues/BYTES)
-      (if (== 1 (.size rgs))
-        (let [{:keys [start end flen]}
-              @(.get rgs 0)]
+      (if (== 1 (.size ranges))
+        (let [{:keys [start end]}
+              @(.get ranges 0)]
           (.set hds
                 HttpHeaderNames/CONTENT_RANGE
                 (str HttpHeaderValues/BYTES
@@ -277,51 +282,50 @@
                      "-"
                      (Long/toString end)
                      "/"
-                     (Long/toString flen))))
+                     (Long/toString (:flen @me)))))
         (.set hds
               HttpHeaderNames/CONTENT_TYPE
               (str "multipart/byteranges; boundary="  DEF_BD)))
       (.set hds
             HttpHeaderNames/CONTENT_LENGTH
-            (Long/toString (:totalBytes @me)))))
+            (Long/toString (.length me)))))
   (has-next? [me]
-    (let [cur (:current @me)
-          ^List rgs (:ranges @me)]
-      (and (< cur (.size rgs))
-           (> (readable-bytes (.get rgs cur)) 0))))
+    (let [{:keys [^List ranges current]} @me]
+      (and (< current (.size ranges))
+           (> (readable-bytes (.get ranges current)) 0))))
   (r-init [me s]
     (let
       [rvs (-> (.replaceFirst ^String s
                               "^\\s*bytes=", "") s/strim (.split ","))
-       chunks (ArrayList.)
-       ^List rgs (:ranges @me)
-       last (- (:flen @me) 1)]
+       {:keys [^List ranges flen]} @me
+       last (- flen 1)
+       chunks (ArrayList.)]
       (doseq [r rvs
               :let [rs (s/strim r)]]
         (let
           [[start end]
            (if (.startsWith rs "-")
              [(- last (Long/valueOf (s/strim (.substring rs 1)))) last]
-             (let [range (.split rs "-")]
-               [(Long/valueOf (s/strim (first range)))
-                (if (> (count range) 1)
-                 (Long/valueOf (s/strim (nth range 1))) last)]))
+             (let [rg (.split rs "-")]
+               [(Long/valueOf (s/strim (first rg)))
+                (if (> (count rg) 1)
+                 (Long/valueOf (s/strim (nth rg 1))) last)]))
            end (if (> end last) last end)]
           (if (<= start end)
             (.add chunks (numRange<> start end)))))
-      (.clear rgs)
+      (.clear ranges)
       (when-not (.isEmpty chunks)
         (let [^List cs (.sanitize-ranges me chunks)
-              {:keys [source cType]}
-              @me
+              {:keys [source cType]} @me
               many? (> (.size cs) 1)]
-          (doseq [r cs]
+          (doseq [r cs
+                  :let [{:keys [start end]} @r]]
             (->>
               (if many?
-                (multiByteRangeChunk<> source cType (:start r) (:end r))
-                (byteRangeChunk<> source cType (:start r) (:end r)))
-              (.add rgs)))))
-      (if-not (.isEmpty rgs)
+                (multiByteRangeChunk<> source cType start end)
+                (byteRangeChunk<> source cType start end))
+              (.add ranges)))))
+      (if-not (.isEmpty ranges)
         (c/setf! me :totalBytes (.calc-total me))
         (c/throwBadData "Invalid byte ranges"))))
   (maybe-intersect? [me r1 r2]
@@ -334,12 +338,12 @@
       (if (< (:start r1) (:start r2)) (:start r1) (:start r2))
       (if (> (:end r1) (:end r2)) (:end r1) (:end r2))))
   (calc-total [me]
-    (let [rgs (:ranges @me)
-          z (long-array 1 0)]
-      (doseq [r rgs]
-        (aset z 0 (long (+ (aget z 0)
-                           (total-size r)))))
-      (aget z 0)))
+    (let [{:keys [^List ranges]}
+          @me
+          z (c/decl-long-var 0)]
+      (doseq [r ranges]
+        (c/long-var z + (calc-size r)))
+      (c/long-var z)))
   (sanitize-ranges [me chunks]
     (let [rc (ArrayList.)
           sorted
@@ -350,7 +354,6 @@
                    (vec chunks))
           slen (count sorted)]
     (.add rc (first sorted))
-    ;;for (int n = 1; n < sorted.length; ++n) {
     (loop [n 1]
       (if (>= n slen)
         rc
@@ -377,9 +380,10 @@
        (m/instBytes? source)
        (let [^bytes b source]
          [b (alength b)])
-       :else (throw (IllegalArgumentException.)))]
+       :else (c/throwBadArg "bad source"))]
     (c/mutable<> HttpRangesObj
-                 {:flen ln :source s :cType ctype})))
+                 {:ranges (ArrayList.)
+                  :flen ln :source s :cType ctype})))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
