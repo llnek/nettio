@@ -62,7 +62,7 @@
 (defprotocol ByteRangeChunk
   ""
   (c-init [_])
-  (chunk-size [_] "")
+  (c-size [_] "")
   (total-size [_] "")
   (readable-bytes [_] "")
   (c-pack [_ out offset] "")
@@ -73,68 +73,70 @@
 (c/decl-mutable
   ByteRangeChunkObj
   ByteRangeChunk
-  (chunk-size [me] (+ (- (:end @me) (:start @me)) 1))
-  (total-size [me] (+ (.chunk-size me)
-                     (alength ^bytes (:preamble @me))))
-  (readable-bytes [me] (- (.chunk-size me)
-                          (:rangePos @me)))
+  (c-size [me]
+    (let [{:keys [start end]} @me] (+ (- end start) 1)))
+  (total-size [me]
+    (+ (.c-size me)
+       (alength ^bytes (:preamble @me))))
+  (readable-bytes [me]
+    (- (.c-size me) (:rangePos @me)))
   (c-pack [me out offset]
     (let [^bytes pre (:preamble @me)
           bufsz (alength ^bytes out)
           plen (alength pre)
-          pos (long-array 1 offset)
-          count (long-array 1 0)
-          ppos (long-array 1 (:preamblePos @me))]
-      (while (and (< (aget pos 0) bufsz)
-                  (< (aget ppos 0) plen))
+          pos (c/long-var offset)
+          count (c/long-var 0)
+          ppos (c/long-var (:preamblePos @me))]
+      (while (and (< (c/lvar pos) bufsz)
+                  (< (c/lvar ppos) plen))
         (aset ^bytes
               out
-              (aget pos 0)
-              (aget pre (aget ppos 0)))
-        (aset ppos 0 (+ 1 (aget ppos 0)))
-        (aset pos 0 (+ 1 (aget pos 0)))
-        (aset count 0 (+ 1 (aget count 0))))
-      (c/setf! me :preamblePos (aget ppos 0))
-      (when (< (aget pos 0) bufsz)
+              (c/lvar pos)
+              (aget pre (c/lvar ppos)))
+        (c/lvar ppos + 1)
+        (c/lvar pos 1)
+        (c/lvar count 1))
+      (c/setf! me :preamblePos (c/lvar ppos))
+      (when (< (c/lvar pos) bufsz)
         (let [r (.readable-bytes me)
-              d (- bufsz (aget pos 0))
+              d (- bufsz (c/lvar pos))
               len (if (> r d) d r)
               ;;len (if (> len  Integer/MAX_VALUE) Integer/MAX_VALUE len)
-              c (.c-read me out (aget pos 0) (int len))]
+              c (.c-read me out (c/lvar pos) (int len))]
           (if (< c 0)
             (c/throwIOE
               "error reading file: length=%s, seek=%s"
               (:length @me) (+ (:start @me) (:rangePos @me))))
           (c/setf! me :rangePos (+ (:rangePos @me) c))
-          (aset count 0 (long (+ (aget count 0) c)))))
-      (aget count 0)))
+          (c/lvar count + c)))
+      (c/lvar count)))
   (c-read [me out pos len]
-    (let [target (+ (:start @me)
-                    (:rangePos @me))
-          src (:source @me)]
+    (let [{:keys [start rangePos source]}
+          @me
+          target (+ start rangePos)]
       (cond
-        (c/ist? RandomAccessFile src)
-        (let [^RandomAccessFile f src]
+        (c/ist? RandomAccessFile source)
+        (let [^RandomAccessFile f source]
           (.seek f target)
           (.read f out pos len))
-        (c/ist? ByteArrayInputStream src)
-        (let [^ByteArrayInputStream inp src]
+        (c/ist? ByteArrayInputStream source)
+        (let [^ByteArrayInputStream inp source]
           (.reset inp)
           (.skip inp target)
           (.read inp out pos len))
         :else -1)))
   (c-init [me]
-    (let [src (:source @me)
+    (let [{:keys [source]} @me
           [s ln]
           (cond
-            (c/ist? File src)
-            (let [f (RandomAccessFile. ^File src "r")]
+            (c/ist? File source)
+            (let [f (RandomAccessFile. ^File source "r")]
               [f (.length f)])
-            (c/ist? RandomAccessFile src)
-            (let [^RandomAccessFile f src]
+            (c/ist? RandomAccessFile source)
+            (let [^RandomAccessFile f source]
               [f (.length f)])
-            (m/instBytes? src)
-            (let [^bytes b src
+            (m/instBytes? source)
+            (let [^bytes b source
                   inp (ByteArrayInputStream. b)]
               (.mark inp 0)
               [inp (alength b)])
@@ -161,24 +163,25 @@
 (defn- multiByteRangeChunk<> "" [src ctype start end]
 
   (c/do-with [br (byteRangeChunk<> src ctype start end)]
-    (->>
-      (->
-        (s/strbf<> "--")
-        (.append DEF_BD)
-        (.append "\r\n")
-        (.append "Content-Type: ")
-        (.append (:cType @br))
-        (.append "\r\n")
-        (.append "Content-Range: bytes ")
-        (.append (Long/toString (:start @br)))
-        (.append "-")
-        (.append (Long/toString (:end @br)))
-        (.append "/")
-        (.append (Long/toString (:length @br)))
-        (.append "\r\n\r\n")
-        str
-        c/bytesit)
-      (c/setf! br :preamble ))))
+    (let [{:keys [cType start end length]} @br]
+      (->>
+        (->
+          (s/strbf<> "--")
+          (.append DEF_BD)
+          (.append "\r\n")
+          (.append "Content-Type: ")
+          (.append cType)
+          (.append "\r\n")
+          (.append "Content-Range: bytes ")
+          (.append (Long/toString start))
+          (.append "-")
+          (.append (Long/toString end))
+          (.append "/")
+          (.append (Long/toString length))
+          (.append "\r\n\r\n")
+          str
+          c/bytesit)
+        (c/setf! br :preamble )))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -228,26 +231,23 @@
     (let [buff (byte-array 8192)
           mlen (alength buff)
           ^List rgs (:ranges @me)
-          cur (long-array 1 (:current @me))
-          count (long-array 1 0)]
-      (while (and (< (aget count 0) mlen)
-                  (< (aget cur 0) (.size rgs))
-                  (some? (.get rgs (aget cur 0))))
-        (if (> (readable-bytes (.get rgs (aget cur 0))) 0)
-          (aset count
-                0
-                (long
-                  (+ (aget count 0)
-                     (c-pack (.get rgs
-                                   (aget cur 0))
-                             buff
-                             (aget count 0)))))
-          (aset cur 0 (long (+ 1 (aget cur 0))))))
-      (c/setf! me :current (aget cur 0))
-      (when (> 0 (aget count 0))
+          cur (c/long-var (:current @me))
+          count (c/long-var 0)]
+      (while (and (< (c/lvar count) mlen)
+                  (< (c/lvar cur) (.size rgs))
+                  (some? (.get rgs (c/lvar cur))))
+        (if (> (readable-bytes (.get rgs (c/lvar cur))) 0)
+          (c/lvar count
+                  +
+                  (c-pack (.get rgs (c/lvar cur))
+                          buff
+                          (c/lvar count)))
+          (c/lvar cur + 1)))
+      (c/setf! me :current (c/lvar cur))
+      (when (> 0 (c/lvar count))
         (c/setf! me
                  :bytesRead
-                 (+ (:bytesRead @me) (aget count 0)))
+                 (+ (:bytesRead @me) (c/lvar count)))
         (Unpooled/wrappedBuffer buff))))
   (length [me] (:totalBytes @me))
   (progress [me] (:bytesRead @me))
@@ -267,16 +267,17 @@
             HttpHeaderNames/ACCEPT_RANGES
             HttpHeaderValues/BYTES)
       (if (== 1 (.size rgs))
-        (let [r (.get rgs 0)]
+        (let [{:keys [start end flen]}
+              @(.get rgs 0)]
           (.set hds
                 HttpHeaderNames/CONTENT_RANGE
                 (str HttpHeaderValues/BYTES
                      " "
-                     (Long/toString (:start @r))
+                     (Long/toString start)
                      "-"
-                     (Long/toString (:end @r))
+                     (Long/toString end)
                      "/"
-                     (Long/toString (:flen @r)))))
+                     (Long/toString flen))))
         (.set hds
               HttpHeaderNames/CONTENT_TYPE
               (str "multipart/byteranges; boundary="  DEF_BD)))

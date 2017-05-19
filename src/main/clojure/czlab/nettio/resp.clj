@@ -13,6 +13,7 @@
 
   (:require [czlab.convoy.mime :as mm :refer [guessContentType]]
             [czlab.convoy.core :as cc :refer :all]
+            [czlab.nettio.ranges :as nr]
             [czlab.nettio.core :as nc]
             [czlab.basal.log :as log]
             [clojure.java.io :as io]
@@ -29,7 +30,6 @@
            [java.io IOException File InputStream]
            [io.netty.util ReferenceCountUtil]
            [clojure.lang APersistentVector]
-           [czlab.nettio HttpRanges]
            [java.nio.charset Charset]
            [java.net HttpCookie URL]
            [czlab.jasal DateUtil XData]
@@ -244,8 +244,7 @@
      {:keys [value has?]}
      (:range conds)
      value (s/strim value)
-     g (HttpRanges/eval
-         ^String (if has? value nil) cType body)]
+     g (nr/evalRanges (if has? value nil) cType body)]
     (cond
       (or (not has?)
           (s/nichts? value))
@@ -351,9 +350,9 @@
        [(HttpChunkedInput.
           (ChunkedStream. ^InputStream body)) -1]
 
-       (c/ist? HttpRanges body)
-       [(HttpChunkedInput. ^HttpRanges body)
-        (.length ^HttpRanges body)]
+       (c/ist? czlab.nettio.ranges.HttpRanges body)
+       [(HttpChunkedInput. ^ChunkedInput body)
+        (.length ^ChunkedInput body)]
 
        (m/instBytes? body)
        [body (alength ^bytes body)]
