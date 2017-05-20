@@ -21,9 +21,11 @@
 
   (:import [io.netty.channel ChannelHandlerContext]
            [io.netty.handler.stream ChunkedInput]
+           [czlab.basal.core GenericMutable]
            [io.netty.handler.codec.http
             HttpHeaderNames
             HttpHeaderValues
+            HttpHeaders
             HttpResponse
             HttpResponseStatus]
            [java.util
@@ -49,88 +51,86 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(c/decl-object NumRange)
+(defmacro ^:private numRange<> "" [s e] `(doto {:start ~s :end ~e}))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- numRange<> ""
-  ([] (numRange<> 0 0))
-  ([s e]
-   (c/object<> NumRange {:start s :end e})))
+(defmacro ^:private tol "" [obj] `(Long/valueOf (s/strim ~obj)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defprotocol ByteRangeChunk
-  ""
-  (c-init [_])
-  (c-size [_] "")
-  (calc-size [_] "")
-  (readable-bytes [_] "")
-  (c-pack [_ out offset] "")
-  (c-read [_ out pos len] ""))
+(defn- chunkSize "" [ck]
+  (let [{:keys [start end]} @ck] (+ (- end start) 1)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(c/decl-mutable
-  ByteRangeChunkObj
-  ByteRangeChunk
-  (c-size [me]
-    (let [{:keys [start end]} @me] (+ (- end start) 1)))
-  (calc-size [me]
-    (+ (.c-size me)
-       (alength ^bytes (:preamble @me))))
-  (readable-bytes [me]
-    (- (.c-size me) (:rangePos @me)))
-  (c-pack [me out offset]
-    (let [^bytes pre (:preamble @me)
-          bufsz (alength ^bytes out)
-          plen (alength pre)
-          pos (c/decl-int-var offset)
-          count (c/decl-int-var 0)
-          ppos (c/decl-int-var (:preamblePos @me))]
-      (while (and (< (c/int-var pos) bufsz)
-                  (< (c/int-var ppos) plen))
-        (aset ^bytes
-              out
-              (c/int-var pos)
-              (aget pre (c/int-var ppos)))
-        (c/int-var ppos + 1)
-        (c/int-var pos + 1)
-        (c/int-var count + 1))
-      (c/setf! me
-               :preamblePos (c/int-var ppos))
-      (when (< (c/int-var pos) bufsz)
-        (let [r (.readable-bytes me)
-              d (- bufsz (c/int-var pos))
-              len (if (> r d) d r)
-              c (.c-read me
-                         out
-                         (c/int-var pos) (int len))
-              {:keys [start rangePos length]} @me]
-          (if (< c 0)
-            (c/throwIOE
-              "error reading file: length=%s, seek=%s"
-              length (+ start rangePos)))
-          (c/setf! me :rangePos (+ rangePos c))
-          (c/int-var count + c)))
-      (c/int-var count)))
-  (c-read [me out pos len]
-    (let [{:keys [start rangePos source]}
-          @me
-          target (+ start rangePos)]
-      (cond
-        (c/ist? RandomAccessFile source)
-        (let [^RandomAccessFile f source]
-          (.seek f target)
-          (.read f out pos len))
-        (c/ist? InputStream source)
-        (let [^InputStream inp source]
-          (.reset inp)
-          (.skip inp target)
-          (.read inp out pos len))
-        :else -1)))
-  (c-init [me]
-    (let [{:keys [source]} @me
+(defn- chunkTotalSize "" [ck]
+  (+ (chunkSize ck) (alength ^bytes (:preamble @ck))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(defn- chunkReadableBytes "" [ck] (- (chunkSize ck) (:rangePos @ck)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(defn- chunkRead "" [ck out pos len]
+  (let [{:keys [start rangePos source]} @ck
+        target (+ start rangePos)]
+    (cond
+      (c/ist? RandomAccessFile source)
+      (let [^RandomAccessFile f source]
+        (.seek f target)
+        (.read f out pos len))
+      (c/ist? InputStream source)
+      (let [^InputStream inp source]
+        (.reset inp)
+        (.skip inp target)
+        (.read inp out pos len))
+      :else -1)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(defn- chunkPack "" [ck out offset]
+  (let [^bytes pre (:preamble @ck)
+        bufsz (alength ^bytes out)
+        plen (alength pre)
+        pos (c/decl-int-var offset)
+        count (c/decl-int-var 0)
+        ppos (c/decl-int-var (:preamblePos @ck))]
+    (while (and (< (c/int-var pos) bufsz)
+                (< (c/int-var ppos) plen))
+      (aset ^bytes out (c/int-var pos) (aget pre (c/int-var ppos)))
+      (c/int-var ppos + 1)
+      (c/int-var pos + 1)
+      (c/int-var count + 1))
+    (c/setf! ck :preamblePos (c/int-var ppos))
+    (when (< (c/int-var pos) bufsz)
+      (let [r (chunkReadableBytes ck)
+            d (- bufsz (c/int-var pos))
+            len (if (> r d) d r)
+            c (chunkRead ck out (c/int-var pos) (int len))
+            {:keys [start rangePos length]} @ck]
+        (if (< c 0)
+          (c/throwIOE
+            "error reading file: length=%s, seek=%s"
+            length (+ start rangePos)))
+        (c/setf! ck :rangePos (+ rangePos c))
+        (c/int-var count + c)))
+    (c/int-var count)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(defn- byteRangeChunk<> "" [src ctype start end]
+  (c/do-with [b (GenericMutable.
+                  {:preamble (byte-array 0)
+                   :preamblePos 0
+                   :rangePos 0
+                   :source src
+                   :length 0
+                   :start start
+                   :end end
+                   :cType ctype})]
+    (let [{:keys [source]} @b
           [s ln]
           (cond
             (c/ist? File source)
@@ -145,21 +145,7 @@
               (.mark inp 0)
               [inp (alength b)])
             :else (c/throwBadArg  "bad source"))]
-      (c/copy* me {:length ln :source s}))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- byteRangeChunk<> "" [src ctype start end]
-  (c/do-with [b (c/mutable<> ByteRangeChunkObj
-                             {:preamble (byte-array 0)
-                              :preamblePos 0
-                              :rangePos 0
-                              :source src
-                              :length 0
-                              :start start
-                              :end end
-                              :cType ctype})]
-             (c-init b)))
+      (c/copy* b {:length ln :source s}))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -176,11 +162,11 @@
           (.append cType)
           (.append "\r\n")
           (.append "Content-Range: bytes ")
-          (.append (Long/toString start))
+          (.append start)
           (.append "-")
-          (.append (Long/toString end))
+          (.append end)
           (.append "/")
-          (.append (Long/toString length))
+          (.append length)
           (.append "\r\n\r\n")
           str
           c/bytesit)
@@ -194,35 +180,142 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn fmtError "" [^HttpResponse rsp ^long totalSize]
+(defprotocol HttpRanges
+  ""
+  (list-ranges [_] ""))
 
-  (let [last (if (c/spos? totalSize) (- totalSize 1) 0)
-        hds (.headers rsp)
-        totalSize (if (< totalSize 0) 0 totalSize)]
-    (.setStatus rsp
-                HttpResponseStatus/REQUESTED_RANGE_NOT_SATISFIABLE)
-    (.add hds
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(defn- hasNext? [rg]
+  (let [{:keys [^List ranges current]} @rg]
+    (and (< current (.size ranges))
+         (> (chunkReadableBytes (.get ranges current)) 0))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(defn- maybeIntersect? "" [rg r1 r2]
+  (or (and (>= (:start r1) (:start r2))
+           (<= (:start r1) (:end r2)))
+      (and (>= (:end r1) (:start r2))
+           (<= (:start r1) (:end r2)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(defn- mergeRanges "" [rg r1 r2]
+  (numRange<>
+    (if (< (:start r1) (:start r2)) (:start r1) (:start r2))
+    (if (> (:end r1) (:end r2)) (:end r1) (:end r2))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(defn- calcTotalBytes "" [rg]
+  (let [{:keys [^List ranges]}
+        @rg
+        z (c/decl-long-var 0)]
+    (doseq [r ranges]
+      (c/long-var z + (chunkTotalSize r)))
+    (c/long-var z)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(defn- sanitizeRanges "" [rg chunks]
+  (let [rc (ArrayList.)
+        sorted
+        (c/sortby :start
+                  #(.compareTo (Long/valueOf
+                                 ^long %1) ^long %2)
+                  (vec chunks))
+        slen (count sorted)]
+  (.add rc (first sorted))
+  (loop [n 1]
+    (if (>= n slen)
+      rc
+      (let [r1 (.get rc (dec (.size rc)))
+            c1 (nth sorted n)]
+        (if (maybeIntersect? rg c1 r1)
+          (.set rc (dec (.size rc))
+                (mergeRanges rg c1 r1))
+          (.add rc c1))
+        (recur (inc n)))))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(defn- rangeInit "" [rg ^String s]
+  (let
+    [rvs (-> (.replaceFirst s
+                            "^\\s*bytes=", "") s/strim (.split ","))
+     {:keys [^List ranges flen]} @rg
+     last (- flen 1)
+     chunks (ArrayList.)]
+    (doseq [r rvs
+            :let [rs (s/strim r)]]
+      (let
+        [[start end]
+         (if (.startsWith rs "-")
+           [(- last (tol (.substring rs 1))) last]
+           (let [rg (.split rs "-")]
+             [(tol (first rg))
+              (if (> (count rg) 1)
+                (tol (nth rg 1)) last)]))
+         end (if (> end last) last end)]
+        (if (<= start end)
+          (.add chunks (numRange<> start end)))))
+      (.clear ranges)
+      (when-not (.isEmpty chunks)
+        (let [^List cs (sanitizeRanges rg chunks)
+              {:keys [source cType]} @rg
+              many? (> (.size cs) 1)]
+          (doseq [r cs
+                  :let [{:keys [start end]} r]]
+            (.add ranges
+              (if many?
+                (multiByteRangeChunk<> source cType start end)
+                (byteRangeChunk<> source cType start end))))))
+      (if (.isEmpty ranges)
+        (c/throwBadData "Invalid byte ranges"))
+      (c/setf! rg :totalBytes (calcTotalBytes rg))
+      rg))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(defn fmtError [^HttpHeaders hds body]
+
+  (let [sz (cond
+             (c/ist? File body)
+             (.length ^File body)
+             (m/instBytes? body)
+             (alength ^bytes body)
+             :else 0)
+        last (if (> sz 0) (dec sz) 0)]
+    (.set hds
           HttpHeaderNames/ACCEPT_RANGES
           HttpHeaderValues/BYTES)
     (.set hds
           HttpHeaderNames/CONTENT_RANGE
-          (str "bytes 0-"
-               (Long/toString last)
-               "/"
-               (Long/toString totalSize)))
-    (.set hds HttpHeaderNames/CONTENT_LENGTH "0")))
+          (str "bytes 0-" last "/" sz))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defprotocol HttpRanges
-  ""
-  (fmt-response [_ rsp] "")
-  (has-next? [_] "")
-  (r-init [_ s] "")
-  (maybe-intersect? [_ r1 r2] "")
-  (merge-ranges [_ r1 r2] "")
-  (calc-total [_] "")
-  (sanitize-ranges [_ chunks] ""))
+(defn fmtSuccess [^HttpHeaders hds rgObj]
+  (let [{:keys [^List ranges]} @rgObj]
+    (.set hds
+          HttpHeaderNames/ACCEPT_RANGES
+          HttpHeaderValues/BYTES)
+    (if (== 1 (.size ranges))
+      (let [{:keys [start end]}
+            @(.get ranges 0)]
+        (.set hds
+              HttpHeaderNames/CONTENT_RANGE
+              (str HttpHeaderValues/BYTES
+                   " "
+                   start
+                   "-"
+                   end
+                   "/"
+                   (:flen @rgObj))))
+      (.set hds
+            HttpHeaderNames/CONTENT_TYPE
+            (str "multipart/byteranges; boundary="  DEF_BD)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -240,130 +333,34 @@
       (while (and (< (c/int-var count) mlen)
                   (< (c/int-var cur) (.size ranges))
                   (some? (.get ranges (c/int-var cur))))
-        (if (> (readable-bytes (.get ranges
-                                     (c/int-var cur))) 0)
+        (if (> (chunkReadableBytes (.get ranges
+                                         (c/int-var cur))) 0)
           (c/int-var count
                      +
-                     (c-pack (.get ranges
-                                   (c/int-var cur))
-                             buff (c/int-var count)))
+                     (chunkPack (.get ranges
+                                      (c/int-var cur))
+                                buff (c/int-var count)))
           (c/int-var cur + 1)))
       (c/setf! me :current (c/int-var cur))
-      (when (> 0 (c/int-var count))
+      (when (> (c/int-var count) 0)
         (c/setf! me
                  :bytesRead
                  (+ (:bytesRead @me) (c/int-var count)))
+        (log/debug "range:reading-chunk: count=%s", (c/int-var count))
+        (log/debug "range:reading-chunk: bytesread= %s" (:bytesRead @me))
         (Unpooled/wrappedBuffer buff 0 (int (c/int-var count))))))
   (length [me] (:totalBytes @me))
   (progress [me] (:bytesRead @me))
-  (isEndOfInput [me] (not (.has-next? me)))
+  (isEndOfInput [me] (not (hasNext? me)))
   (close [me]
     (if-some [s (c/cast? Closeable
                          (:source @me))]
       (i/closeQ s))
     (c/setf! me :source nil))
+  Object
+  (finalize [me] (.close me))
   HttpRanges
-  (fmt-response [me rsp]
-    (let [hds (.headers ^HttpResponse rsp)
-          {:keys [^List ranges]} @me]
-      (.setStatus ^HttpResponse
-                  rsp HttpResponseStatus/PARTIAL_CONTENT)
-      (.add hds
-            HttpHeaderNames/ACCEPT_RANGES
-            HttpHeaderValues/BYTES)
-      (if (== 1 (.size ranges))
-        (let [{:keys [start end]}
-              @(.get ranges 0)]
-          (.set hds
-                HttpHeaderNames/CONTENT_RANGE
-                (str HttpHeaderValues/BYTES
-                     " "
-                     (Long/toString start)
-                     "-"
-                     (Long/toString end)
-                     "/"
-                     (Long/toString (:flen @me)))))
-        (.set hds
-              HttpHeaderNames/CONTENT_TYPE
-              (str "multipart/byteranges; boundary="  DEF_BD)))
-      (.set hds
-            HttpHeaderNames/CONTENT_LENGTH
-            (Long/toString (.length me)))))
-  (has-next? [me]
-    (let [{:keys [^List ranges current]} @me]
-      (and (< current (.size ranges))
-           (> (readable-bytes (.get ranges current)) 0))))
-  (r-init [me s]
-    (let
-      [rvs (-> (.replaceFirst ^String s
-                              "^\\s*bytes=", "") s/strim (.split ","))
-       {:keys [^List ranges flen]} @me
-       last (- flen 1)
-       chunks (ArrayList.)]
-      (doseq [r rvs
-              :let [rs (s/strim r)]]
-        (let
-          [[start end]
-           (if (.startsWith rs "-")
-             [(- last (Long/valueOf (s/strim (.substring rs 1)))) last]
-             (let [rg (.split rs "-")]
-               [(Long/valueOf (s/strim (first rg)))
-                (if (> (count rg) 1)
-                 (Long/valueOf (s/strim (nth rg 1))) last)]))
-           end (if (> end last) last end)]
-          (if (<= start end)
-            (.add chunks (numRange<> start end)))))
-      (.clear ranges)
-      (when-not (.isEmpty chunks)
-        (let [^List cs (.sanitize-ranges me chunks)
-              {:keys [source cType]} @me
-              many? (> (.size cs) 1)]
-          (doseq [r cs
-                  :let [{:keys [start end]} @r]]
-            (->>
-              (if many?
-                (multiByteRangeChunk<> source cType start end)
-                (byteRangeChunk<> source cType start end))
-              (.add ranges)))))
-      (if-not (.isEmpty ranges)
-        (c/setf! me :totalBytes (.calc-total me))
-        (c/throwBadData "Invalid byte ranges"))))
-  (maybe-intersect? [me r1 r2]
-    (or (and (>= (:start r1) (:start r2))
-             (<= (:start r1) (:end r2)))
-        (and (>= (:end r1) >= (:start r2))
-             (<= (:start r1) (:end r2)))))
-  (merge-ranges [me r1 r2]
-    (numRange<>
-      (if (< (:start r1) (:start r2)) (:start r1) (:start r2))
-      (if (> (:end r1) (:end r2)) (:end r1) (:end r2))))
-  (calc-total [me]
-    (let [{:keys [^List ranges]}
-          @me
-          z (c/decl-long-var 0)]
-      (doseq [r ranges]
-        (c/long-var z + (calc-size r)))
-      (c/long-var z)))
-  (sanitize-ranges [me chunks]
-    (let [rc (ArrayList.)
-          sorted
-          (sort-by :start
-                   (reify Comparator
-                     (compare [_ t1 t2]
-                       (.compareTo (Long/valueOf ^long t1) ^long t2)))
-                   (vec chunks))
-          slen (count sorted)]
-    (.add rc (first sorted))
-    (loop [n 1]
-      (if (>= n slen)
-        rc
-        (let [r1 (.get rc (dec (.size rc)))
-              c1 (nth sorted n)]
-          (if (.maybe-intersect? me c1 r1)
-            (.set rc (dec (.size rc))
-                  (.merge-ranges me c1 r1))
-            (.add rc c1))
-          (recur (inc n))))))))
+  (list-ranges [me] (vec (:ranges @me))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -381,8 +378,12 @@
        (let [^bytes b source]
          [b (alength b)])
        :else (c/throwBadArg "bad source"))]
+    (log/debug "file-range-object: len = %s, source = %s" ln s)
     (c/mutable<> HttpRangesObj
                  {:ranges (ArrayList.)
+                  :totalBytes 0
+                  :bytesRead 0
+                  :current 0
                   :flen ln :source s :cType ctype})))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -390,8 +391,8 @@
 (defn evalRanges ""
   ([rangeStr cType source]
    (when (isValid? rangeStr)
-     (let [rc (httpRanges<> cType source)]
-       (c/try! (if (r-init rc rangeStr) rc)))))
+     (let [rg (httpRanges<> cType source)]
+       (c/try! (rangeInit rg rangeStr)))))
   ([rangeStr source]
    (evalRanges rangeStr "application/octet-stream" source)))
 

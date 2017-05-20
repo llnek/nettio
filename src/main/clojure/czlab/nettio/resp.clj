@@ -252,7 +252,8 @@
       (nil? g)
       [ec nil]
       (s/nichts? hd)
-      [pc g]
+      (let []
+        [pc g])
       (and (.endsWith hd "GMT")
            (> (.indexOf hd (int \,)) 0)
            (> (.indexOf hd (int \:)) 0))
@@ -344,13 +345,15 @@
               (codeOK? code))
        [code nil]
        [code body])
+     rangeRef
+     (if (c/ist? czlab.nettio.ranges.HttpRanges body) body)
      [body clen]
      (cond
        (c/ist? InputStream body)
        [(HttpChunkedInput.
           (ChunkedStream. ^InputStream body)) -1]
 
-       (c/ist? czlab.nettio.ranges.HttpRanges body)
+       (some? rangeRef)
        [(HttpChunkedInput. ^ChunkedInput body)
         (.length ^ChunkedInput body)]
 
@@ -376,6 +379,11 @@
        :else
        [(nc/httpReply<> code) body])
      hds (writeHeaders rsp headers)]
+    (cond
+      (= code 416)
+      (nr/fmtError hds body0)
+      (some? rangeRef)
+      (nr/fmtSuccess hds rangeRef))
     (log/debug "response = %s" rsp)
     (log/debug "body = %s" body)
     (log/debug "body-len = %s" clen)
@@ -404,7 +412,9 @@
     (let [c? (HttpUtil/isKeepAlive rsp)
           cf (.write ch rsp)
           cf (if body
-               (.writeAndFlush ch body)
+               (do
+                 (log/debug "reply has body, write and flush body: %s" body)
+                 (.writeAndFlush ch body))
                (do (.flush ch) cf))]
       (log/debug "resp replied, keep-alive? = %s" c?)
       (nc/closeCF cf c?))))

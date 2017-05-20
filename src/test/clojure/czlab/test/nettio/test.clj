@@ -553,7 +553,33 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
+(defn- testFileRanges "" []
+  (let [out (atom nil)
+        w
+        (-> {:hh1
+             (fn [ctx msg]
+               (let [ch (nc/ch?? ctx)
+                     res (cc/http-result msg)]
+                 (->> (io/file "/private/tmp/poo.txt")
+                      (assoc res :body )
+                      (cc/reply-result ))))}
+            sv/nettyWebServer<>)
+        _ (.start w {:port 5555 :host nc/lhost-name})
+        po (cl/h1get (str "http://" nc/lhost-name ":5555/range")
+                      {:headers {:range
+                                 "bytes=0-20,21-"}})
+        rc (deref po 5000 nil)
+        ^XData b (if rc (:body rc))
+        s (if b (.strit b))
+        _ (.stop w)]
+    (s/hgl? s)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
 (deftest czlabtestconvoynettio-test
+
+  (is (testFileRanges))
+  (c/pause 111111)
 
   (testing
     "related to: SSL"
