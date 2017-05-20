@@ -489,7 +489,7 @@
           (.. (.config ^Bootstrap bs)
               group shutdownGracefully))))
     ClientConnect
-    (await-connect [_ ms] (c/pause ms))
+    (await-connect [_ ms] )
     (c-channel [_] ch)
     (remote-port [_] port)
     (remote-host [_] host)))
@@ -574,7 +574,7 @@
                    (some-> f .cleanAllHttpData)
                    (c/trye! nil (.. bs config group shutdownGracefully))))
     (reify ClientConnect
-      (await-connect [_ ms] (c/pause ms))
+      (await-connect [_ ms] )
       (c-channel [_] ch)
       (remote-port [_] port)
       (remote-host [_] host)

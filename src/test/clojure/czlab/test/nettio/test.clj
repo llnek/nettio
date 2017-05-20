@@ -16,6 +16,7 @@
             [czlab.nettio.msgs :as mg]
             [czlab.convoy.routes :as cr]
             [czlab.nettio.http11 :as h1]
+            [czlab.nettio.ranges :as nr]
             [czlab.nettio.core :as nc]
             [czlab.nettio.resp :as rs]
             [czlab.nettio.server :as sv]
@@ -553,33 +554,66 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- testFileRanges "" []
-  (let [out (atom nil)
+(def ^:private
+  _file-content_ (str "hello how are you, "
+                      "are you doing ok? " "very cool!"))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(defn- testFileRangesOne "" []
+  (let [des (io/file i/*tempfile-repo* (c/jid<>))
+        _ (spit des _file-content_)
         w
         (-> {:hh1
              (fn [ctx msg]
                (let [ch (nc/ch?? ctx)
                      res (cc/http-result msg)]
-                 (->> (io/file "/private/tmp/poo.txt")
-                      (assoc res :body )
-                      (cc/reply-result ))))}
+                 (cc/set-res-header res "content-type" "text/plain")
+                 (-> (assoc res :body des)
+                     cc/reply-result )))}
             sv/nettyWebServer<>)
         _ (.start w {:port 5555 :host nc/lhost-name})
         po (cl/h1get (str "http://" nc/lhost-name ":5555/range")
-                      {:headers {:range
-                                 "bytes=0-20,21-"}})
+                      {:headers {:range "bytes=0-"}})
         rc (deref po 5000 nil)
         ^XData b (if rc (:body rc))
         s (if b (.strit b))
         _ (.stop w)]
-    (s/hgl? s)))
+    (and (s/hgl? s)
+         (= 0 (s/countStr s nr/DEF_BD)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(defn- testFileRanges2 "" []
+  (let [des (io/file i/*tempfile-repo* (c/jid<>))
+        _ (spit des _file-content_)
+        w
+        (-> {:hh1
+             (fn [ctx msg]
+               (let [ch (nc/ch?? ctx)
+                     res (cc/http-result msg)]
+                 (cc/set-res-header res "content-type" "text/plain")
+                 (-> (assoc res :body des)
+                     cc/reply-result )))}
+            sv/nettyWebServer<>)
+        _ (.start w {:port 5555 :host nc/lhost-name})
+        po (cl/h1get (str "http://" nc/lhost-name ":5555/range")
+                      {:headers {:range "bytes=0-18,8-20,21-"}})
+        rc (deref po 5000 nil)
+        ^XData b (if rc (:body rc))
+        s (if b (.strit b))
+        _ (.stop w)]
+    (and (s/hgl? s)
+         (= 2 (s/countStr s nr/DEF_BD)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (deftest czlabtestconvoynettio-test
 
-  (is (testFileRanges))
-  (c/pause 111111)
+  (testing
+    "related to: ranges"
+    (is (testFileRangesOne))
+    (is (testFileRanges2)))
 
   (testing
     "related to: SSL"

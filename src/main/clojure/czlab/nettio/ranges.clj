@@ -274,6 +274,7 @@
       (if (.isEmpty ranges)
         (c/throwBadData "Invalid byte ranges"))
       (c/setf! rg :totalBytes (calcTotalBytes rg))
+      (log/debug "range object= %s" @rg)
       rg))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -331,23 +332,26 @@
           count (c/decl-int-var 0)
           cur (c/decl-int-var current)]
       (while (and (< (c/int-var count) mlen)
-                  (< (c/int-var cur) (.size ranges))
-                  (some? (.get ranges (c/int-var cur))))
-        (if (> (chunkReadableBytes (.get ranges
-                                         (c/int-var cur))) 0)
-          (c/int-var count
-                     +
-                     (chunkPack (.get ranges
-                                      (c/int-var cur))
-                                buff (c/int-var count)))
-          (c/int-var cur + 1)))
-      (c/setf! me :current (c/int-var cur))
-      (when (> (c/int-var count) 0)
+                  (< (c/int-var cur) (.size ranges)))
+        (when-some [rg (.get ranges (c/int-var cur))]
+          (log/debug "reading-chunk: range=%s - %s" (c/int-var cur) rg)
+          ;;(log/debug "reading-chunk: currg=%s" (c/int-var cur))
+          (if (c/spos? (chunkReadableBytes rg))
+            (do
+              (c/int-var count
+                         + (chunkPack rg
+                                      buff (c/int-var count)))
+              (log/debug "reading-chunk: count=%s" (c/int-var count)))
+            (do
+              (c/int-var cur + 1)))))
+      (c/setf! me
+               :current (c/int-var cur))
+      (when (c/spos? (c/int-var count))
         (c/setf! me
                  :bytesRead
                  (+ (:bytesRead @me) (c/int-var count)))
-        (log/debug "range:reading-chunk: count=%s", (c/int-var count))
-        (log/debug "range:reading-chunk: bytesread= %s" (:bytesRead @me))
+        (log/debug "reading-chunk: count=%s", (c/int-var count))
+        (log/debug "reading-chunk: bytesread= %s" (:bytesRead @me))
         (Unpooled/wrappedBuffer buff 0 (int (c/int-var count))))))
   (length [me] (:totalBytes @me))
   (progress [me] (:bytesRead @me))
