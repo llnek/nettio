@@ -876,14 +876,17 @@
 ;;
 (defn matchOneRoute "" [ctx msg]
 
+  (log/debug "match route for msg: %s" msg)
   (let [dft {:status? true}
         rc
         (if (c/ist? HttpRequest msg)
-          (let [c (getAKey ctx routes-key)]
-            (if (and c
-                     (cr/has-routes? c))
-              (cr/crack-route c {:method (getMethod msg)
-                                 :uri (getUriPath msg)}))))]
+          (let [c (getAKey ctx routes-key)
+                p {:method (getMethod msg)
+                   :uri (getUriPath msg)}]
+            (log/debug "cracker ======= %s" c)
+            (when (and c (cr/has-routes? c))
+              (log/debug "cracking route uri= %s" p)
+              (cr/crack-route c p))))]
     (or rc dft)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -986,11 +989,13 @@
 ;;
 (defn gistH1Msg "" [ctx msg]
   (if (satisfies? WholeMsgProto msg)
-    (cond
-      (c/ist? HttpRequest msg)
-      (gistH1Request ctx msg)
-      (c/ist? HttpResponse msg)
-      (gistH1Response ctx msg))))
+    (c/do-with [m
+                (cond
+                  (c/ist? HttpRequest msg)
+                  (gistH1Request ctx msg)
+                  (c/ist? HttpResponse msg)
+                  (gistH1Response ctx msg))]
+               (log/debug "gisted h1-msg: %s" m))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
