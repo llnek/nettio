@@ -236,8 +236,10 @@
 (defn- toggleToWebsock
   "" [ctx this req]
 
-  (let [{:keys [wsockPath]} (nc/getAKey ctx nc/chcfg-key)
-        {:keys [uri]} req
+  (let [{:keys [wsockPath] :as cfg} (nc/getAKey ctx nc/chcfg-key)
+        {:keys [uri] :as msg} req
+        _ (log/debug "===> ch-config = %s" cfg)
+        _ (log/debug "===> req-msg = %s" msg)
         r2 (nc/mockFullRequest<> req)
         pp (nc/cpipe ctx)
         uri? (if (set? wsockPath)
