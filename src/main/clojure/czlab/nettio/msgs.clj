@@ -300,7 +300,9 @@
           (nc/setAKey ctx h1pipe-C-key msg)
           (fireMsg ctx msg))
         :else
-        (do (.add ^List q msg)))
+        (do
+          (log/debug "H1 Pipelining is being used! The Marmushka!!!")
+          (.add ^List q msg)))
       (fireMsg ctx msg))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -345,12 +347,9 @@
              pipe?)
     (let [^List q (nc/getAKey ctx h1pipe-Q-key)
           cur (nc/getAKey ctx h1pipe-C-key)]
-      (if (nil? cur)
-        (c/throwISE "response but no request"))
-      (if (nil? q)
-        (c/throwISE "request queue is null"))
-      (let [c (if-not (.isEmpty q)
-                (.remove q 0))]
+      (if (nil? cur) (c/throwISE "response but no request, msg=%s" msg))
+      (if (nil? q) (c/throwISE "request queue is null"))
+      (let [c (if-not (.isEmpty q) (.remove q 0))]
         (nc/setAKey ctx h1pipe-C-key c)
         (fireMsg ctx c)))))
 

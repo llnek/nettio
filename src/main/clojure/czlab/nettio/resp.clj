@@ -373,9 +373,11 @@
      (cond
        (m/instBytes? body)
        [(nc/httpFullReply<> code body (.alloc ch)) nil]
-       (or (== clen 0)
-           (nil? body))
-       [(nc/httpFullReply<> code) body]
+       (nil? body)
+       [(nc/httpFullReply<> code) nil]
+       (and (== clen 0)
+            (nil? body))
+       [(nc/httpFullReply<> code) nil]
        :else
        [(nc/httpReply<> code) body])
      hds (writeHeaders rsp headers)]
@@ -396,7 +398,7 @@
       (HttpUtil/setKeepAlive rsp false)
       (HttpUtil/setKeepAlive rsp (:isKeepAlive? req)))
     (if (or (nil? body)
-            (== clen 0))
+            (and (== clen 0)(nil? body)))
       (.remove hds HttpHeaderNames/CONTENT_TYPE))
     (doseq [s (nc/encodeJavaCookies (vals cookies))]
       (log/debug "resp: setting cookie: %s" s)
@@ -410,12 +412,15 @@
              (not (get-in rhds [:etag :has?])))
       (.set hds HttpHeaderNames/ETAG eTag))
     (let [c? (HttpUtil/isKeepAlive rsp)
-          cf (.write ch rsp)
-          cf (if body
+          cf (if (nil? body)
                (do
-                 (log/debug "reply has body, write and flush body: %s" body)
-                 (.writeAndFlush ch body))
-               (do (.flush ch) cf))]
+                 (log/debug "reply has NO body, write and flush %s" rsp)
+                 (.writeAndFlush ch rsp))
+               (do
+                 (log/debug "reply has SOME body, write and flush %s" rsp)
+                 (.write ch rsp)
+                 (log/debug "reply body, write and flush body: %s" body)
+                 (.writeAndFlush ch body)))]
       (log/debug "resp replied, keep-alive? = %s" c?)
       (nc/closeCF cf c?))))
 
