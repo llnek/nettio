@@ -14,12 +14,7 @@
   (:require [czlab.nettio.msgs :as mg]
             [czlab.nettio.core :as nc]
             [czlab.convoy.util :as ct]
-            [czlab.convoy.core
-             :as cc
-             :refer [h2BootAndConn
-                     wsBootAndConn
-                     sendHttp
-                     h1BootAndConn]]
+            [czlab.convoy.core :as cc]
             [czlab.basal.log :as log]
             [clojure.java.io :as io]
             [clojure.string :as cs]
@@ -163,82 +158,6 @@
                   (.applicationProtocolConfig cfg))]
           (-> (.sslProvider ctx p) .build))))))
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defmethod sendHttp Channel [conn op ^URI uri data args]
-
-  (let [mt (HttpMethod/valueOf (s/ucase (name op)))
-        ^Channel ch (cc/c-channel conn)
-        {:keys [encoding
-                headers
-                version
-                override isKeepAlive?]}
-        args
-        cs (s/stror encoding "utf-8")
-        body (nc/byteBuf?? data ch cs)
-        mo (s/stror override "")
-        path (.getPath uri)
-        qy (.getQuery uri)
-        uriStr (if (s/hgl? qy)
-                 (str path "?" qy) path)
-        clen
-        (cond
-          (c/ist? ByteBuf body) (.readableBytes ^ByteBuf body)
-          (c/ist? File body) (.length ^File body)
-          (c/ist? InputStream body) -1
-          (nil? body) 0
-          :else (c/throwIOE "bad type %s" (class body)))
-        req
-        (if (or (nil? body)
-                (c/ist? ByteBuf body))
-          (nc/httpReq<+> mt uriStr body)
-          (nc/httpReq<> mt uriStr))]
-    (doseq [[k v] (seq headers)
-            :let [kw (name k)]]
-      (if (seq? v)
-        (doseq [vv (seq v)]
-          (nc/addHeader req kw vv))
-        (nc/setHeader req kw v)))
-    (nc/setHeader req HttpHeaderNames/HOST (:host args))
-    (if (= version "2")
-      (nc/setHeader req
-                    (.text HttpConversionUtil$ExtensionHeaderNames/SCHEME)
-                    (.getScheme uri))
-      (nc/setHeader req
-                    HttpHeaderNames/CONNECTION
-                    (if isKeepAlive?
-                      HttpHeaderValues/KEEP_ALIVE
-                      HttpHeaderValues/CLOSE)))
-    (if (s/hgl? mo)
-      (nc/setHeader req "X-HTTP-Method-Override" mo))
-    (if (== 0 clen)
-      (HttpUtil/setContentLength req 0)
-      (do
-        (if-not (c/ist? FullHttpRequest req)
-          (HttpUtil/setTransferEncodingChunked req true))
-        (if-not (nc/hasHeader? req "content-type")
-          (nc/setHeader req
-                        HttpHeaderNames/CONTENT_TYPE
-                        "application/octet-stream"))
-        (if (c/spos? clen)
-          (HttpUtil/setContentLength req clen))))
-    (log/debug "Netty client: about to flush out request (headers)")
-    (log/debug "Netty client: isKeepAlive= %s" isKeepAlive?)
-    (log/debug "Netty client: content has length %s" clen)
-    (c/do-with [out (nc/setAKey ch
-                                rsp-key (promise))]
-       (let
-         [cf (.write ch req)
-          cf (condp instance? body
-               File
-               (->> (ChunkedFile. ^File body)
-                    HttpChunkedInput. (.write ch))
-               InputStream
-               (->> (ChunkedStream.
-                      ^InputStream body)
-                    HttpChunkedInput. (.write ch))
-               cf)]
-      (.flush ch)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -453,7 +372,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- mkWSClient
-  "" [^Bootstrap bs host port ^Channel ch]
+  "" [module ^Bootstrap bs host port ^Channel ch]
 
   (reify cc/WSMsgWriter
     (write-ws-msg [_ msg]
@@ -482,18 +401,19 @@
     cc/ClientConnect
     (await-connect [_ ms] )
     (c-channel [_] ch)
+    (c-module [_] module)
     (remote-port [_] port)
     (remote-host [_] host)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- wsconnCB
-  "" [rcp bs host port]
+  "" [module rcp bs host port]
 
   (fn [^ChannelFuture ff]
     (if (.isSuccess ff)
       (let [ch (.channel ff)
-            cc (mkWSClient bs host port ch)]
+            cc (mkWSClient module bs host port ch)]
         (nc/setAKey ch cc-key cc)
         (deliver rcp cc))
       (let [err (or (.cause ff)
@@ -501,81 +421,146 @@
         ;;(log/warn err "")
         (deliver rcp err)))))
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defmethod wsBootAndConn :netty [framework rcp host port user args]
-
-  (let [[^Bootstrap bs ctx] (boot! args)
-        cb (wsconnCB rcp bs host port)
-        _ (.handler bs (wspipe ctx cb user args))
-        c (connect bs host port (some? ctx))
-        ^H1DataFactory f (nc/getAKey c nc/dfac-key)]
-    (nc/futureCB (.closeFuture c)
-                 (fn [_]
-                   (log/debug "shutdown: netty ws-client")
-                   (some-> f .cleanAllHttpData)
-                   (c/trye! nil (.. bs config group shutdownGracefully))))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defmethod h2BootAndConn :netty [framework host port args]
-
-  (let [[^Bootstrap bs ctx] (boot! args)
-        _ (.handler bs (h2pipe ctx args))
-        ch (connect bs host port (some? ctx))
-        ^H1DataFactory f (nc/getAKey ch nc/dfac-key)
-        ^ChannelPromise pm (nc/getAKey ch h2s-key)]
-    (nc/futureCB (.closeFuture ch)
-                 (fn [_]
-                   (log/debug "shutdown: netty h2-client")
-                   (some-> f .cleanAllHttpData)
-                   (c/trye! nil (.. bs config group shutdownGracefully))))
-    (reify cc/ClientConnect
-      (await-connect [_ ms]
-        (log/debug "client waits %s[ms] for h2 settings..... " ms)
-        (if-not (.awaitUninterruptibly pm ms TimeUnit/MILLISECONDS)
-          (c/throwISE "Timed out waiting for settings"))
-        (if-not (.isSuccess pm)
-          (throw (RuntimeException. (.cause pm))))
-        (log/debug "client waited %s[ms] ok!" ms))
-      (c-channel [_] ch)
-      (remote-port [_] port)
-      (remote-host [_] host)
-      Disposable
-      (dispose [_]
-        (c/trye! nil
-                 (if (.isOpen ch)
-                   (.close ch)
-                   (.. bs config group shutdownGracefully)))))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defmethod h1BootAndConn :netty [framework host port args]
-
-  (let [[^Bootstrap bs ctx] (boot! args)
-        _ (.handler bs (h1pipe ctx args))
-        ch (connect bs host port (some? ctx))
-        ^H1DataFactory f (nc/getAKey ch nc/dfac-key)]
-    (nc/futureCB (.closeFuture ch)
-                 (fn [_]
-                   (log/debug "shutdown: netty h1-client")
-                   (some-> f .cleanAllHttpData)
-                   (c/trye! nil (.. bs config group shutdownGracefully))))
-    (reify cc/ClientConnect
-      (await-connect [_ ms] )
-      (c-channel [_] ch)
-      (remote-port [_] port)
-      (remote-host [_] host)
-      Disposable
-      (dispose [_]
-        (c/trye! nil
-                 (if (.isOpen ch)
-                   (.close ch)
-                   (.. bs config group shutdownGracefully)))))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-
+(c/decl-object NettyClientModule
+  cc/HttpClientModule
+  (sendHttp [_ conn op uri data args]
+    (let [mt (HttpMethod/valueOf (s/ucase (name op)))
+          ^Channel ch (cc/c-channel conn)
+          ^URI uri uri
+          {:keys [encoding
+                  headers
+                  version
+                  override isKeepAlive?]}
+          args
+          cs (s/stror encoding "utf-8")
+          body (nc/byteBuf?? data ch cs)
+          mo (s/stror override "")
+          path (.getPath uri)
+          qy (.getQuery uri)
+          uriStr (if (s/hgl? qy)
+                   (str path "?" qy) path)
+          clen
+          (cond
+            (c/ist? ByteBuf body) (.readableBytes ^ByteBuf body)
+            (c/ist? File body) (.length ^File body)
+            (c/ist? InputStream body) -1
+            (nil? body) 0
+            :else (c/throwIOE "bad type %s" (class body)))
+          req
+          (if (or (nil? body)
+                  (c/ist? ByteBuf body))
+            (nc/httpReq<+> mt uriStr body)
+            (nc/httpReq<> mt uriStr))]
+      (doseq [[k v] (seq headers)
+              :let [kw (name k)]]
+        (if (seq? v)
+          (doseq [vv (seq v)]
+            (nc/addHeader req kw vv))
+          (nc/setHeader req kw v)))
+      (nc/setHeader req HttpHeaderNames/HOST (:host args))
+      (if (= version "2")
+        (nc/setHeader req
+                      (.text HttpConversionUtil$ExtensionHeaderNames/SCHEME)
+                      (.getScheme uri))
+        (nc/setHeader req
+                      HttpHeaderNames/CONNECTION
+                      (if isKeepAlive?
+                        HttpHeaderValues/KEEP_ALIVE
+                        HttpHeaderValues/CLOSE)))
+      (if (s/hgl? mo)
+        (nc/setHeader req "X-HTTP-Method-Override" mo))
+      (if (== 0 clen)
+        (HttpUtil/setContentLength req 0)
+        (do
+          (if-not (c/ist? FullHttpRequest req)
+            (HttpUtil/setTransferEncodingChunked req true))
+          (if-not (nc/hasHeader? req "content-type")
+            (nc/setHeader req
+                          HttpHeaderNames/CONTENT_TYPE
+                          "application/octet-stream"))
+          (if (c/spos? clen)
+            (HttpUtil/setContentLength req clen))))
+      (log/debug "Netty client: about to flush out request (headers)")
+      (log/debug "Netty client: isKeepAlive= %s" isKeepAlive?)
+      (log/debug "Netty client: content has length %s" clen)
+      (c/do-with [out (nc/setAKey ch
+                                  rsp-key (promise))]
+         (let
+           [cf (.write ch req)
+            cf (condp instance? body
+                 File
+                 (->> (ChunkedFile. ^File body)
+                      HttpChunkedInput. (.write ch))
+                 InputStream
+                 (->> (ChunkedStream.
+                        ^InputStream body)
+                      HttpChunkedInput. (.write ch))
+                 cf)]
+        (.flush ch)))))
+  (wsBootAndConn [module rcp host port user args]
+    (let [[^Bootstrap bs ctx] (boot! args)
+          cb (wsconnCB module rcp bs host port)
+          _ (.handler bs (wspipe ctx cb user args))
+          c (connect bs host port (some? ctx))
+          ^H1DataFactory f (nc/getAKey c nc/dfac-key)]
+      (nc/futureCB (.closeFuture c)
+                   (fn [_]
+                     (log/debug "shutdown: netty ws-client")
+                     (some-> f .cleanAllHttpData)
+                     (c/trye! nil (.. bs config group shutdownGracefully))))))
+  (h2BootAndConn [module host port args]
+    (let [[^Bootstrap bs ctx] (boot! args)
+          _ (.handler bs (h2pipe ctx args))
+          ch (connect bs host port (some? ctx))
+          ^H1DataFactory f (nc/getAKey ch nc/dfac-key)
+          ^ChannelPromise pm (nc/getAKey ch h2s-key)]
+      (nc/futureCB (.closeFuture ch)
+                   (fn [_]
+                     (log/debug "shutdown: netty h2-client")
+                     (some-> f .cleanAllHttpData)
+                     (c/trye! nil (.. bs config group shutdownGracefully))))
+      (reify cc/ClientConnect
+        (await-connect [_ ms]
+          (log/debug "client waits %s[ms] for h2 settings..... " ms)
+          (if-not (.awaitUninterruptibly pm ms TimeUnit/MILLISECONDS)
+            (c/throwISE "Timed out waiting for settings"))
+          (if-not (.isSuccess pm)
+            (throw (RuntimeException. (.cause pm))))
+          (log/debug "client waited %s[ms] ok!" ms))
+        (c-channel [_] ch)
+        (c-module [_] module)
+        (remote-port [_] port)
+        (remote-host [_] host)
+        Disposable
+        (dispose [_]
+          (c/trye! nil
+                   (if (.isOpen ch)
+                     (.close ch)
+                     (.. bs config group shutdownGracefully)))))))
+  (h1BootAndConn [module host port args]
+    (let [[^Bootstrap bs ctx] (boot! args)
+          _ (.handler bs (h1pipe ctx args))
+          ch (connect bs host port (some? ctx))
+          ^H1DataFactory f (nc/getAKey ch nc/dfac-key)]
+      (nc/futureCB (.closeFuture ch)
+                   (fn [_]
+                     (log/debug "shutdown: netty h1-client")
+                     (some-> f .cleanAllHttpData)
+                     (c/trye! nil (.. bs config group shutdownGracefully))))
+      (reify cc/ClientConnect
+        (await-connect [_ ms] )
+        (c-module [_] module)
+        (c-channel [_] ch)
+        (remote-port [_] port)
+        (remote-host [_] host)
+        Disposable
+        (dispose [_]
+          (c/trye! nil
+                   (if (.isOpen ch)
+                     (.close ch)
+                     (.. bs config group shutdownGracefully))))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -584,28 +569,33 @@
   ([target method data]
    (h2send target method data nil))
   ([target method data args]
-   (cc/hxsend :netty target method data (merge args {:version "2"}))))
+   (cc/hxsend (c/object<> NettyClientModule)
+              target method data (merge args {:version "2"}))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn h1send
   "Gives back a promise"
-  ([target method data] (h1send target method data nil))
-  ([target method data args] (cc/hxsend :netty target method data args)))
+  ([target method data]
+   (h1send target method data nil))
+  ([target method data args]
+   (cc/hxsend (c/object<> NettyClientModule) target method data args)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn h1post
   "Gives back a promise"
   ([target data] (h1post target data nil))
-  ([target data args] (cc/hxsend :netty target :post data args)))
+  ([target data args]
+   (cc/hxsend (c/object<> NettyClientModule) target :post data args)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn h1get
   "Gives back a promise"
   ([target] (h1get target nil))
-  ([target args] (cc/hxsend :netty target :get nil args)))
+  ([target args]
+   (cc/hxsend (c/object<> NettyClientModule) target :get nil args)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -614,7 +604,8 @@
   ([target data]
    (h2post target data nil))
   ([target data args]
-   (cc/hxsend :netty target :post data (merge args {:version "2"}))))
+   (cc/hxsend (c/object<> NettyClientModule)
+              target :post data (merge args {:version "2"}))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -622,7 +613,8 @@
   "Gives back a promise"
   ([target] (h2get target nil))
   ([target args]
-   (cc/hxsend :netty target :get nil (merge args {:version "2"}))))
+   (cc/hxsend (c/object<> NettyClientModule)
+              target :get nil (merge args {:version "2"}))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF

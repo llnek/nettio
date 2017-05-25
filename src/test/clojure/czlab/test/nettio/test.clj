@@ -34,6 +34,7 @@
   (:import [io.netty.buffer Unpooled ByteBuf ByteBufHolder]
            [org.apache.commons.fileupload FileItem]
            [czlab.jasal Disposable LifeCycle XData]
+           [czlab.nettio.client NettyClientModule]
            [io.netty.handler.codec.http.websocketx
             BinaryWebSocketFrame
             TextWebSocketFrame
@@ -369,7 +370,7 @@
         w (sv/nettyWebServer<> args)
         port 5556
         _ (.start w {:port port :host nc/lhost-name})
-        rcp (cc/wsconnect<> :netty
+        rcp (cc/wsconnect<> (c/object<> NettyClientModule)
                             nc/lhost-name
                             port "/web/sock" (fn [_ _]))
         cc (deref rcp 5000 nil)
@@ -391,7 +392,7 @@
         host nc/lhost-name
         port 5556
         _ (.start w {:port port :host host})
-        rcp (cc/wsconnect<> :netty
+        rcp (cc/wsconnect<> (c/object<> NettyClientModule)
                             host
                             port "/websock" (fn [_ _]))
         cc (deref rcp 5000 nil)
@@ -409,7 +410,7 @@
         w (sv/nettyWebServer<> args)
         port 5556
         _ (.start w {:port port :host nc/lhost-name})
-        rcp (cc/wsconnect<> :netty
+        rcp (cc/wsconnect<> (c/object<> NettyClientModule)
                             nc/lhost-name
                             port "/web/sock" (fn [_ _]))
         cc (deref rcp 5000 nil)
@@ -431,7 +432,7 @@
         out (atom nil)
         port 8443
         _ (.start w {:port port :host nc/lhost-name})
-        rcp (cc/wsconnect<> :netty
+        rcp (cc/wsconnect<> (c/object<> NettyClientModule)
                             nc/lhost-name
                             port
                             "/web/sock"
@@ -463,7 +464,7 @@
         out (atom nil)
         port 5556
         _ (.start w {:port port :host nc/lhost-name})
-        rcp (cc/wsconnect<> :netty
+        rcp (cc/wsconnect<> (c/object<> NettyClientModule)
                             nc/lhost-name
                             port
                             "/web/sock"
@@ -491,7 +492,7 @@
         w (sv/nettyWebServer<> args)
         port 5556
         _ (.start w {:port port :host nc/lhost-name})
-        rcp (cc/wsconnect<> :netty
+        rcp (cc/wsconnect<> (c/object<> NettyClientModule)
                             nc/lhost-name
                             port
                             "/web/sock"
