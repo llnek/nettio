@@ -14,6 +14,12 @@
   (:require [czlab.nettio.msgs :as mg]
             [czlab.nettio.core :as nc]
             [czlab.convoy.util :as ct]
+            [czlab.convoy.core
+             :as cc
+             :refer [h2BootAndConn
+                     wsBootAndConn
+                     sendHttp
+                     h1BootAndConn]]
             [czlab.basal.log :as log]
             [clojure.java.io :as io]
             [clojure.string :as cs]
@@ -115,21 +121,6 @@
 (def ^:private ^AttributeKey cc-key  (nc/akey<> "wsock-client"))
 (def ^:private ^ChannelHandler msg-agg (mg/h1resAggregator<>))
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defprotocol ClientConnect
-  ""
-  (c-channel [_] "")
-  (remote-host [_] "")
-  (remote-port [_] "")
-  (await-connect [_ millis] ""))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defprotocol WSMsgWriter
-  ""
-  (write-ws-msg [_ msg] ""))
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- buildCtx
@@ -174,10 +165,10 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- sendHttp
-  "" [^Channel ch op ^URI uri data args]
+(defmethod sendHttp Channel [conn op ^URI uri data args]
 
   (let [mt (HttpMethod/valueOf (s/ucase (name op)))
+        ^Channel ch (cc/c-channel conn)
         {:keys [encoding
                 headers
                 version
@@ -464,7 +455,7 @@
 (defn- mkWSClient
   "" [^Bootstrap bs host port ^Channel ch]
 
-  (reify WSMsgWriter
+  (reify cc/WSMsgWriter
     (write-ws-msg [_ msg]
       (some->>
         (cond
@@ -488,7 +479,7 @@
             .close)
           (.. (.config ^Bootstrap bs)
               group shutdownGracefully))))
-    ClientConnect
+    cc/ClientConnect
     (await-connect [_ ms] )
     (c-channel [_] ch)
     (remote-port [_] port)
@@ -512,8 +503,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- wsBootAndConn
-  "" [rcp host port user args]
+(defmethod wsBootAndConn :netty [framework rcp host port user args]
 
   (let [[^Bootstrap bs ctx] (boot! args)
         cb (wsconnCB rcp bs host port)
@@ -528,8 +518,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- h2BootAndConn
-  "" [host port args]
+(defmethod h2BootAndConn :netty [framework host port args]
 
   (let [[^Bootstrap bs ctx] (boot! args)
         _ (.handler bs (h2pipe ctx args))
@@ -541,7 +530,7 @@
                    (log/debug "shutdown: netty h2-client")
                    (some-> f .cleanAllHttpData)
                    (c/trye! nil (.. bs config group shutdownGracefully))))
-    (reify ClientConnect
+    (reify cc/ClientConnect
       (await-connect [_ ms]
         (log/debug "client waits %s[ms] for h2 settings..... " ms)
         (if-not (.awaitUninterruptibly pm ms TimeUnit/MILLISECONDS)
@@ -561,8 +550,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn- h1BootAndConn
-  "" [host port args]
+(defmethod h1BootAndConn :netty [framework host port args]
 
   (let [[^Bootstrap bs ctx] (boot! args)
         _ (.handler bs (h1pipe ctx args))
@@ -573,7 +561,7 @@
                    (log/debug "shutdown: netty h1-client")
                    (some-> f .cleanAllHttpData)
                    (c/trye! nil (.. bs config group shutdownGracefully))))
-    (reify ClientConnect
+    (reify cc/ClientConnect
       (await-connect [_ ms] )
       (c-channel [_] ch)
       (remote-port [_] port)
@@ -587,145 +575,54 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn wsconnect<>
-  ""
 
-  ([host port uri cb]
-   (wsconnect<> host port uri cb nil))
-
-  ([host port uri cb args]
-   (let [pfx (if (s/hgl? (:serverCert args)) "wss" "ws")
-         uriStr (format "%s://%s:%d%s"
-                        pfx host port uri)
-         rc (promise)]
-     (wsBootAndConn rc
-                    host
-                    port
-                    cb
-                    (merge args
-                           {:websock true
-                            :uri (URI. uriStr)
-                            :version "1.1"}))
-     rc)))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn h2connect<>
-  ""
-
-  ([host port] (h2connect<> host port nil))
-  ([host port args]
-   (h2BootAndConn host port (merge args {:version "2"}))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn h1connect<>
-  ""
-
-  ([host port] (h1connect<> host port nil))
-  ([host port args]
-   (h1BootAndConn host port (merge args {:version "1.1"}))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defn h2send* ""
-
-  ([conn method uri data]
-   (h2send* conn method uri data nil))
-
-  ([conn method uri data args]
-   (let [args (merge args
-                     {:version "2"
-                      :host (remote-host conn)})]
-     (sendHttp (c-channel conn) method uri data args))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn h1send* ""
-
-  ([conn method uri data]
-   (h1send* conn method uri data nil))
-
-  ([conn method uri data args]
-   (let [args (merge args
-                     {:isKeepAlive? true
-                      :host (remote-host conn)})]
-     (sendHttp (c-channel conn) method uri data args))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn hxsend
-  "Gives back a promise" {:tag IDeref}
-
+(defn h2send
+  "Gives back a promise"
   ([target method data]
-   (hxsend target method data nil))
-
+   (h2send target method data nil))
   ([target method data args]
-   (let [url (io/as-url target)
-         h (.getHost url)
-         p (.getPort url)
-         {:keys [version]
-          :as cargs}
-         (merge args
-                {:scheme (.getProtocol url)
-                 :isKeepAlive? false
-                 :host (.getHost url)})
-         cc (if (= "2" version)
-              (h2connect<> h p cargs)
-              (h1connect<> h p cargs))]
-     (await-connect cc 5000)
-     (log/debug "about to send http request via ch: %s " (c-channel cc))
-     (sendHttp (c-channel cc)
-               method (.toURI url) data cargs))))
+   (cc/hxsend :netty target method data (merge args {:version "2"}))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defmacro h2send
+(defn h1send
   "Gives back a promise"
-
-  ([target method data]
-   `(h2send ~target ~method ~data nil))
-  ([target method data args]
-   `(hxsend ~target ~method ~data (merge ~args {:version "2"}))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defmacro h1send
-  "Gives back a promise"
-
-  ([target method data] `(h1send ~target ~method ~data nil))
-  ([target method data args] `(hxsend ~target ~method ~data ~args)))
+  ([target method data] (h1send target method data nil))
+  ([target method data args] (cc/hxsend :netty target method data args)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defmacro h1post
+(defn h1post
   "Gives back a promise"
-  ([target data] `(h1post ~target ~data nil))
-  ([target data args] `(hxsend ~target :post ~data ~args)))
+  ([target data] (h1post target data nil))
+  ([target data args] (cc/hxsend :netty target :post data args)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defmacro h1get
+(defn h1get
   "Gives back a promise"
-  ([target] `(h1get ~target nil))
-  ([target args] `(hxsend ~target :get nil ~args)))
+  ([target] (h1get target nil))
+  ([target args] (cc/hxsend :netty target :get nil args)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defmacro h2post
+(defn h2post
   "Gives back a promise"
   ([target data]
-   `(h2post ~target ~data nil))
+   (h2post target data nil))
   ([target data args]
-   `(hxsend ~target :post ~data (merge ~args {:version "2"}))))
+   (cc/hxsend :netty target :post data (merge args {:version "2"}))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-(defmacro h2get
+(defn h2get
   "Gives back a promise"
-  ([target] `(h1get ~target nil))
+  ([target] (h2get target nil))
   ([target args]
-   `(hxsend ~target :get nil (merge ~args {:version "2"}))))
+   (cc/hxsend :netty target :get nil (merge args {:version "2"}))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF

@@ -369,14 +369,15 @@
         w (sv/nettyWebServer<> args)
         port 5556
         _ (.start w {:port port :host nc/lhost-name})
-        rcp (cl/wsconnect<> nc/lhost-name
+        rcp (cc/wsconnect<> :netty
+                            nc/lhost-name
                             port "/web/sock" (fn [_ _]))
         cc (deref rcp 5000 nil)
         _ (when-some [c (c/cast? Disposable cc)] (.dispose c))
         _ (c/pause 1000)
         _ (.stop w)]
-    (and (c/ist? czlab.nettio.client.ClientConnect cc)
-         (not (.isOpen ^Channel (cl/c-channel cc))))))
+    (and (c/ist? czlab.convoy.core.ClientConnect cc)
+         (not (.isOpen ^Channel (cc/c-channel cc))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -390,7 +391,8 @@
         host nc/lhost-name
         port 5556
         _ (.start w {:port port :host host})
-        rcp (cl/wsconnect<> host
+        rcp (cc/wsconnect<> :netty
+                            host
                             port "/websock" (fn [_ _]))
         cc (deref rcp 5000 nil)
         _ (.stop w)]
@@ -407,11 +409,12 @@
         w (sv/nettyWebServer<> args)
         port 5556
         _ (.start w {:port port :host nc/lhost-name})
-        rcp (cl/wsconnect<> nc/lhost-name
+        rcp (cc/wsconnect<> :netty
+                            nc/lhost-name
                             port "/web/sock" (fn [_ _]))
         cc (deref rcp 5000 nil)
         _ (.stop w)]
-    (and cc (== 5556 (cl/remote-port cc)))))
+    (and cc (== 5556 (cc/remote-port cc)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -428,17 +431,18 @@
         out (atom nil)
         port 8443
         _ (.start w {:port port :host nc/lhost-name})
-        rcp (cl/wsconnect<> nc/lhost-name
+        rcp (cc/wsconnect<> :netty
+                            nc/lhost-name
                             port
                             "/web/sock"
                             (fn [cc msg]
                               (when-some [^XData s (:body msg)]
                                 (reset! out (.strit s))
-                                (cl/write-ws-msg cc (CloseWebSocketFrame.))))
+                                (cc/write-ws-msg cc (CloseWebSocketFrame.))))
                             {:serverCert "*"})
         cc (deref rcp 5000 nil)
-        _ (when (c/ist? czlab.nettio.client.WSMsgWriter cc)
-            (cl/write-ws-msg cc "hello"))
+        _ (when (c/ist? czlab.convoy.core.WSMsgWriter cc)
+            (cc/write-ws-msg cc "hello"))
         _ (c/pause 1000)
         _ (.stop w)]
     (= "hello" @out)))
@@ -459,16 +463,17 @@
         out (atom nil)
         port 5556
         _ (.start w {:port port :host nc/lhost-name})
-        rcp (cl/wsconnect<> nc/lhost-name
+        rcp (cc/wsconnect<> :netty
+                            nc/lhost-name
                             port
                             "/web/sock"
                             (fn [cc msg]
                               (when-some [^XData b (:body msg)]
                                 (reset! out (.strit b))
-                                (cl/write-ws-msg cc (CloseWebSocketFrame.)))))
+                                (cc/write-ws-msg cc (CloseWebSocketFrame.)))))
         cc (deref rcp 5000 nil)
-        _ (when (c/ist? czlab.nettio.client.WSMsgWriter cc)
-            (cl/write-ws-msg cc (.getBytes "hello")))
+        _ (when (c/ist? czlab.convoy.core.WSMsgWriter cc)
+            (cc/write-ws-msg cc (.getBytes "hello")))
         _ (c/pause 1000)
         _ (.stop w)]
     (= "hello" @out)))
@@ -486,16 +491,17 @@
         w (sv/nettyWebServer<> args)
         port 5556
         _ (.start w {:port port :host nc/lhost-name})
-        rcp (cl/wsconnect<> nc/lhost-name
+        rcp (cc/wsconnect<> :netty
+                            nc/lhost-name
                             port
                             "/web/sock"
                             (fn [cc msg]
                               (when (:pong? msg)
                                 (reset! pong true)
-                                (cl/write-ws-msg cc (CloseWebSocketFrame.)))))
+                                (cc/write-ws-msg cc (CloseWebSocketFrame.)))))
         cc (deref rcp 5000 nil)
-        _ (when (c/ist? czlab.nettio.client.WSMsgWriter cc)
-            (cl/write-ws-msg cc (PingWebSocketFrame.)))
+        _ (when (c/ist? czlab.convoy.core.WSMsgWriter cc)
+            (cc/write-ws-msg cc (PingWebSocketFrame.)))
         _ (c/pause 1000)
         _ (.stop w)]
     (and (nil? @out)
