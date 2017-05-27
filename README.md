@@ -2,7 +2,7 @@
 
 [![Build Status](https://travis-ci.org/llnek/nettio.svg?branch=master)](https://travis-ci.org/llnek/nettio)
 
-General network functions.
+Http client and server library using netty.
 
 ## Installation
 
@@ -13,6 +13,8 @@ Add the following dependency to your `project.clj` file:
 ## Documentation
 
 * [API Docs](https://llnek.github.io/nettio/)
+
+## Usage
 
 
 ## Contacting me / contributions

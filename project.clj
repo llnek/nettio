@@ -5,7 +5,7 @@
   :license {:name "Eclipse Public License"
             :url "http://www.eclipse.org/legal/epl-v10.html"}
 
-  :description ""
+  :description "Http client and server library using netty."
   :url "https://github.com/llnek/nettio"
 
   :dependencies [[io.netty/netty-tcnative-boringssl-static "2.0.1.Final"]
@@ -35,7 +35,6 @@
   :java-source-paths ["src/main/java" "src/test/java"]
   :source-paths ["src/main/clojure"]
   :test-paths ["src/test/clojure"]
-  ;;:resource-paths ["src/main/resources"]
 
   :jvm-opts ["-Dlog4j.configurationFile=file:attic/log4j2.xml"]
   :javac-options ["-source" "8"
