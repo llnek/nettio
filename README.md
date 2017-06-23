@@ -8,7 +8,7 @@ Http client and server library using netty.
 
 Add the following dependency to your `project.clj` file:
 
-    [io.czlab/nettio "1.0.0"]
+    [io.czlab/nettio "1.1.0"]
 
 ## Documentation
 
