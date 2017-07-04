@@ -92,6 +92,11 @@
 (defonce ^:private ^AttributeKey wsock-res-key (nc/akey<> "wsock-res"))
 (def ^:private ^String body-attr-id "--body--")
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+(defn- fmtWSMsg "" [m]
+  (merge m {:route {:status? true}}))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 (defn- addContent "" [whole ^HttpContent c isLast?]
@@ -485,7 +490,9 @@
                   (.get attr)
                   (c/doto->> (.getFile attr) (.renameTo attr))))]
         (.release attr)
-        (->> (assoc (dissoc rc :attr :fake) :body x)
+        (->> (-> (dissoc rc :attr :fake)
+                 (assoc :body x)
+                 fmtWSMsg)
              (c/object<> NettyWsockMsg )
              (.fireChannelRead ctx))))))
 
@@ -497,14 +504,15 @@
     (cond
       (c/ist? PongWebSocketFrame msg)
       (->> (c/object<> NettyWsockMsg
-                       (assoc rc :pong? true))
+                       (fmtWSMsg (assoc rc :pong? true)))
            (.fireChannelRead ctx ))
       (.isFinalFragment msg)
       (->> (c/object<> NettyWsockMsg
-                       (assoc rc
-                              :body (i/xdata<>
-                                      (nc/toByteArray
-                                        (.content msg)))))
+                       (fmtWSMsg
+                         (assoc rc
+                                :body (i/xdata<>
+                                        (nc/toByteArray
+                                          (.content msg))))))
            (.fireChannelRead ctx ))
       :else
       (let [^HttpDataFactory df (nc/getAKey ctx nc/dfac-key)

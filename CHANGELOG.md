@@ -3,6 +3,10 @@ All notable changes to this project will be documented in this file. This change
 
 ## [Unreleased]
 
+## 1.1.1 - 2017-07-04
+### Changed
+- Fixed bug in sending websocket message without route information.
+
 ## 1.1.0 - 2017-06-22
 ### Changed
 - Updated to netty 4.1.12
