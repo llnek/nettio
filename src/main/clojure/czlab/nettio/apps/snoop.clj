@@ -9,7 +9,7 @@
 (ns ^{:doc "Sample netty app - snoops on the request."
       :author "Kenneth Leung"}
 
-  czlab.nettio.snoop
+  czlab.nettio.apps.snoop
 
   (:gen-class)
 
@@ -156,7 +156,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn finz-server "" []
   (when @svr
-    (sv/stop-web-server @svr) (reset! svr nil)))
+    (sv/stop-server! @svr) (reset! svr nil)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn -main "" [& args]
@@ -164,11 +164,11 @@
     (< (count args) 2)
     (println "usage: snoop host port")
     :else
-    (let [w (sv/start-web-server
+    (let [w (sv/start-web-server!
               (snoop-httpd<>)
               {:host (nth args 0)
                :port (c/s->int (nth args 1) 8080)})]
-      (p/exit-hook #(sv/stop-web-server w))
+      (p/exit-hook #(sv/stop-server! w))
       (reset! svr w)
       (u/block!))))
 

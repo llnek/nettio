@@ -11,9 +11,9 @@
 
   czlab.test.nettio.core
 
-  (:require [czlab.nettio.discard :as dc]
-            [czlab.nettio.snoop :as sn]
-            [czlab.nettio.files :as fs]
+  (:require [czlab.nettio.apps.discard :as dc]
+            [czlab.nettio.apps.snoop :as sn]
+            [czlab.nettio.apps.files :as fs]
             [clojure.string :as cs]
             [clojure.java.io :as io]
             [czlab.nettio.msgs :as mg]

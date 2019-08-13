@@ -9,7 +9,7 @@
 (ns ^{:doc "Sample netty file server."
       :author "Kenneth Leung"}
 
-  czlab.nettio.files
+  czlab.nettio.apps.files
 
   (:gen-class)
 
@@ -138,7 +138,7 @@
 ;; filesvr host port vdir
 (defn finz-server "" []
   (when @svr
-    (sv/stop-web-server @svr) (reset! svr nil)))
+    (sv/stop-server! @svr) (reset! svr nil)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; filesvr host port vdir
@@ -148,11 +148,11 @@
     (< (count args) 3)
     (println "usage: filesvr host port <rootdir>")
     :else
-    (let [w (sv/start-web-server
+    (let [w (sv/start-web-server!
               (mem-file-server<> (nth args 2))
               {:host (nth args 0)
                :port (c/s->int (nth args 1) 8080)})]
-      (p/exit-hook #(sv/stop-web-server w))
+      (p/exit-hook #(sv/stop-server! w))
       (reset! svr w)
       (u/block!))))
 

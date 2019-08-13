@@ -9,7 +9,7 @@
 (ns ^{:doc "Sample netty app - accepts and discards the request."
       :author "Kenneth Leung"}
 
-  czlab.nettio.discard
+  czlab.nettio.apps.discard
 
   (:gen-class)
 
@@ -56,7 +56,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn finz-server "" []
   (when @svr
-    (sv/stop-web-server @svr) (reset! svr nil)))
+    (sv/stop-server! @svr) (reset! svr nil)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn -main "" [& args]
@@ -66,10 +66,10 @@
     :else
     (let [s (discard-httpd<>
               #(println "hello, poked by discarder"))]
-      (sv/start-web-server s
-                           {:host (nth args 0)
-                            :port (c/s->int (nth args 1) 8080)})
-      (p/exit-hook #(sv/stop-web-server s))
+      (sv/start-web-server! s
+                            {:host (nth args 0)
+                             :port (c/s->int (nth args 1) 8080)})
+      (p/exit-hook #(sv/stop-server! s))
       (reset! svr s)
       (u/block!))))
 
