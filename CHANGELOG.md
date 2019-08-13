@@ -3,6 +3,10 @@ All notable changes to this project will be documented in this file. This change
 
 ## [Unreleased]
 
+## 1.2.0 - 2019-08-13
+### Changed
+- Updated to netty 4.1.38
+
 ## 1.1.2 - 2017-07-13
 ### Changed
 - Updated to netty 4.1.13

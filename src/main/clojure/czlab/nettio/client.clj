@@ -1,4 +1,4 @@
-;; Copyright (c) 2013-2017, Kenneth Leung. All rights reserved.
+;; Copyright © 2013-2019, Kenneth Leung. All rights reserved.
 ;; The use and distribution terms for this software are covered by the
 ;; Eclipse Public License 1.0 (http://opensource.org/licenses/eclipse-1.0.php)
 ;; which can be found in the file epl-v10.html at the root of this distribution.
@@ -15,13 +15,13 @@
             [czlab.nettio.core :as nc]
             [czlab.convoy.util :as ct]
             [czlab.convoy.core :as cc]
-            [czlab.basal.log :as log]
+            [czlab.basal.log :as l]
             [clojure.java.io :as io]
             [clojure.string :as cs]
-            [czlab.basal.core :as c]
-            [czlab.basal.meta :as m]
             [czlab.basal.str :as s]
-            [czlab.basal.io :as i])
+            [czlab.basal.io :as i]
+            [czlab.basal.core :as c]
+            [czlab.basal.util :as u])
 
   (:import [io.netty.handler.codec.http.websocketx.extensions.compression
             WebSocketClientCompressionHandler]
@@ -100,10 +100,11 @@
             ChannelInitializer
             ChannelHandlerContext]
            [czlab.nettio
+            DuplexHandler
             H1DataFactory
             H2ConnBuilder
             InboundHandler]
-           [czlab.jasal Disposable XData]))
+           [czlab.basal XData]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;(set! *warn-on-reflection* false)
@@ -114,30 +115,35 @@
 (def ^:private ^AttributeKey rsp-key  (nc/akey<> "rsp-result"))
 (def ^:private ^AttributeKey cf-key  (nc/akey<> "wsock-future"))
 (def ^:private ^AttributeKey cc-key  (nc/akey<> "wsock-client"))
-(def ^:private ^ChannelHandler msg-agg (mg/h1resAggregator<>))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- buildCtx
+(def ^{:private true
+       :tag ChannelHandler
+       :doc "A handler which aggregates chunks into a full response"}
+  msg-agg
+  (proxy [DuplexHandler][false]
+    (readMsg [ctx msg] (mg/agg-h1-read ctx msg false))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn- build-ctx
   "" ^SslContextBuilder [scert]
   (let [ctx (SslContextBuilder/forClient)]
     (if (= "*" scert)
       (.trustManager ctx InsecureTrustManagerFactory/INSTANCE)
       (let
         [#^"[Ljava.security.cert.X509Certificate;"
-         cs (->> (nc/convCerts (io/as-url scert))
+         cs (->> (nc/conv-certs (io/as-url scert))
                  (c/vargs X509Certificate))]
         (.trustManager ctx cs)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- maybeSSL
+(defn- maybe-ssl
   "" ^SslContext
   [scert scheme h2?]
 
   (when (and (not= "http" scheme)
              (s/hgl? scert))
-    (let [ctx (buildCtx scert)]
+    (let [ctx (build-ctx scert)]
       (if-not h2?
         (.build ctx)
         (let [cfg
@@ -158,57 +164,47 @@
                   (.applicationProtocolConfig cfg))]
           (-> (.sslProvider ctx p) .build))))))
 
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
 (defn- connect
   "" ^Channel [^Bootstrap bs host port ssl?]
 
-  (log/debug "netty client about to connect to host: %s" host)
+  (l/debug "netty client about to connect to host: %s." host)
   (let
     [port  (if (< port 0) (if ssl? 443 80) port)
-     _ (log/debug "netty client about to connect to port: %s" port)
+     _ (l/debug "netty client about to connect to port: %s." port)
      sock (InetSocketAddress. (str host)
                               (int port))
      cf (some-> (.connect bs sock) .sync)]
     (c/do-with [ch (some-> cf .channel)]
-               (if (or (nil? cf)
-                       (not (.isSuccess cf)) (nil? ch))
-                 (c/throwIOE "Connect error: %s" (.cause cf)))
-               (log/debug (str "netty client "
-                               "connected to host: %s, port: %s") host port))))
+      (if (or (nil? cf)
+              (not (.isSuccess cf)) (nil? ch))
+        (u/throw-IOE "Connect error: %s" (.cause cf)))
+      (l/debug (str "netty client "
+                    "connected to host: %s, port: %s.") host port))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(def
-  ^:private
-  ^ChannelHandler
+(def ^{:private true
+       :tag ChannelHandler}
   user-hdlr
   (proxy [InboundHandler][true]
     (exceptionCaught [ctx err]
-      (when-some [p (nc/getAKey ctx rsp-key)]
-        (nc/delAKey ctx rsp-key)
-        (deliver p err))
-      (nc/closeCH ctx))
+      (when-some [p (nc/get-akey ctx rsp-key)]
+        (deliver p err)
+        (nc/del-akey ctx rsp-key))
+      (nc/close-ch ctx))
     (readMsg [ctx msg]
-      (when-some [p (nc/getAKey ctx rsp-key)]
-        (nc/delAKey ctx rsp-key)
-        (deliver p msg)))))
+      (when-some [p (nc/get-akey ctx rsp-key)]
+        (deliver p msg)
+        (nc/del-akey ctx rsp-key)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
 (defn- wsock-hdlr
   "" ^ChannelHandler [user]
-
   (proxy [InboundHandler][true]
-    (exceptionCaught [ctx err]
-      (nc/closeCH ctx))
-    (readMsg [ctx msg]
-      (let [wcc (nc/getAKey ctx cc-key)]
-        (user wcc msg)))))
+    (exceptionCaught [ctx err] (nc/close-ch ctx))
+    (readMsg [ctx msg] (user (nc/get-akey ctx cc-key) msg))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
 (defn- wsh<>
   "" ^ChannelHandler [^WebSocketClientHandshaker
                       handshaker
@@ -217,47 +213,46 @@
   (proxy [InboundHandler][true]
     (handlerAdded [ctx]
       (let [p (.newPromise ^ChannelHandlerContext ctx)]
-        (nc/setAKey ctx cf-key p)
+        (nc/set-akey ctx cf-key p)
         (.addListener p (nc/cfop<> cb))
-        (log/debug "wsc handler-added")))
+        (l/debug "wsc handler-added")))
     (channelActive [ctx]
-      (log/debug "wsc handshaker start hand-shake")
+      (l/debug "wsc handshaker start hand-shake")
       (.handshake handshaker (nc/ch?? ctx)))
     (exceptionCaught [ctx err]
-      (if-some [^ChannelPromise f (nc/getAKey ctx cf-key)]
+      (if-some [^ChannelPromise f (nc/get-akey ctx cf-key)]
         (if-not (.isDone f)
           (.setFailure f ^Throwable err)))
-      (log/warn "%s" (.getMessage ^Throwable err))
-      (nc/closeCH ctx))
+      (l/warn "%s" (.getMessage ^Throwable err))
+      (nc/close-ch ctx))
     (readMsg [ctx msg]
-      (let [^ChannelPromise f (nc/getAKey ctx cf-key)
+      (let [^ChannelPromise f (nc/get-akey ctx cf-key)
             ch (nc/ch?? ctx)]
         (cond
           (not (.isHandshakeComplete handshaker))
           (do
-            (log/debug "attempt to finz the hand-shake...")
+            (l/debug "attempt to finz the hand-shake...")
             (.finishHandshake handshaker ch ^FullHttpResponse msg)
-            (log/debug "finz'ed the hand-shake... success!")
+            (l/debug "finz'ed the hand-shake... success!")
             (.setSuccess f))
-          (c/ist? FullHttpResponse msg)
+          (c/is? FullHttpResponse msg)
           (do
-            (c/throwISE
+            (u/throw-ISE
               "Unexpected FullHttpResponse (status=%s"
               (.status ^FullHttpResponse msg)))
-          (c/ist? CloseWebSocketFrame msg)
+          (c/is? CloseWebSocketFrame msg)
           (do
-            (log/debug "received close frame")
-            (nc/closeCH ctx))
+            (l/debug "received close frame")
+            (nc/close-ch ctx))
           :else
           (->> (nc/ref-add msg)
                (.fireChannelRead ^ChannelHandlerContext ctx )))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
 (defn- h2pipe
   "" ^ChannelHandler [ctx args]
 
-  (log/debug "client:h2pipe: ssl ctx = %s" ctx)
+  (l/debug "client:h2pipe: ssl ctx = %s" ctx)
   (proxy [ChannelInitializer][]
     (initChannel [c]
       (let [hh (HttpToHttp2ConnectionHandlerBuilder.)
@@ -266,9 +261,9 @@
             pp (nc/cpipe ch)
             pm (.newPromise ch)
             _ (.frameListener hh
-                              (mg/h20Aggregator<> pm))
+                              (mg/h20-aggregator<> pm))
             ssl (c/cast? SslContext ctx)]
-        (nc/setAKey c h2s-key pm)
+        (nc/set-akey c h2s-key pm)
         (some->> (some-> ssl (.newHandler (.alloc ch)))
                  (.addLast pp "ssl"))
         (->>
@@ -280,16 +275,15 @@
                   (.addLast "cw" (ChunkedWriteHandler.))
                   (.addLast "user-cb" user-hdlr))
                 (do
-                  (nc/closeCH cx)
-                  (c/throwISE "unknown protocol: %s" pn)))))
+                  (nc/close-ch cx)
+                  (u/throw-ISE "unknown protocol: %s" pn)))))
           (.addLast pp "apn"))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
 (defn- h1pipe
   "" ^ChannelHandler [ctx args]
 
-  (log/debug "client:h1pipe: ssl ctx = %s" ctx)
+  (l/debug "client:h1pipe: ssl ctx = %s." ctx)
   (proxy [ChannelInitializer][]
     (initChannel [ch]
       (if-some
@@ -304,13 +298,12 @@
         (.addLast "user-cb" user-hdlr)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
 (defn- wspipe
   "" ^ChannelHandler [ctx cb user args]
 
   (proxy [ChannelInitializer][]
     (initChannel [ch]
-      (log/debug "client: wspipe is ssl? = %s" (some? ctx))
+      (l/debug "client: wspipe is ssl? = %s" (some? ctx))
       (if-some
         [ssl (c/cast? SslContext ctx)]
         (->> (.newHandler ssl
@@ -328,292 +321,261 @@
                       nil true (DefaultHttpHeaders.))
                     cb
                     args))
-        (.addLast "ws-agg" (mg/wsockAggregator<>))
+        (.addLast "ws-agg" mg/wsock-aggregator<>)
         (.addLast "ws-user" (wsock-hdlr user))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
 (defn- boot!
-  "" [{:keys [maxContentSize maxInMemory
-              version tempFileDir
-              serverCert scheme
-              threads rcvBuf options]
-       :or {maxContentSize Integer/MAX_VALUE
-            maxInMemory i/*membuf-limit*
-            rcvBuf (* 2 c/MegaBytes)
+  "" [{:keys [max-content-size max-in-memory
+              version temp-dir
+              server-cert scheme
+              threads rcv-buf options]
+       :or {max-content-size Integer/MAX_VALUE
+            max-in-memory i/*membuf-limit*
+            rcv-buf (* 2 c/MegaBytes)
             threads 0}
        :as args}]
 
-  (let [tempFileDir (c/fpath (or tempFileDir
-                                 i/*tempfile-repo*))
-        ctx (maybeSSL serverCert scheme
-                      (= version "2"))
-        [g z] (nc/gAndC threads :tcpc)
+  (let [ctx (maybe-ssl server-cert scheme (= version "2"))
+        temp-dir (u/fpath (or temp-dir
+                              i/*tempfile-repo*))
+        [g z] (nc/g-and-c threads :tcpc)
         bs (Bootstrap.)
         options (or options
-                    [[ChannelOption/SO_RCVBUF (int rcvBuf)]
+                    [[ChannelOption/SO_RCVBUF (int rcv-buf)]
                      [ChannelOption/SO_KEEPALIVE true]
                      [ChannelOption/TCP_NODELAY true]])]
-    (nc/configDiskFiles true tempFileDir)
+    (nc/config-disk-files true temp-dir)
     (doseq [[k v] options] (.option bs k v))
     ;;assign generic attributes for all channels
     (.attr bs nc/chcfg-key args)
     (.attr bs
            nc/dfac-key
-           (H1DataFactory. (int maxInMemory)))
-    (log/info "netty client bootstraped with [%s]"
-              (if (Epoll/isAvailable) "EPoll" "Java/NIO"))
-    (log/info "netty client dfiles repo: %s" tempFileDir)
+           (H1DataFactory. (int max-in-memory)))
+    (l/info "netty client bootstraped with [%s]."
+            (if (Epoll/isAvailable) "EPoll" "Java/NIO"))
+    (l/info "netty client dfiles repo: %s." temp-dir)
     (doto bs
       (.channel z)
       (.group ^EventLoopGroup g))
     [bs ctx]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- mkWSClient
+(defn- mk-ws-client
   "" [module ^Bootstrap bs host port ^Channel ch]
 
   (reify cc/WSMsgWriter
-    (write-ws-msg [_ msg]
+    (ws-write-msg [_ msg]
       (some->>
         (cond
-          (c/ist? WebSocketFrame msg)
+          (c/is? WebSocketFrame msg)
           msg
           (string? msg)
           (TextWebSocketFrame. ^String msg)
-          (m/instBytes? msg)
+          (bytes? msg)
           (-> (.alloc ch)
               (.directBuffer (int 4096))
               (.writeBytes  ^bytes msg)
               (BinaryWebSocketFrame. )))
         (.writeAndFlush ch)))
-    Disposable
-    (dispose [_]
-      (c/trye!
-        nil
+    cc/ClientConnect
+    (cc-finz [_]
+      (c/try!
         (if (.isOpen ch)
           (doto ch
             (.writeAndFlush (CloseWebSocketFrame.))
             .close)
           (.. (.config ^Bootstrap bs)
               group shutdownGracefully))))
-    cc/ClientConnect
-    (await-connect [_ ms] )
-    (c-channel [_] ch)
-    (c-module [_] module)
-    (remote-port [_] port)
-    (remote-host [_] host)))
+    (cc-await-connect [_ ms] )
+    (cc-channel [_] ch)
+    (cc-module [_] module)
+    (cc-remote-port [_] port)
+    (cc-remote-host [_] host)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- wsconnCB
+(defn- wsconn-cb
   "" [module rcp bs host port]
 
   (fn [^ChannelFuture ff]
     (if (.isSuccess ff)
       (let [ch (.channel ff)
-            cc (mkWSClient module bs host port ch)]
-        (nc/setAKey ch cc-key cc)
+            cc (mk-ws-client module bs host port ch)]
+        (nc/set-akey ch cc-key cc)
         (deliver rcp cc))
       (let [err (or (.cause ff)
                     (Exception. "conn error"))]
-        ;;(log/warn err "")
+        ;;(l/warn err "")
         (deliver rcp err)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(c/decl-object NettyClientModule
+(defrecord NettyClientModule []
   cc/HttpClientModule
-  (sendHttp [_ conn op uri data args]
+  (hc-send-http [_ conn op uri data args]
     (let [mt (HttpMethod/valueOf (s/ucase (name op)))
-          ^Channel ch (cc/c-channel conn)
+          ^Channel ch (cc/cc-channel conn)
           ^URI uri uri
           {:keys [encoding
                   headers
                   version
-                  override isKeepAlive?]}
-          args
-          cs (s/stror encoding "utf-8")
-          body (nc/byteBuf?? data ch cs)
+                  override is-keep-alive?]} args
+          body (nc/bytebuf?? data ch encoding)
           mo (s/stror override "")
           path (.getPath uri)
           qy (.getQuery uri)
           uriStr (if (s/hgl? qy)
                    (str path "?" qy) path)
-          clen
-          (cond
-            (c/ist? ByteBuf body) (.readableBytes ^ByteBuf body)
-            (c/ist? File body) (.length ^File body)
-            (c/ist? InputStream body) -1
-            (nil? body) 0
-            :else (c/throwIOE "bad type %s" (class body)))
-          req
-          (if (or (nil? body)
-                  (c/ist? ByteBuf body))
-            (nc/httpReq<+> mt uriStr body)
-            (nc/httpReq<> mt uriStr))]
+          clen (cond (c/is? ByteBuf body) (.readableBytes ^ByteBuf body)
+                     (c/is? File body) (.length ^File body)
+                     (c/is? InputStream body) -1
+                     (nil? body) 0
+                     :else (u/throw-IOE "bad type %s." (class body)))
+          req (if (or (nil? body)
+                      (c/is? ByteBuf body))
+                (nc/http-req<+> mt uriStr body)
+                (nc/http-req<> mt uriStr))]
       (doseq [[k v] (seq headers)
               :let [kw (name k)]]
         (if (seq? v)
           (doseq [vv (seq v)]
-            (nc/addHeader req kw vv))
-          (nc/setHeader req kw v)))
-      (nc/setHeader req HttpHeaderNames/HOST (:host args))
+            (nc/add-header req kw vv))
+          (nc/set-header req kw v)))
+      (nc/set-header req HttpHeaderNames/HOST (:host args))
       (if (= version "2")
-        (nc/setHeader req
-                      (.text HttpConversionUtil$ExtensionHeaderNames/SCHEME)
-                      (.getScheme uri))
-        (nc/setHeader req
-                      HttpHeaderNames/CONNECTION
-                      (if isKeepAlive?
-                        HttpHeaderValues/KEEP_ALIVE
-                        HttpHeaderValues/CLOSE)))
+        (nc/set-header req
+                       (.text HttpConversionUtil$ExtensionHeaderNames/SCHEME)
+                       (.getScheme uri))
+        (nc/set-header req
+                       HttpHeaderNames/CONNECTION
+                       (if is-keep-alive?
+                         HttpHeaderValues/KEEP_ALIVE
+                         HttpHeaderValues/CLOSE)))
       (if (s/hgl? mo)
-        (nc/setHeader req "X-HTTP-Method-Override" mo))
-      (if (== 0 clen)
+        (nc/set-header req "X-HTTP-Method-Override" mo))
+      (if (zero? clen)
         (HttpUtil/setContentLength req 0)
-        (do
-          (if-not (c/ist? FullHttpRequest req)
-            (HttpUtil/setTransferEncodingChunked req true))
-          (if-not (nc/hasHeader? req "content-type")
-            (nc/setHeader req
-                          HttpHeaderNames/CONTENT_TYPE
-                          "application/octet-stream"))
-          (if (c/spos? clen)
-            (HttpUtil/setContentLength req clen))))
-      (log/debug "Netty client: about to flush out request (headers)")
-      (log/debug "Netty client: isKeepAlive= %s" isKeepAlive?)
-      (log/debug "Netty client: content has length %s" clen)
-      (c/do-with [out (nc/setAKey ch
-                                  rsp-key (promise))]
-         (let
-           [cf (.write ch req)
-            cf (condp instance? body
-                 File
-                 (->> (ChunkedFile. ^File body)
-                      HttpChunkedInput. (.write ch))
-                 InputStream
-                 (->> (ChunkedStream.
-                        ^InputStream body)
-                      HttpChunkedInput. (.write ch))
-                 cf)]
-        (.flush ch)))))
-  (wsBootAndConn [module rcp host port user args]
+        (do (if-not (c/is? FullHttpRequest req)
+              (HttpUtil/setTransferEncodingChunked req true))
+            (if-not (nc/has-header? req "content-type")
+              (nc/set-header req
+                             HttpHeaderNames/CONTENT_TYPE
+                             "application/octet-stream"))
+            (if (c/spos? clen)
+              (HttpUtil/setContentLength req clen))))
+      (l/debug "Netty client: about to flush out request (headers).")
+      (l/debug "Netty client: isKeepAlive= %s." is-keep-alive?)
+      (l/debug "Netty client: content has length %s." clen)
+      (c/do-with [out (nc/set-akey ch rsp-key (promise))]
+        (let [cf (.write ch req)
+              cf (condp instance? body
+                   File (->> (ChunkedFile. ^File body)
+                             HttpChunkedInput. (.write ch))
+                   InputStream (->> (ChunkedStream.
+                                      ^InputStream body)
+                                    HttpChunkedInput. (.write ch)) cf)]
+          (.flush ch)))))
+  (hc-ws-conn [module rcp host port user args]
     (let [[^Bootstrap bs ctx] (boot! args)
-          cb (wsconnCB module rcp bs host port)
+          cb (wsconn-cb module rcp bs host port)
           _ (.handler bs (wspipe ctx cb user args))
           c (connect bs host port (some? ctx))
-          ^H1DataFactory f (nc/getAKey c nc/dfac-key)]
-      (nc/futureCB (.closeFuture c)
-                   (fn [_]
-                     (log/debug "shutdown: netty ws-client")
-                     (some-> f .cleanAllHttpData)
-                     (c/trye! nil (.. bs config group shutdownGracefully))))))
-  (h2BootAndConn [module host port args]
+          ^H1DataFactory f (nc/get-akey c nc/dfac-key)]
+      (nc/future-cb (.closeFuture c)
+                    (c/fn_1 (l/debug "shutdown: netty ws-client.")
+                            (some-> f .cleanAllHttpData)
+                            (c/try! (.. bs config group shutdownGracefully))))))
+  (hc-h2-conn [module host port args]
     (let [[^Bootstrap bs ctx] (boot! args)
           _ (.handler bs (h2pipe ctx args))
           ch (connect bs host port (some? ctx))
-          ^H1DataFactory f (nc/getAKey ch nc/dfac-key)
-          ^ChannelPromise pm (nc/getAKey ch h2s-key)]
-      (nc/futureCB (.closeFuture ch)
-                   (fn [_]
-                     (log/debug "shutdown: netty h2-client")
-                     (some-> f .cleanAllHttpData)
-                     (c/trye! nil (.. bs config group shutdownGracefully))))
+          ^ChannelPromise pm (nc/get-akey ch h2s-key)
+          ^H1DataFactory f (nc/get-akey ch nc/dfac-key)]
+      (nc/future-cb (.closeFuture ch)
+                    (c/fn_1 (l/debug "shutdown: netty h2-client.")
+                            (some-> f .cleanAllHttpData)
+                            (c/try! (.. bs config group shutdownGracefully))))
       (reify cc/ClientConnect
-        (await-connect [_ ms]
-          (log/debug "client waits %s[ms] for h2 settings..... " ms)
+        (cc-await-connect [_ ms]
+          (l/debug "client waits %s[ms] for h2 settings....." ms)
           (if-not (.awaitUninterruptibly pm ms TimeUnit/MILLISECONDS)
-            (c/throwISE "Timed out waiting for settings"))
+            (u/throw-ISE "Timed out waiting for settings."))
           (if-not (.isSuccess pm)
-            (throw (RuntimeException. (.cause pm))))
-          (log/debug "client waited %s[ms] ok!" ms))
-        (c-channel [_] ch)
-        (c-module [_] module)
-        (remote-port [_] port)
-        (remote-host [_] host)
-        Disposable
-        (dispose [_]
-          (c/trye! nil
-                   (if (.isOpen ch)
-                     (.close ch)
-                     (.. bs config group shutdownGracefully)))))))
-  (h1BootAndConn [module host port args]
+            (c/trap! RuntimeException (.cause pm)))
+          (l/debug "client waited %s[ms] ok!" ms))
+        (cc-channel [_] ch)
+        (cc-module [_] module)
+        (cc-remote-port [_] port)
+        (cc-remote-host [_] host)
+        (cc-finz [_]
+          (c/try! (if (.isOpen ch)
+                    (.close ch)
+                    (.. bs config group shutdownGracefully)))))))
+  (hc-h1-conn [module host port args]
     (let [[^Bootstrap bs ctx] (boot! args)
           _ (.handler bs (h1pipe ctx args))
           ch (connect bs host port (some? ctx))
-          ^H1DataFactory f (nc/getAKey ch nc/dfac-key)]
-      (nc/futureCB (.closeFuture ch)
-                   (fn [_]
-                     (log/debug "shutdown: netty h1-client")
-                     (some-> f .cleanAllHttpData)
-                     (c/trye! nil (.. bs config group shutdownGracefully))))
+          ^H1DataFactory f (nc/get-akey ch nc/dfac-key)]
+      (nc/future-cb (.closeFuture ch)
+                    (c/fn_1 (l/debug "shutdown: netty h1-client.")
+                            (some-> f .cleanAllHttpData)
+                            (c/try! (.. bs config group shutdownGracefully))))
       (reify cc/ClientConnect
-        (await-connect [_ ms] )
-        (c-module [_] module)
-        (c-channel [_] ch)
-        (remote-port [_] port)
-        (remote-host [_] host)
-        Disposable
-        (dispose [_]
-          (c/trye! nil
-                   (if (.isOpen ch)
-                     (.close ch)
-                     (.. bs config group shutdownGracefully))))))))
+        (cc-await-connect [_ ms] )
+        (cc-module [_] module)
+        (cc-channel [_] ch)
+        (cc-remote-port [_] port)
+        (cc-remote-host [_] host)
+        (cc-finz [_]
+          (c/try! (if (.isOpen ch)
+                    (.close ch)
+                    (.. bs config group shutdownGracefully))))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
 (defn h2send
   "Gives back a promise"
   ([target method data]
    (h2send target method data nil))
   ([target method data args]
-   (cc/hxsend (c/object<> NettyClientModule)
+   (cc/hxsend (NettyClientModule.)
               target method data (merge args {:version "2"}))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
 (defn h1send
   "Gives back a promise"
   ([target method data]
    (h1send target method data nil))
   ([target method data args]
-   (cc/hxsend (c/object<> NettyClientModule) target method data args)))
+   (cc/hxsend (NettyClientModule.) target method data args)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
 (defn h1post
   "Gives back a promise"
   ([target data] (h1post target data nil))
   ([target data args]
-   (cc/hxsend (c/object<> NettyClientModule) target :post data args)))
+   (cc/hxsend (NettyClientModule.) target :post data args)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
 (defn h1get
   "Gives back a promise"
   ([target] (h1get target nil))
   ([target args]
-   (cc/hxsend (c/object<> NettyClientModule) target :get nil args)))
+   (cc/hxsend (NettyClientModule.) target :get nil args)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
 (defn h2post
   "Gives back a promise"
   ([target data]
    (h2post target data nil))
   ([target data args]
-   (cc/hxsend (c/object<> NettyClientModule)
+   (cc/hxsend (NettyClientModule.)
               target :post data (merge args {:version "2"}))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
 (defn h2get
   "Gives back a promise"
   ([target] (h2get target nil))
   ([target args]
-   (cc/hxsend (c/object<> NettyClientModule)
+   (cc/hxsend (NettyClientModule.)
               target :get nil (merge args {:version "2"}))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

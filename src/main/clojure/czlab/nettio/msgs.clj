@@ -1,4 +1,4 @@
-;; Copyright (c) 2013-2017, Kenneth Leung. All rights reserved.
+;; Copyright © 2013-2019, Kenneth Leung. All rights reserved.
 ;; The use and distribution terms for this software are covered by the
 ;; Eclipse Public License 1.0 (http://opensource.org/licenses/eclipse-1.0.php)
 ;; which can be found in the file epl-v10.html at the root of this distribution.
@@ -14,11 +14,12 @@
   (:require [czlab.convoy.upload :as cu]
             [czlab.convoy.core :as cc]
             [czlab.nettio.core :as nc]
-            [czlab.basal.log :as log]
+            [czlab.basal.log :as l]
             [clojure.java.io :as io]
             [clojure.string :as cs]
             [czlab.basal.str :as s]
             [czlab.basal.io :as i]
+            [czlab.basal.util :as u]
             [czlab.basal.core :as c])
 
   (:import [io.netty.util AttributeKey ReferenceCountUtil]
@@ -40,7 +41,10 @@
             HttpData
             FileUpload
             Attribute
-            HttpPostRequestDecoder]
+            HttpPostRequestDecoder
+            HttpPostMultipartRequestDecoder
+            InterfaceHttpPostRequestDecoder
+            HttpPostRequestDecoder$EndOfDataDecoderException]
            [io.netty.handler.codec.http
             HttpVersion
             HttpMethod
@@ -69,7 +73,7 @@
             DecoderResultProvider]
            [java.nio.charset Charset]
            [java.io OutputStream]
-           [czlab.jasal XData]
+           [czlab.basal XData]
            [io.netty.buffer
             Unpooled
             ByteBuf
@@ -93,30 +97,27 @@
 (def ^:private ^String body-attr-id "--body--")
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- fmtWSMsg "" [m]
+(defn- fmt-wsmsg "" [m]
   (merge m {:route {:status? true}}))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- addContent "" [whole ^HttpContent c isLast?]
+(defn- add-content "" [whole ^HttpContent c isLast?]
   (let [{:keys [impl]} (nc/deref-msg whole)]
     (cond
-      (c/ist? Attribute impl)
+      (c/is? Attribute impl)
       (.addContent ^Attribute impl
                    (.. c content retain) isLast?)
-      (c/ist? HttpPostRequestDecoder impl)
-      (.offer ^HttpPostRequestDecoder impl c))))
+      (c/is? InterfaceHttpPostRequestDecoder impl)
+      (.offer ^InterfaceHttpPostRequestDecoder impl c))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- appendContent "" [whole ^HttpContent c isLast?]
+(defn- append-content "" [whole ^HttpContent c isLast?]
   (let [{:keys [body impl
                 fac owner]} (nc/deref-msg whole)]
-    (addContent whole c isLast?)
+    (add-content whole c isLast?)
     (if isLast?
       (cond
-        (c/ist? Attribute impl)
+        (c/is? Attribute impl)
         (do
           (.removeHttpDataFromClean
             ^HttpDataFactory
@@ -128,278 +129,274 @@
           (.reset ^XData body
                   (nc/end-msg-content whole))
           (.release ^Attribute impl))
-        (c/ist? HttpPostRequestDecoder impl)
-        (do
-          (.reset ^XData body
-                  (nc/end-msg-content whole))
-          (.destroy ^HttpPostRequestDecoder impl))))))
+        (c/is? InterfaceHttpPostRequestDecoder impl)
+        (do (.reset ^XData body (nc/end-msg-content whole))
+            (try (.destroy
+                   ^InterfaceHttpPostRequestDecoder impl)
+                 (catch Throwable _ (l/exception  _ ))))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- fireMsg "" [ctx msg]
+(defn- fire-msg "" [ctx msg]
   (when (some? msg)
-    ;;(log/debug "about to firemsg ===> %s" msg)
-    (some->> (or (some-> (nc/gistH1Msg ctx msg)
-                         nc/nettyMsg<>) msg)
+    (l/debug "about to firemsg ===> %s." msg)
+    (some->> (or (some-> (nc/gist-h1-msg ctx msg)
+                         nc/netty-msg<>) msg)
              (.fireChannelRead ^ChannelHandlerContext ctx))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; rename to self ,trick code to not delete the file
-(defn- getHttpData "" [^HttpData d]
-  (if (.isInMemory d) (.get d) (c/doto->> (.getFile d) (.renameTo d))))
+(defn- get-http-data "" [^HttpData d]
+  (XData. (if (.isInMemory d) (.get d) (c/doto->> (.getFile d) (.renameTo d)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- parsePost "" [^HttpPostRequestDecoder deco]
-  (reduce
-    #(when-some
-       [z (cond
-            (c/ist? FileUpload %2)
-            (let [u (c/cast? FileUpload %2)
-                  c (getHttpData u)]
-              (cu/fileItem<> false
-                             (.getContentType u)
-                             nil
-                             (.getName u)
-                             (.getFilename u) c))
-            (c/ist? Attribute %2)
-            (let [a (c/cast? Attribute %2)
-                  c (getHttpData a)]
-              (cu/fileItem<> true "" nil (.getName a) "" c)))]
-       (if-some [d (c/cast? AbstractDiskHttpData %2)]
-         (if-not (.isInMemory d)
-           (.removeHttpDataFromClean deco ^HttpData %2)))
-       ;;no need to release since we will call destroy on the decoder
-       ;;(.release x)
-       (cu/add-item %1 z))
-    (cu/formItems<>)
-    (.getBodyHttpDatas deco)))
+(defn- safe-has-next? "" [^InterfaceHttpPostRequestDecoder deco]
+  (try (.hasNext deco)
+       (catch HttpPostRequestDecoder$EndOfDataDecoderException _ false)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn- parse-post "" [^InterfaceHttpPostRequestDecoder deco]
+  (l/debug "about to parse a form-post, decoder= %s." deco)
+  (loop [out (cu/form-items<>)]
+    (if-not (safe-has-next? deco)
+      (XData. out)
+      (let [n (.next deco)
+            z (cond
+                (c/is? FileUpload n)
+                (let [u (c/cast? FileUpload n)]
+                  (cu/file-item<> false
+                                  (.getContentType u)
+                                  nil
+                                  (.getName u)
+                                  (.getFilename u)
+                                  (get-http-data u)))
+                (c/is? Attribute n)
+                (let [a (c/cast? Attribute n)]
+                  (cu/file-item<> true
+                                  "" nil
+                                  (.getName a) ""
+                                  (get-http-data a)))
+                :else (l/error "Unknown post content %s." n))]
+        (recur
+          (if z (cu/add-item out z) out))))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn- chk-form-post
+  "Detects if a form post?" [req]
+  (let
+    [ct (->> HttpHeaderNames/CONTENT_TYPE
+             (nc/get-header req) str (s/lcase))
+     method (nc/get-method req)]
+    (cond
+      (s/embeds? ct "application/x-www-form-urlencoded")
+      (if (s/eq-any? method ["POST" "PUT"]) :post :url)
+      (and (s/embeds? ct "multipart/form-data")
+           (s/eq-any? method ["POST" "PUT"])) :multipart)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- prepareBody "" [^HttpDataFactory df ^HttpRequest msg]
-  (if (-> (nc/chkFormPost msg)
-          (s/eqAny? ["multipart" "post"]))
-    (HttpPostRequestDecoder. df msg (nc/getMsgCharset msg))
-    (.createAttribute df msg body-attr-id)))
+(defn- prepare-body "" [^HttpDataFactory df ^HttpRequest msg]
+  (let [rc (chk-form-post msg)
+        cs (nc/get-msg-charset msg)]
+    (if (or (= rc :post)
+            (= rc :multipart))
+      (do (l/debug "got form-post: %s" rc)
+          (HttpPostRequestDecoder. df msg cs))
+      (.createAttribute df msg body-attr-id))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- wholeRequest<> "" [^HttpDataFactory fac ^HttpRequest owner]
-  (let [impl (prepareBody fac owner)
+(defn- whole-request<+> "" [^HttpDataFactory fac ^HttpRequest owner]
+  (let [impl (prepare-body fac owner)
         _ (assert (some? impl))
         target {:impl impl :fac fac
-                :owner owner :body (i/xdata<>)}]
+                :owner owner :body (XData.)}]
     (reify HttpRequest
       (getMethod [me] (.method me))
       (getUri [me] (.uri me))
       (method [me]
         (c/if-some+ [x (-> (.headers owner)
                            (.get "X-HTTP-Method-Override"))]
-                    (HttpMethod/valueOf x)
-                    (.method owner)))
-      (setProtocolVersion [_ _]
-        (throw (UnsupportedOperationException.)))
-      (setMethod [_ _]
-        (throw (UnsupportedOperationException.)))
-      (setUri [_ _]
-        (throw (UnsupportedOperationException.)))
+          (HttpMethod/valueOf x)
+          (.method owner)))
+      (setProtocolVersion [_ _] (u/throw-UOE ""))
+      (setMethod [_ _] (u/throw-UOE ""))
+      (setUri [_ _] (u/throw-UOE ""))
       (uri [_] (.uri owner))
       (getDecoderResult [me] (.decoderResult me))
       (decoderResult [_] (.decoderResult owner))
-      (setDecoderResult [_ _]
-        (throw (UnsupportedOperationException.)))
+      (setDecoderResult [_ _] (u/throw-UOE ""))
       (getProtocolVersion [me] (.protocolVersion me))
       (headers [_] (.headers owner))
       (protocolVersion [_] (.protocolVersion owner))
-      nc/WholeMsgProto
+      nc/WholeMsgAPI
       (append-msg-content [me c last?]
-        (appendContent me c last?))
+        (append-content me c last?))
       (add-msg-content [me c last?]
-        (addContent me c last?))
+        (add-content me c last?))
       (deref-msg [_] target)
       (end-msg-content [me]
-        (cond
-          (c/ist? HttpPostRequestDecoder impl)
-          (parsePost impl)
-          (c/ist? Attribute impl)
-          (getHttpData impl))))))
+        (try (cond (c/is? InterfaceHttpPostRequestDecoder impl)
+                   (parse-post impl)
+                   (c/is? Attribute impl)
+                   (get-http-data impl))
+             (catch Throwable _
+               (l/exception _)
+               (throw _)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- wholeResponse<> "" [^HttpDataFactory fac ^HttpResponse resp]
-  (let [owner (nc/fakeARequest<>)
-        impl (prepareBody fac owner)
+(defn- whole-response<+> "" [^HttpDataFactory fac ^HttpResponse resp]
+  (let [owner (nc/fake-request<>)
+        impl (prepare-body fac owner)
         _ (assert (some? impl))
         target {:impl impl :fac fac
-                :owner owner :body (i/xdata<>)}]
+                :owner owner :body (XData.)}]
     (reify HttpResponse
-      (setProtocolVersion [_ _]
-        (throw (UnsupportedOperationException.)))
+      (setProtocolVersion [_ _] (u/throw-UOE ""))
       (getDecoderResult [me] (.decoderResult me))
       (decoderResult [_] (.decoderResult owner))
-      (setDecoderResult [_ _]
-        (throw (UnsupportedOperationException.)))
+      (setDecoderResult [_ _] (u/throw-UOE ""))
       (getProtocolVersion [me] (.protocolVersion me))
       (headers [_] (.headers resp))
       (protocolVersion [_] (.protocolVersion owner))
       (getStatus [me] (.status me))
-      (setStatus [_ _]
-        (throw (UnsupportedOperationException.)))
+      (setStatus [_ _] (u/throw-UOE ""))
       (status [_] (.status resp))
-      nc/WholeMsgProto
+      nc/WholeMsgAPI
       (append-msg-content [me c last?]
-        (appendContent me c last?))
+        (append-content me c last?))
       (add-msg-content [me c last?]
-        (addContent me c last?))
+        (add-content me c last?))
       (deref-msg [_] target)
       (end-msg-content [me]
-        (getHttpData impl)))))
+        (get-http-data impl)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- handleExpect? "" [ctx msg]
-  (let [{:keys [maxContentSize]}
-        (nc/getAKey ctx nc/chcfg-key)]
-    (nc/maybeHandle100? ctx msg maxContentSize)))
+(defn- handle-expect? "" [ctx msg]
+  (let [{:keys [max-content-size]}
+        (nc/get-akey ctx nc/chcfg-key)]
+    (nc/maybe-handle-100? ctx msg max-content-size)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- h11Msg<> "" [ctx msg]
-  (if (c/ist? HttpRequest msg)
-    (wholeRequest<> (nc/getAKey ctx nc/dfac-key) msg)
-    (wholeResponse<> (nc/getAKey ctx nc/dfac-key) msg)))
+(defn- h11msg<> "" [ctx msg]
+  (if (c/is? HttpRequest msg)
+    (whole-request<+> (nc/get-akey ctx nc/dfac-key) msg)
+    (whole-response<+> (nc/get-akey ctx nc/dfac-key) msg)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- readH1Chunk "" [ctx part pipelining?]
-  ;;(log/debug "received chunk for msg")
+(defn- read-h1-chunk "" [ctx part pipelining?]
+  (l/debug "received chunk for msg-part %s." part)
   (let
-    [last? (c/ist? LastHttpContent part)
-     msg (nc/getAKey ctx h1pipe-M-key)]
+    [last? (c/is? LastHttpContent part)
+     msg (nc/get-akey ctx h1pipe-M-key)]
     (try
-      (if-not (nc/decoderSuccess? part)
-        (if (c/ist? HttpRequest msg)
-          (nc/replyStatus ctx
-                          (nc/scode HttpResponseStatus/BAD_REQUEST))
-          (nc/closeCH ctx))
+      (if-not (nc/decoder-success? part)
+        (if (c/is? HttpRequest msg)
+          (nc/reply-status ctx
+                           (nc/scode HttpResponseStatus/BAD_REQUEST))
+          (nc/close-ch ctx))
         (nc/append-msg-content msg part last?))
       (finally
         (nc/ref-del part)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- readLastH1Chunk "" [ctx part pipelining?]
-
-  (readH1Chunk ctx part pipelining?)
+(defn- read-last-h1-chunk "" [ctx part pipelining?]
+  (read-h1-chunk ctx part pipelining?)
   (let
-    [q (nc/getAKey ctx h1pipe-Q-key)
-     msg (nc/getAKey ctx h1pipe-M-key)
-     cur (nc/getAKey ctx h1pipe-C-key)]
-    (log/debug "got last chunk for msg %s" msg)
-    (nc/delAKey ctx h1pipe-M-key)
+    [q (nc/get-akey ctx h1pipe-Q-key)
+     msg (nc/get-akey ctx h1pipe-M-key)
+     cur (nc/get-akey ctx h1pipe-C-key)]
+    (l/debug "got last chunk for msg %s." msg)
+    (nc/del-akey ctx h1pipe-M-key)
     (if pipelining?
       (cond
         (nil? cur)
         (do
-          (nc/setAKey ctx h1pipe-C-key msg)
-          (fireMsg ctx msg))
+          (nc/set-akey ctx h1pipe-C-key msg)
+          (fire-msg ctx msg))
         :else
-        (do
-          (log/debug "H1 Pipelining is being used! The Marmushka!!!")
-          (.add ^List q msg)))
-      (fireMsg ctx msg))))
+        (do (l/debug "H1 Pipelining is being used! The Marmushka!!!")
+            (.add ^List q msg)))
+      (fire-msg ctx msg))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- readH1Message "" [ctx msg pipelining?]
+(defn- read-h1-message "" [ctx msg pipelining?]
   ;;no need to release msg -> request or response
-  (let [{:keys [maxContentSize
-                maxInMemory]} (nc/getAKey ctx nc/chcfg-key)]
-    (log/debug "reading message: %s" msg)
+  (let [{:keys [max-content-size
+                max-in-memory]} (nc/get-akey ctx nc/chcfg-key)]
+    (l/debug "reading message: %s." msg)
     (cond
-      (not (nc/decoderSuccess? msg))
-      (if (c/ist? HttpRequest msg)
-        (nc/replyStatus ctx
-                        (nc/scode HttpResponseStatus/BAD_REQUEST))
-        (nc/closeCH ctx))
-      (not (handleExpect? ctx msg))
+      (not (nc/decoder-success? msg))
+      (if (c/is? HttpRequest msg)
+        (nc/reply-status ctx
+                         (nc/scode HttpResponseStatus/BAD_REQUEST))
+        (nc/close-ch ctx))
+      (not (handle-expect? ctx msg))
       nil
       :else
-      (let [wo (h11Msg<> ctx msg)]
-        (nc/setAKey ctx h1pipe-M-key wo)
-        (if (c/ist? LastHttpContent msg)
-          (readLastH1Chunk ctx msg pipelining?))))))
+      (let [wo (h11msg<> ctx msg)]
+        (nc/set-akey ctx h1pipe-M-key wo)
+        (cond
+          (c/is? LastHttpContent msg)
+          (do (l/debug "last-content same as message...")
+              (read-last-h1-chunk ctx msg pipelining?))
+          (c/is? HttpContent msg)
+          (do (l/debug "content same as message....")
+              (read-h1-chunk ctx msg pipelining?)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- aggH1Read "" [ctx msg pipelining?]
+(defn agg-h1-read "" [ctx msg pipelining?]
   (cond
-    (c/ist? HttpMessage msg)
-    (readH1Message ctx msg pipelining?)
-    (c/ist? LastHttpContent msg)
-    (readLastH1Chunk ctx msg pipelining?)
-    (c/ist? HttpContent msg)
-    (readH1Chunk ctx msg pipelining?)
+    (c/is? HttpMessage msg)
+    (read-h1-message ctx msg pipelining?)
+    (c/is? LastHttpContent msg)
+    (read-last-h1-chunk ctx msg pipelining?)
+    (c/is? HttpContent msg)
+    (read-h1-chunk ctx msg pipelining?)
     :else
-    (fireMsg ctx msg)))
+    (fire-msg ctx msg)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- dequeueReq "" [^ChannelHandlerContext ctx msg pipe?]
-  (when (and (or (c/ist? FullHttpResponse msg)
-                 (c/ist? LastHttpContent msg))
+(defn- dequeue-req "" [^ChannelHandlerContext ctx msg pipe?]
+  (when (and (or (c/is? FullHttpResponse msg)
+                 (c/is? LastHttpContent msg))
              pipe?)
-    (let [^List q (nc/getAKey ctx h1pipe-Q-key)
-          cur (nc/getAKey ctx h1pipe-C-key)]
-      (if (nil? cur) (c/throwISE "response but no request, msg=%s" msg))
-      (if (nil? q) (c/throwISE "request queue is null"))
+    (let [^List q (nc/get-akey ctx h1pipe-Q-key)
+          cur (nc/get-akey ctx h1pipe-C-key)]
+      (if (nil? cur) (u/throw-ISE "response but no request, msg=%s." msg))
+      (if (nil? q) (u/throw-ISE "request queue is null"))
       (let [c (if-not (.isEmpty q) (.remove q 0))]
-        (nc/setAKey ctx h1pipe-C-key c)
-        (fireMsg ctx c)))))
+        (nc/set-akey ctx h1pipe-C-key c)
+        (fire-msg ctx c)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn h1reqAggregator<>
+(defn h1req-aggregator<>
   "A handler which aggregates chunks into a full request.  For http-header-expect,
   returns 100-continue if the payload size is below limit.  Also optionally handle
   http 1.1 pipelining by default"
   {:tag ChannelHandler}
 
-  ([] (h1reqAggregator<> true))
+  ([] (h1req-aggregator<> true))
   ([pipelining?]
    (proxy [DuplexHandler][false]
      (onActive [ctx]
-       (nc/setAKey* ctx
-                 h1pipe-Q-key (ArrayList.)
-                 h1pipe-M-key nil h1pipe-C-key nil))
+       (nc/set-akey* ctx
+                     h1pipe-Q-key (ArrayList.)
+                     h1pipe-M-key nil h1pipe-C-key nil))
      (onInactive [ctx]
-       (nc/delAKey* ctx h1pipe-Q-key h1pipe-M-key h1pipe-C-key))
+       (nc/del-akey* ctx h1pipe-Q-key h1pipe-M-key h1pipe-C-key))
      (readMsg [ctx msg]
-       (aggH1Read ctx msg pipelining?))
+       (agg-h1-read ctx msg pipelining?))
      (onWrite [ctx msg cp]
        (let [skip?
-             (and (c/ist? FullHttpResponse msg)
+             (and (c/is? FullHttpResponse msg)
                   (= (.status ^FullHttpResponse msg)
                      HttpResponseStatus/CONTINUE))]
          (if-not skip?
-           (dequeueReq ctx msg pipelining?)))))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn h1resAggregator<>
-  "A handler which aggregates chunks into a full response"
-  ^ChannelHandler
-  []
-  (proxy [DuplexHandler][false]
-    (readMsg [ctx msg] (aggH1Read ctx msg false))))
+           (dequeue-req ctx msg pipelining?)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
 (defn- finito "" [^ChannelHandlerContext ctx sid]
-  (let [^HttpDataFactory df (nc/getAKey ctx nc/dfac-key)
-        ^Map hh (nc/getAKey ctx h2msg-h-key)
-        ^Map dd (nc/getAKey ctx h2msg-d-key)
+  (let [^HttpDataFactory df (nc/get-akey ctx nc/dfac-key)
+        ^Map hh (nc/get-akey ctx h2msg-h-key)
+        ^Map dd (nc/get-akey ctx h2msg-d-key)
         [^HttpRequest fake
          ^Attribute attr]
         (some-> dd (.get sid))
@@ -410,63 +407,60 @@
     (some-> hh (.remove sid))
     (let [x
           (if attr
-            (i/xdata<> (if (.isInMemory attr)
-                         (.get attr)
-                         (c/doto->> (.getFile attr)
-                                    (.renameTo attr))))
-            (i/xdata<>))
-          msg (c/object<> NettyH2Msg
-                          {:headers hds :body x})]
+            (XData. (if (.isInMemory attr)
+                      (.get attr)
+                      (c/doto->> (.getFile attr)
+                                 (.renameTo attr))))
+            (XData.))
+          msg (assoc (NettyH2Msg.)
+                     :headers hds :body x)]
       (some-> attr .release)
-      (log/debug "finito: fire msg upstream: %s" msg)
+      (l/debug "finito: fire msg upstream: %s." msg)
       (.fireChannelRead ctx msg))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- readH2FrameEx "" [^ChannelHandlerContext ctx
-                         sid
-                         ^ByteBuf data end?]
-  (let [^HttpDataFactory df (nc/getAKey ctx nc/dfac-key)
-        ^Map m (nc/getAKey ctx h2msg-d-key)
+(defn- read-h2-frameEx "" [^ChannelHandlerContext ctx
+                           sid
+                           ^ByteBuf data end?]
+  (let [^HttpDataFactory df (nc/get-akey ctx nc/dfac-key)
+        ^Map m (nc/get-akey ctx h2msg-d-key)
         [_ ^Attribute attr] (.get m sid)]
     (.addContent attr (.retain data) end?)
     (if end? (finito ctx sid))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- readH2Frame "" [^ChannelHandlerContext ctx sid]
-  (let [^HttpDataFactory df (nc/getAKey ctx nc/dfac-key)
-        ^Map m (or (nc/getAKey ctx h2msg-d-key)
+(defn- read-h2-frame "" [^ChannelHandlerContext ctx sid]
+  (let [^HttpDataFactory df (nc/get-akey ctx nc/dfac-key)
+        ^Map m (or (nc/get-akey ctx h2msg-d-key)
                    (c/doto->> (HashMap.)
-                              (nc/setAKey ctx h2msg-d-key)))
+                              (nc/set-akey ctx h2msg-d-key)))
         [fake attr] (.get m sid)]
     (if (nil? fake)
-      (let [r (nc/fakeARequest<>)]
+      (let [r (nc/fake-request<>)]
         (.put m
               sid
               [r (.createAttribute df r body-attr-id)])))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn h20Aggregator<>
+(defn h20-aggregator<>
   "A handler which aggregates frames into a full message"
   {:tag Http2FrameListener}
-  ([] (h20Aggregator<> nil))
+  ([] (h20-aggregator<> nil))
   ([^ChannelPromise pm]
    (proxy [Http2FrameAdapter][]
      (onSettingsRead [ctx ss]
-       (c/trye! nil (some-> pm .setSuccess)))
+       (c/try! (some-> pm .setSuccess)))
      (onDataRead [ctx sid data pad end?]
-       (log/debug "rec'ved data: sid#%s, end?=%s" sid end?)
+       (l/debug "rec'ved data: sid#%s, end?=%s." sid end?)
        (c/do-with [b (+ pad (.readableBytes ^ByteBuf data))]
-                  (readH2Frame ctx sid)
-                  (readH2FrameEx ctx sid data end?)))
+         (read-h2-frame ctx sid)
+         (read-h2-frameEx ctx sid data end?)))
      (onHeadersRead
        ([ctx sid hds pad end?]
-        (log/debug "rec'ved headers: sid#%s, end?=%s" sid end?)
-        (let [^Map m (or (nc/getAKey ctx h2msg-h-key)
+        (l/debug "rec'ved headers: sid#%s, end?=%s" sid end?)
+        (let [^Map m (or (nc/get-akey ctx h2msg-h-key)
                          (c/doto->> (HashMap.)
-                                    (nc/setAKey ctx h2msg-h-key)))]
+                                    (nc/set-akey ctx h2msg-h-key)))]
           (.put m sid hds)
           (if end? (finito ctx sid))))
        ([ctx sid hds
@@ -474,78 +468,68 @@
         (.onHeadersRead ^Http2FrameAdapter this ctx sid hds pad end?))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- readWSFrameEx "" [^ChannelHandlerContext ctx
-                         ^ContinuationWebSocketFrame msg]
-  (let [^HttpDataFactory df (nc/getAKey ctx nc/dfac-key)
+(defn- read-ws-frame-ex "" [^ChannelHandlerContext ctx
+                           ^ContinuationWebSocketFrame msg]
+  (let [^HttpDataFactory df (nc/get-akey ctx nc/dfac-key)
         last? (.isFinalFragment msg)
         {:keys [^Attribute attr fake] :as rc}
-        (nc/getAKey ctx wsock-res-key)]
+        (nc/get-akey ctx wsock-res-key)]
     (.addContent attr (.. msg content retain) last?)
     (nc/ref-del msg)
     (when last?
       (.removeHttpDataFromClean df fake attr)
-      (let [x (i/xdata<>
+      (let [x (XData.
                 (if (.isInMemory attr)
                   (.get attr)
                   (c/doto->> (.getFile attr) (.renameTo attr))))]
         (.release attr)
-        (->> (-> (dissoc rc :attr :fake)
-                 (assoc :body x)
-                 fmtWSMsg)
-             (c/object<> NettyWsockMsg )
+        (->> (-> (dissoc rc :attr :fake) (assoc :body x) fmt-wsmsg)
+             (merge (NettyWsockMsg.))
              (.fireChannelRead ctx))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- readWSFrame "" [^ChannelHandlerContext ctx ^WebSocketFrame msg]
-  (let [rc {:isText? (c/ist? TextWebSocketFrame msg)
+(defn- read-ws-frame "" [^ChannelHandlerContext ctx ^WebSocketFrame msg]
+  (let [rc {:isText? (c/is? TextWebSocketFrame msg)
             :charset (Charset/forName "utf-8")} ]
     (cond
-      (c/ist? PongWebSocketFrame msg)
-      (->> (c/object<> NettyWsockMsg
-                       (fmtWSMsg (assoc rc :pong? true)))
+      (c/is? PongWebSocketFrame msg)
+      (->> (merge (NettyWsockMsg.)
+                  (fmt-wsmsg (assoc rc :pong? true)))
            (.fireChannelRead ctx ))
       (.isFinalFragment msg)
-      (->> (c/object<> NettyWsockMsg
-                       (fmtWSMsg
-                         (assoc rc
-                                :body (i/xdata<>
-                                        (nc/toByteArray
-                                          (.content msg))))))
+      (->> (merge (NettyWsockMsg.)
+                  (fmt-wsmsg (assoc rc
+                                    :body (XData.
+                                            (nc/to-byte-array (.content msg))))))
            (.fireChannelRead ctx ))
       :else
-      (let [^HttpDataFactory df (nc/getAKey ctx nc/dfac-key)
-            req (nc/fakeARequest<>)
+      (let [^HttpDataFactory df (nc/get-akey ctx nc/dfac-key)
+            req (nc/fake-request<>)
             ^Attribute a (.createAttribute df
                                            req body-attr-id)
             rc (assoc rc :attr a)]
         (.addContent a (.. msg content retain) false)
-        (nc/setAKey ctx wsock-res-key rc)))
+        (nc/set-akey ctx wsock-res-key rc)))
     (nc/ref-del msg)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(def ^:private wsock-agg
+(def
+  ^{:tag ChannelHandler
+    :doc "A handler that aggregates frames into a full message."}
+  wsock-aggregator<>
   (proxy [DuplexHandler][false]
     (readMsg [ctx msg]
       (cond
-        (c/ist? ContinuationWebSocketFrame msg)
-        (readWSFrameEx ctx msg)
-        (c/ist? TextWebSocketFrame msg)
-        (readWSFrame ctx msg)
-        (c/ist? BinaryWebSocketFrame msg)
-        (readWSFrame ctx msg)
-        (c/ist? PongWebSocketFrame msg)
-        (readWSFrame ctx msg)
+        (c/is? ContinuationWebSocketFrame msg)
+        (read-ws-frame-ex ctx msg)
+        (c/is? TextWebSocketFrame msg)
+        (read-ws-frame ctx msg)
+        (c/is? BinaryWebSocketFrame msg)
+        (read-ws-frame ctx msg)
+        (c/is? PongWebSocketFrame msg)
+        (read-ws-frame ctx msg)
         :else
         (.fireChannelRead ^ChannelHandlerContext ctx msg)))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn wsockAggregator<>
-  "A handler that
-  aggregates frames into a full message" ^ChannelHandler [] wsock-agg)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF

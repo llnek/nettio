@@ -1,4 +1,4 @@
-;; Copyright (c) 2013-2017, Kenneth Leung. All rights reserved.
+;; Copyright © 2013-2019, Kenneth Leung. All rights reserved.
 ;; The use and distribution terms for this software are covered by the
 ;; Eclipse Public License 1.0 (http://opensource.org/licenses/eclipse-1.0.php)
 ;; which can be found in the file epl-v10.html at the root of this distribution.
@@ -11,19 +11,19 @@
 
   czlab.nettio.resp
 
-  (:require [czlab.convoy.mime :as mm :refer [guessContentType]]
-            [czlab.convoy.core :as cc :refer :all]
-            [czlab.nettio.ranges :as nr]
+  (:require [czlab.convoy.mime :as mm]
+            [czlab.convoy.core :as cc]
             [czlab.nettio.core :as nc]
-            [czlab.basal.log :as log]
+            [czlab.basal.log :as l]
             [clojure.java.io :as io]
             [clojure.string :as cs]
-            [czlab.convoy.wess :as ss]
             [czlab.basal.dates :as d]
-            [czlab.basal.meta :as m]
+            [czlab.basal.util :as u]
             [czlab.basal.str :as s]
             [czlab.basal.io :as i]
-            [czlab.basal.core :as c])
+            [czlab.basal.core :as c]
+            [czlab.convoy.webss :as ss]
+            [czlab.nettio.ranges :as nr])
 
   (:import [io.netty.channel ChannelFuture Channel ChannelHandlerContext]
            [io.netty.buffer Unpooled ByteBuf ByteBufAllocator]
@@ -32,8 +32,9 @@
            [clojure.lang APersistentVector]
            [java.nio.charset Charset]
            [java.net HttpCookie URL]
-           [czlab.jasal DateUtil XData]
            [java.util Date]
+           [czlab.basal XData]
+           [czlab.nettio DateUtil]
            [io.netty.handler.codec.http
             HttpResponseStatus
             DefaultHttpHeaders
@@ -54,7 +55,6 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;(set! *warn-on-reflection* false)
-
 (def ^:private conds-hds
   [[:if-unmod-since HttpHeaderNames/IF_UNMODIFIED_SINCE]
    [:if-mod-since HttpHeaderNames/IF_MODIFIED_SINCE]
@@ -69,92 +69,84 @@
     [:ctype HttpHeaderNames/CONTENT_TYPE]])
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(c/decl-object NettyResultObj
+(defrecord NettyResultObj []
   cc/HttpResultMsg
   cc/HttpMsgGist
-  (msgHeader? [msg h]
+  (msg-header? [msg h]
     (.contains (nc/mg-headers?? msg) (nc/mg-cs?? h)))
-  (msgHeader [msg h]
+  (msg-header [msg h]
     (.get (nc/mg-headers?? msg) (nc/mg-cs?? h)))
-  (msgHeaderKeys [msg]
+  (msg-header-keys [msg]
     (set (.names (nc/mg-headers?? msg))))
-  (msgHeaderVals [msg h]
+  (msg-header-vals [msg h]
     (vec (.getAll (nc/mg-headers?? msg) (nc/mg-cs?? h)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- result<> "" [theReq status]
-  {:pre [(or (nil? status)
-             (number? status))]}
-  (c/object<> NettyResultObj
-              {:status (or status (nc/scode HttpResponseStatus/OK))
-               :ver (.text HttpVersion/HTTP_1_1)
-               :headers (DefaultHttpHeaders.)
-               :request theReq
-               :cookies {}
-               :framework :netty}))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
 (declare replyer<> result<>)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
+(defn- result<> "" [theReq status]
+  {:pre [(or (nil? status)
+             (number? status))]}
+  (assoc (NettyResultObj.)
+         :ver (.text HttpVersion/HTTP_1_1)
+         :headers (DefaultHttpHeaders.)
+         :request theReq
+         :cookies {}
+         :framework :netty
+         :status (or status (nc/scode HttpResponseStatus/OK))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (extend-type czlab.nettio.core.NettyH1Msg
-  HttpResultMsgCreator
+  cc/HttpResultMsgCreator
   (http-result
-    ([theReq] (http-result theReq 200))
+    ([theReq] (cc/http-result theReq 200))
     ([theReq status] (result<> theReq status))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
 (extend-type czlab.nettio.resp.NettyResultObj
-  HttpResultMsgReplyer
+  cc/HttpResultMsgReplyer
   (reply-result
-    ([theRes] (reply-result theRes nil))
+    ([theRes] (cc/reply-result theRes nil))
     ([theRes arg] (replyer<> theRes arg)))
-  HttpResultMsgModifier
-  (remove-res-header [res name]
+  cc/HttpResultMsgModifier
+  (res-header-del [res name]
     (c/do-with
       [res res]
       (.remove ^HttpHeaders (:headers res) ^CharSequence name)))
-  (add-res-header [res name value]
+  (res-header-add [res name value]
     (c/do-with
       [res res]
-      (nc/addHeader (:headers res) name value)))
-  (set-res-header [res name value]
+      (nc/add-header (:headers res) name value)))
+  (res-header-set [res name value]
     (c/do-with
       [res res]
-      (nc/setHeader (:headers res) name value))))
+      (nc/set-header (:headers res) name value))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn eTagFromFile
+(defn etag-from-file
   "ETag based on a file object" [^File f]
   (format "\"%s-%s\"" (.lastModified f) (.hashCode f)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defmacro ^:private codeOK? "" [c] `(let [c# ~c]
-                                      (and (>= c# 200)(< c# 300))))
+(defmacro ^:private code-ok?
+  "" [c] `(let [c# ~c]
+            (and (>= c# 200)(< c# 300))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defmacro ^:private condErrCode "" [m]
+(defmacro ^:private cond-err-code "" [m]
   `(if
-     (s/eqAny? ~m ["GET" "HEAD"])
+     (s/eq-any? ~m ["GET" "HEAD"])
      (nc/scode HttpResponseStatus/NOT_MODIFIED)
      (nc/scode HttpResponseStatus/PRECONDITION_FAILED)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- ifNoneMatch?
+(defn- if-none-match?
   "Condition fails if the reply eTag
   matches, or if filter is a wildcard"
   [method eTag code body conds]
 
-  (let [ec (condErrCode method)
+  (let [ec (cond-err-code method)
         {:keys [value has?]}
         (:if-none-match conds)
         value (s/strim value)
@@ -162,22 +154,21 @@
             (or (not has?)
                 (s/nichts? value))
             code
-            (s/eqAny? value ["*" "\"*\""])
+            (s/eq-any? value ["*" "\"*\""])
             (if (s/hgl? eTag) ec code)
-            (s/eqAny? eTag (map #(s/strim %)
-                                (.split value ",")))
+            (s/eq-any? eTag (map #(s/strim %)
+                                 (.split value ",")))
             ec
             :else code)]
     [c body]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- ifMatch?
+(defn- if-match?
   "Condition fails if reply eTag doesn't
   match, or if filter is wildcard and no eTag"
   [method eTag code body conds]
 
-  (let [ec (condErrCode method)
+  (let [ec (cond-err-code method)
         {:keys [value has?]}
         (:if-match conds)
         value (s/strim value)
@@ -185,23 +176,22 @@
             (or (not has?)
                 (s/nichts? value))
             code
-            (s/eqAny? value ["*" "\"*\""])
+            (s/eq-any? value ["*" "\"*\""])
             (if (s/hgl? eTag) code ec)
-            (not (s/eqAny? eTag
-                           (map #(s/strim %)
-                                (.split value ","))))
+            (not (s/eq-any? eTag
+                            (map #(s/strim %)
+                                 (.split value ","))))
             ec
             :else code)]
     [c body]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- ifUnmodSince?
+(defn- if-unmod-since?
   "Condition fails if the last-modified
   timestamp is greater than the given date"
   [method lastMod code body conds]
 
-  (let [rc (condErrCode method)
+  (let [rc (cond-err-code method)
         {:keys [value has?]}
         (:if-unmod-since conds)
         value (s/strim value)
@@ -213,13 +203,12 @@
     [c body]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- ifModSince?
+(defn- if-mod-since?
   "Condition fails if the last-modified
   time-stamp is less than the given date"
   [method lastMod code body conds]
 
-  (let [rc (condErrCode method)
+  (let [rc (cond-err-code method)
         {:keys [value has?]}
         (:if-mod-since conds)
         value (s/strim value)
@@ -231,8 +220,7 @@
     [c body]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- ifRange?
+(defn- if-range?
   "Sort out the range if any, then apply
   the if-range condition"
   [eTag lastMod code cType body conds]
@@ -244,7 +232,7 @@
      {:keys [value has?]}
      (:range conds)
      value (s/strim value)
-     g (nr/evalRanges (if has? value nil) cType body)]
+     g (nr/eval-ranges (if has? value nil) cType body)]
     (cond
       (or (not has?)
           (s/nichts? value))
@@ -254,9 +242,9 @@
       (s/nichts? hd)
       (let []
         [pc g])
-      (and (.endsWith hd "GMT")
-           (> (.indexOf hd (int \,)) 0)
-           (> (.indexOf hd (int \:)) 0))
+      (and (cs/ends-with? hd "GMT")
+           (cs/index-of hd \,)
+           (cs/index-of hd \:))
       (let [t (DateUtil/parseHttpDate hd -1)]
         (if (and (c/spos? lastMod)
                  (c/spos? t)
@@ -269,38 +257,33 @@
       [pc g])))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
 (defn converge
   "" [^Charset cs body]
 
-  (let [body (if (c/ist? XData body)
+  (let [body (if (c/is? XData body)
                (.content ^XData body) body)]
     (cond
-      (m/isBytes? body)
+      (bytes? body)
       body
       (string? body)
-      (.getBytes ^String body cs)
+      (i/x->bytes body cs)
       :else body)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- zmapHeaders "" [msg headers]
+(defn- zmap-headers "" [msg headers]
   (zipmap (map #(let [[k v] %1] k) headers)
           (map #(let [[k v] %1]
-                  {:has? (cc/msgHeader? msg v)
-                   :value (cc/msgHeader msg v)}) headers)))
+                  {:has? (cc/msg-header? msg v)
+                   :value (cc/msg-header msg v)}) headers)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- writeHeaders
+(defn- write-headers
   "" ^HttpHeaders
   [^HttpResponse rsp headers] (.set (.headers rsp) headers))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
 (defn- replyer<> "" [res sessionObj]
-
-  (log/debug "replyer called with res = %s" res)
+  (l/debug "replyer called with res = %s.\nsessionObj = %s." res sessionObj)
   (let
     [res (ss/downstream res sessionObj)
      req (:request res)
@@ -308,48 +291,48 @@
      ch (:socket req)
      method (:method req)
      {:keys [headers
-             lastMod
-             eTag
+             last-mod
+             etag
              cookies] :as cfg}
      res
-     cs (c/toCharset (:charset res))
+     cs (u/charset?? (:charset res))
      code (:status res)
      body0 (->> (:body res)
                 (converge cs))
-     _ (log/debug "resp: body0===> %s" body0)
-     conds (zmapHeaders req conds-hds)
-     rhds (zmapHeaders res resp-hds)
+     _ (l/debug "resp: body0===> %s." body0)
+     conds (zmap-headers req conds-hds)
+     rhds (zmap-headers res resp-hds)
      cType (get-in rhds [:ctype :value])
      [code body]
-     (if (codeOK? code)
-       (ifRange? eTag lastMod code cType body0 conds)
+     (if (code-ok? code)
+       (if-range? etag last-mod code cType body0 conds)
        [code body0])
      [code body]
-     (if (codeOK? code)
-       (ifMatch? method eTag code body conds)
+     (if (code-ok? code)
+       (if-match? method etag code body conds)
        [code body])
      [code body]
-     (if (codeOK? code)
-       (ifNoneMatch? method eTag code body conds)
+     (if (code-ok? code)
+       (if-none-match? method etag code body conds)
        [code body])
      [code body]
-     (if (codeOK? code)
-       (ifModSince? method lastMod code body conds)
+     (if (code-ok? code)
+       (if-mod-since? method last-mod code body conds)
        [code body])
      [code body]
-     (if (codeOK? code)
-       (ifUnmodSince? method lastMod code body conds)
+     (if (code-ok? code)
+       (if-unmod-since? method last-mod code body conds)
        [code body])
      [code body]
      (if (and (= "HEAD" method)
-              (codeOK? code))
+              (code-ok? code))
        [code nil]
        [code body])
      rangeRef
-     (if (c/ist? czlab.nettio.ranges.HttpRanges body) body)
+     (if (c/is? czlab.nettio.ranges.HttpRanges body) body)
      [body clen]
      (cond
-       (c/ist? InputStream body)
+       (c/is? InputStream body)
        [(HttpChunkedInput.
           (ChunkedStream. ^InputStream body)) -1]
 
@@ -357,10 +340,10 @@
        [(HttpChunkedInput. ^ChunkedInput body)
         (.length ^ChunkedInput body)]
 
-       (m/instBytes? body)
+       (bytes? body)
        [body (alength ^bytes body)]
 
-       (c/ist? File body)
+       (c/is? File body)
        [(HttpChunkedInput.
           (ChunkedNioFile. ^File body))
         (.length ^File body)]
@@ -368,61 +351,61 @@
        (nil? body)
        [nil 0]
        :else
-       (c/throwIOE "Unsupported result content"))
+       (u/throw-IOE "Unsupported result content"))
      [rsp body]
      (cond
-       (m/instBytes? body)
-       [(nc/httpFullReply<> code body (.alloc ch)) nil]
+       (bytes? body)
+       [(nc/http-reply<+> code body (.alloc ch)) nil]
        (nil? body)
-       [(nc/httpFullReply<> code) nil]
-       (and (== clen 0)
+       [(nc/http-reply<+> code) nil]
+       (and (zero? clen)
             (nil? body))
-       [(nc/httpFullReply<> code) nil]
+       [(nc/http-reply<+> code) nil]
        :else
-       [(nc/httpReply<> code) body])
-     hds (writeHeaders rsp headers)]
+       [(nc/http-reply<> code) body])
+     hds (write-headers rsp headers)]
     (cond
       (= code 416)
-      (nr/fmtError hds body0)
+      (nr/fmt-error hds body0)
       (some? rangeRef)
-      (nr/fmtSuccess hds rangeRef))
-    (log/debug "response = %s" rsp)
-    (log/debug "body = %s" body)
-    (log/debug "body-len = %s" clen)
-    (->> (and (not (c/ist? FullHttpResponse rsp))
+      (nr/fmt-success hds rangeRef))
+    (l/debug "response = %s" rsp)
+    (l/debug "body = %s" body)
+    (l/debug "body-len = %s" clen)
+    (->> (and (not (c/is? FullHttpResponse rsp))
               (some? body))
          (HttpUtil/setTransferEncodingChunked rsp ))
     (if-not (c/sneg? clen)
       (HttpUtil/setContentLength rsp clen))
     (if (c/sneg? clen)
       (HttpUtil/setKeepAlive rsp false)
-      (HttpUtil/setKeepAlive rsp (:isKeepAlive? req)))
+      (HttpUtil/setKeepAlive rsp (:is-keep-alive? req)))
     (if (or (nil? body)
-            (and (== clen 0)(nil? body)))
+            (and (zero? clen)(nil? body)))
       (.remove hds HttpHeaderNames/CONTENT_TYPE))
-    (doseq [s (nc/encodeJavaCookies (vals cookies))]
-      (log/debug "resp: setting cookie: %s" s)
+    (doseq [s (nc/encode-java-cookies (vals cookies))]
+      (l/debug "resp: setting cookie: %s" s)
       (.add hds HttpHeaderNames/SET_COOKIE s))
-    (if (and (c/spos? lastMod)
+    (if (and (c/spos? last-mod)
              (not (get-in rhds [:last-mod :has?])))
       (.set hds
             HttpHeaderNames/LAST_MODIFIED
-            (DateUtil/formatHttpDate ^long lastMod)))
-    (if (and (s/hgl? eTag)
+            (DateUtil/formatHttpDate ^long last-mod)))
+    (if (and (s/hgl? etag)
              (not (get-in rhds [:etag :has?])))
-      (.set hds HttpHeaderNames/ETAG eTag))
+      (.set hds HttpHeaderNames/ETAG etag))
     (let [c? (HttpUtil/isKeepAlive rsp)
           cf (if (nil? body)
                (do
-                 (log/debug "reply has NO body, write and flush %s" rsp)
+                 (l/debug "reply has NO body, write and flush %s" rsp)
                  (.writeAndFlush ch rsp))
                (do
-                 (log/debug "reply has SOME body, write and flush %s" rsp)
+                 (l/debug "reply has SOME body, write and flush %s" rsp)
                  (.write ch rsp)
-                 (log/debug "reply body, write and flush body: %s" body)
+                 (l/debug "reply body, write and flush body: %s" body)
                  (.writeAndFlush ch body)))]
-      (log/debug "resp replied, keep-alive? = %s" c?)
-      (nc/closeCF cf c?))))
+      (l/debug "resp replied, keep-alive? = %s" c?)
+      (nc/close-cf cf c?))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF

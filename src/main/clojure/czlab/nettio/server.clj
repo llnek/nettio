@@ -1,4 +1,4 @@
-;; Copyright (c) 2013-2017, Kenneth Leung. All rights reserved.
+;; Copyright © 2013-2019, Kenneth Leung. All rights reserved.
 ;; The use and distribution terms for this software are covered by the
 ;; Eclipse Public License 1.0 (http://opensource.org/licenses/eclipse-1.0.php)
 ;; which can be found in the file epl-v10.html at the root of this distribution.
@@ -13,10 +13,11 @@
 
   (:require [czlab.nettio.http11 :as h1]
             [czlab.convoy.routes :as cr]
-            [czlab.basal.log :as log]
+            [czlab.basal.log :as l]
             [clojure.java.io :as io]
             [clojure.string :as cs]
             [czlab.basal.core :as c]
+            [czlab.basal.util :as u]
             [czlab.basal.str :as s]
             [czlab.basal.io :as i]
             [czlab.nettio.msgs :as mg]
@@ -73,7 +74,6 @@
             ApplicationProtocolConfig$SelectorFailureBehavior
             ApplicationProtocolConfig$SelectedListenerFailureBehavior]
            [io.netty.handler.codec.http HttpMessage]
-           [czlab.jasal DataError LifeCycle]
            [java.util ArrayList]
            [java.security KeyStore]
            [io.netty.bootstrap
@@ -96,17 +96,15 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;(set! *warn-on-reflection* true)
-(def ^:private ^ChannelHandler obj-agg (mg/h1reqAggregator<>))
-(def ^:private ^ChannelHandler req-hdr (h1/h1reqHandler<>))
+(def ^:private ^ChannelHandler obj-agg (mg/h1req-aggregator<>))
+(def ^:private ^ChannelHandler req-hdr (h1/h1req-handler<>))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
 (defmacro ^:private tmfda "" [] `(TrustManagerFactory/getDefaultAlgorithm))
 (defmacro ^:private kmfda "" [] `(KeyManagerFactory/getDefaultAlgorithm))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- buildCtx
+(defn- build-ctx
   "" ^SslContextBuilder [^String skey pwd]
 
   (cond
@@ -119,27 +117,25 @@
     :else
     (let [t (TrustManagerFactory/getInstance (tmfda))
           k (KeyManagerFactory/getInstance (kmfda))
-          cpwd (some-> pwd c/charsit)
+          cpwd (some-> pwd i/x->chars)
           ks (KeyStore/getInstance
                ^String
-               (if (.endsWith skey ".jks") "JKS" "PKCS12"))
-          _ (with-open
-              [inp (.openStream (URL. skey))]
+               (if (cs/ends-with? skey ".jks") "JKS" "PKCS12"))
+          _ (c/wo*
+              [inp (io/input-stream (URL. skey))]
               (.load ks inp cpwd)
               (.init t ks)
               (.init k ks cpwd))]
       (-> (SslContextBuilder/forServer k) (.trustManager t)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- maybeCfgSSL1
-  "" ^SslContext [skey pwd] (some-> (buildCtx skey pwd) .build))
+(defn- maybe-cfg-ssl1
+  "" ^SslContext [skey pwd] (some-> (build-ctx skey pwd) .build))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- maybeCfgSSL2
+(defn- maybe-cfg-ssl2
   "" ^SslContext [skey pwd]
-  (if-some [ctx (buildCtx skey pwd)]
+  (if-some [ctx (build-ctx skey pwd)]
     (let
       [cfg
        (ApplicationProtocolConfig.
@@ -161,8 +157,7 @@
         (.build)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- buildH2
+(defn- build-h2
   ""
   ^ChannelHandler
   [^Http2FrameListener h2 args]
@@ -176,8 +171,7 @@
       (.setListener h2) (.newHandler true)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- cfgH2
+(defn- cfgh2
   "" [^ChannelPipeline pp h2 args]
   (let
     [hh (HttpToHttp2ConnectionHandlerBuilder.)
@@ -185,10 +179,10 @@
      ^Http2FrameListener
      c
      (cond
-       (c/ist? Http2FrameListener h2) h2
-       (fn? h2) (mg/h20Aggregator<>)
+       (c/is? Http2FrameListener h2) h2
+       (fn? h2) (mg/h20-aggregator<>)
        :else
-       (c/throwBadData "Bad handler type"))
+       (u/throw-BadData "Bad handler type"))
      _ (.frameListener hh c)
      p (proxy [InboundHandler][true]
          (readMsg [ctx msg] (h2 ctx msg)))]
@@ -199,19 +193,17 @@
       (.addLast nc/user-handler-id p))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- cfgH1 "" [^ChannelPipeline pp h1 args]
-
+(defn- cfgh1 "" [^ChannelPipeline pp h1 args]
   (let
     [^ChannelHandler
      u
      (cond
-       (c/ist? ChannelHandler h1) h1
+       (c/is? ChannelHandler h1) h1
        (fn? h1)
        (proxy [InboundHandler][true]
          (readMsg [ctx msg] (h1 ctx msg)))
        :else
-       (c/throwBadData "bad handler type"))]
+       (u/throw-BadData "bad handler type"))]
     (doto pp
       (.addLast "SC" (HttpServerCodec.))
       (.addLast "OA" obj-agg)
@@ -220,8 +212,7 @@
       (.addLast nc/user-handler-id u))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- onSSL
+(defn- onssl
   "" [^ChannelPipeline cpp h1 h2 args]
 
   (cond
@@ -236,24 +227,22 @@
             (cond
               (AsciiString/contentEquals
                 ApplicationProtocolNames/HTTP_1_1 pn)
-              (cfgH1 pp h1 args)
+              (cfgh1 pp h1 args)
               (AsciiString/contentEquals
                 ApplicationProtocolNames/HTTP_2 pn)
-              (cfgH2 pp h2 args)
+              (cfgh2 pp h2 args)
               :else
-              (c/trap! IllegalStateException
-                       (str "unknown protocol: " pn))))))
+              (u/throw-ISE "unknown protocol: %s." pn)))))
       (.addLast cpp "SSLNegotiator"))
     (some? h2)
-    (cfgH2 cpp h2 args)
+    (cfgh2 cpp h2 args)
     (some? h1)
-    (cfgH1 cpp h1 args)))
+    (cfgh1 cpp h1 args)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn udpInitor<>
+(defn udp-initor<>
   "" ^ChannelHandler [hu args]
-  {:pre [(c/ist? ChannelHandler hu)]}
+  {:pre [(c/is? ChannelHandler hu)]}
   (proxy [ChannelInitializer][]
     (initChannel [ch]
       (let [ch (c/cast? Channel ch)
@@ -263,10 +252,8 @@
                   ^ChannelHandler hu)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn tcpInitor<>
+(defn tcp-initor<>
   "" ^ChannelHandler [^SslContext ctx hh1 hh2 args]
-
   (proxy [ChannelInitializer][]
     (initChannel [ch]
       (let [ch (c/cast? Channel ch)
@@ -275,18 +262,15 @@
           (do (->> (.newHandler ctx
                                 (.alloc ch))
                    (.addLast pp "ssl"))
-              (onSSL pp hh1 hh2 args))
-          (cfgH1 pp hh1 args))))))
+              (onssl pp hh1 hh2 args))
+          (cfgh1 pp hh1 args))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
 (defn- start-svr
-  "" ^Channel
-  [^AbstractBootstrap bs host port]
-
-  (let [sbs (c/cast? ServerBootstrap bs)
+  "" ^Channel [bs host port]
+  (let [bs (c/cast? ServerBootstrap bs)
         ^H1DataFactory
-        dfac (some-> sbs
+        dfac (some-> bs
                      .config
                      .childAttrs
                      (.get nc/dfac-key))
@@ -295,61 +279,51 @@
              (InetAddress/getLocalHost))]
     (c/do-with [ch (-> (.bind bs ip (int port))
                        .sync .channel)]
-      (log/debug "netty-svr running on host %s:%s" ip port)
-      (nc/futureCB
+      (l/debug "netty-svr running on host %s:%s." ip port)
+      (nc/future-cb
         (.closeFuture ch)
         (fn [_]
-          (log/debug "shutdown: server bootstrap@ip %s" ip)
-          (c/try!
-            (some-> dfac .cleanAllHttpData)
-            (some-> sbs
-                    .config .childGroup .shutdownGracefully)
-            (.. bs config group shutdownGracefully)))))))
+          (l/debug "shutdown: server bootstrap@ip %s." ip)
+          (c/try! (some-> dfac .cleanAllHttpData))
+          (c/try! (some-> bs .config .childGroup .shutdownGracefully))
+          (c/try! (.. bs config group shutdownGracefully)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
 (defn- finz-ch [^Channel ch]
-  (c/trye!
-    nil
-    (if (and ch
-             (.isOpen ch)) (.close ch))))
+  (c/try! (if (and ch (.isOpen ch)) (.close ch))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(c/decl-mutable NettyWebServer
-  LifeCycle
-  (init [me carg]
-    (let
-      [{:keys [threads routes rcvBuf backlog
-               sharedGroup? tempFileDir
-               ciz hh1 hh2
-               serverKey passwd
-               maxContentSize maxInMemory]
-        :or {maxContentSize Integer/MAX_VALUE
-             maxInMemory i/*membuf-limit*
-             rcvBuf (* 2 c/MegaBytes)
-             backlog c/KiloBytes
-             sharedGroup? true
-             threads 0 routes nil}
-        {:keys [server child]}
-        :options }
-       carg
-       ctx (if (some? hh2)
-             (maybeCfgSSL2 serverKey passwd)
-             (maybeCfgSSL1 serverKey passwd))
-       ci
-       (cond
-         (c/ist? ChannelInitializer ciz) ciz
-         (or hh1 hh2) (tcpInitor<> ctx hh1 hh2 carg)
+(defn- init-web-server "" [carg]
+  (let [{:keys [threads routes rcv-buf backlog
+                shared-group? temp-dir
+                ciz hh1 hh2
+                server-key passwd
+                max-content-size max-in-memory]
+         :or {max-content-size Integer/MAX_VALUE
+              max-in-memory i/*membuf-limit*
+              rcv-buf (* 2 c/MegaBytes)
+              backlog c/KiloBytes
+              shared-group? true
+              threads 0 routes nil}
+         {:keys [server child]} :options} carg
+        ctx (if (some? hh2)
+             (maybe-cfg-ssl2 server-key passwd)
+             (maybe-cfg-ssl1 server-key passwd))
+        ci
+        (cond
+         (c/is? ChannelInitializer ciz) ciz
+         (or hh1 hh2) (tcp-initor<> ctx hh1 hh2 carg)
          :else (c/trap! ClassCastException "wrong input"))
-       tempFileDir (c/fpath (or tempFileDir
-                                i/*tempfile-repo*))
+       temp-dir (u/fpath (or temp-dir
+                             i/*tempfile-repo*))
        args (dissoc carg :routes :options)
-       [g z] (nc/gAndC threads :tcps)]
-      (c/do-with [bs (ServerBootstrap.)]
+       [g z] (nc/g-and-c threads :tcps)]
+    (c/do-with [_R (atom nil)]
+      (let [bs (ServerBootstrap.)]
+        (reset! _R {:bootstrap bs})
         (doseq [[k v]
                 (or child
-                    [[ChannelOption/SO_RCVBUF (int rcvBuf)]
+                    [[ChannelOption/SO_RCVBUF (int rcv-buf)]
                      [ChannelOption/TCP_NODELAY true]])]
           (.childOption bs k v))
         (doseq [[k v]
@@ -359,109 +333,97 @@
           (.option bs k v))
         ;;threads=zero tells netty to use default, which is
         ;;2*num_of_processors
-        (c/setf! me :bootstrap bs)
         (doto bs
           (.handler (LoggingHandler. LogLevel/INFO))
           (.childHandler ^ChannelHandler ci)
           (.channel z))
-        (if-not sharedGroup?
+        (if-not shared-group?
           (.group bs
                   ^EventLoopGroup g
-                  ^EventLoopGroup (first (nc/gAndC threads :tcps)))
+                  ^EventLoopGroup (first (nc/g-and-c threads :tcps)))
           (.group bs ^EventLoopGroup g))
         ;;assign generic attributes for all channels
         (.childAttr bs
                     nc/dfac-key
-                    (H1DataFactory. (int maxInMemory)))
+                    (H1DataFactory. (int max-in-memory)))
         (.childAttr bs nc/chcfg-key args)
         ;; routes to check?
-        (when-not (empty? routes)
-          (log/info "routes provided - creating routes cracker")
-          (->> (cr/routeCracker<> routes)
+        (when (not-empty routes)
+          (l/info "routes provided - creating routes cracker.")
+          (->> (cr/route-cracker<> routes)
                (.childAttr bs nc/routes-key)))
-        (log/info "netty server bootstraped with [%s]"
-                  (if (Epoll/isAvailable) "EPoll" "Java/NIO"))
-        (nc/configDiskFiles true tempFileDir))))
+        (l/info "netty server bootstraped with [%s]."
+                (if (Epoll/isAvailable) "EPoll" "Java/NIO"))
+        (nc/config-disk-files true temp-dir)))))
 
-  (start [me] (.start me nil))
-  (start [me arg]
-    (let [bs (:bootstrap @me)
-          {:keys [host port]
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn start-web-server!
+  ""
+  ([ws] (start-web-server! ws nil))
+  ([ws arg]
+   (let [bs (:bootstrap @ws)
+         {:keys [host port]
            :or {port 80}} arg]
-      (assert (number? port))
-      (c/setf! me
-               :channel (start-svr bs host port))))
-
-  (stop [me]
-    (finz-ch (:channel @me)))
-
-  (dispose [me] (c/wipe! me)))
+     (assert (number? port))
+     (c/assoc!! ws
+                :channel (start-svr bs host port)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(c/decl-mutable NettyUdpServer
-  LifeCycle
-  (init [me carg]
-    (let
-      [{:keys [maxMsgsPerRead threads
-               ciz hu
-               rcvBuf options]
-        :or {maxMsgsPerRead Integer/MAX_VALUE
-             rcvBuf (* 2 c/MegaBytes)
-             threads 0}}
-       carg
-       ci
-       (cond
-         (c/ist? ChannelInitializer ciz) ciz
-         (some? hu) (udpInitor<> hu carg)
-         :else (c/trap! ClassCastException "wrong input"))
-       [g z] (nc/gAndC threads :udps)]
-      (c/do-with [bs (Bootstrap.)]
-        (doseq [[k v]
-                (or options
-                    [[ChannelOption/MAX_MESSAGES_PER_READ maxMsgsPerRead]
-                     [ChannelOption/SO_RCVBUF (int rcvBuf)]
-                     [ChannelOption/SO_BROADCAST true]
-                     [ChannelOption/TCP_NODELAY true]])]
-          (.option bs k v))
-        (c/setf! me :bootstrap bs)
-        (doto bs
-          (.channel z)
-          (.group g)
-          (.handler ^ChannelHandler ci)))))
+(defn- init-udp-server "" [carg]
+  (let [{:keys [max-msgs-per-read
+                threads
+                ciz hu rcv-buf options]
+         :or {max-msgs-per-read Integer/MAX_VALUE
+              rcv-buf (* 2 c/MegaBytes)
+              threads 0}} carg
+        ci (cond
+             (c/is? ChannelInitializer ciz) ciz
+             (some? hu) (udp-initor<> hu carg)
+             :else (c/trap! ClassCastException "wrong input"))
+        [g z] (nc/g-and-c threads :udps)]
+    (let [bs (Bootstrap.)]
+      (doseq [[k v]
+              (or options
+                  [[ChannelOption/MAX_MESSAGES_PER_READ max-msgs-per-read]
+                   [ChannelOption/SO_RCVBUF (int rcv-buf)]
+                   [ChannelOption/SO_BROADCAST true]
+                   [ChannelOption/TCP_NODELAY true]])]
+        (.option bs k v))
+      (doto bs
+        (.channel z)
+        (.group g)
+        (.handler ^ChannelHandler ci))
+      (atom {:bootstrap bs :channel nil}))))
 
-  (start [me] (.start me nil))
-  (start [me arg]
-    (let [bs (:bootstrap @me)
-          {:keys [host port]
-           :or {port 4444}}
-          arg]
-      (assert (number? port))
-      (c/setf! me
-               :channel (start-svr bs host port))))
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn start-udp-server!
+  ""
+  ([svr] (start-udp-server! svr nil))
+  ([svr arg]
+   (let [bs (:bootstrap @svr)
+         {:keys [host port]
+          :or {port 4444}} arg]
+     (assert (number? port))
+     (c/assoc!! svr
+                :channel (start-svr bs host port)))))
 
-  (stop [me]
-    (finz-ch (:channel @me)))
-
-  (dispose [me] (c/wipe! me)))
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn stop-server!
+  "Stop the server." [s]
+  (finz-ch (:channel @s))
+  (c/assoc!! s :channel nil))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn nettyUdpServer<> "" {:tag LifeCycle}
-  ([] (nettyUdpServer<> nil))
-  ([carg]
-   (c/do-with
-     [w (c/mutable<> NettyUdpServer)]
-     (if (some? carg) (.init w carg)))))
+(defn netty-udp-server<>
+  "Create a UDP server using netty."
+  ([] (netty-udp-server<> nil))
+  ([carg] (init-udp-server carg)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn nettyWebServer<> "" {:tag LifeCycle}
-  ([] (nettyWebServer<> nil))
-  ([carg]
-   (c/do-with
-     [w (c/mutable<> NettyWebServer)]
-     (if (some? carg) (.init w carg)))))
+(defn netty-web-server<>
+  "Create a TCP server using netty."
+  ([] (netty-web-server<> nil))
+  ([carg] (init-web-server carg)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF

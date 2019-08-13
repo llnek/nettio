@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2017, Kenneth Leung. All rights reserved.
+ * Copyright © 2013-2019, Kenneth Leung. All rights reserved.
  * The use and distribution terms for this software are covered by the
  * Eclipse Public License 1.0 (http://opensource.org/licenses/eclipse-1.0.php)
  * which can be found in the file epl-v10.html at the root of this distribution.
@@ -12,6 +12,7 @@ package czlab.nettio;
 
 import static org.slf4j.LoggerFactory.getLogger;
 import org.slf4j.Logger;
+import czlab.basal.CU;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelPromise;
 import io.netty.channel.Channel;
@@ -42,7 +43,6 @@ public class FlashHandler extends InboundHandler {
     "</cross-domain-policy>\r\n";
 
   private static final AttributeKey<Integer> HINT = AttributeKey.newInstance("flash-hint");
-
   private static final String FLASH_POLICY_REQ = "<policy-file-request/>";
 
   private static final char[] FLASH_CHS = FLASH_POLICY_REQ.toCharArray();
@@ -66,13 +66,13 @@ public class FlashHandler extends InboundHandler {
   /**/
   protected FlashHandler() {}
 
-  /**/
   @Override
   public void readMsg(ChannelHandlerContext ctx, Object msg) throws Exception {
     ByteBuf bmsg = (msg instanceof ByteBuf) ? (ByteBuf)msg : null;
     Channel ch = ctx.channel();
 
-    TLOG.debug("FlashHandler:channelRead called");
+    if (CU.canLog())
+      TLOG.debug("FlashHandler:channelRead called");
 
     if (bmsg == null || !bmsg.isReadable()) {
       return;
@@ -81,7 +81,7 @@ public class FlashHandler extends InboundHandler {
     Integer hint = (Integer) ch.attr(HINT).get();
     ByteBuf bbuf= bmsg.copy();
     //first byte?
-    if (hint==null) { hint= new Integer(0); }
+    if (hint==null) { hint= Integer.valueOf(0); }
     int num= bbuf.readableBytes();
     int pos= bbuf.readerIndex();
     int state= -1;
@@ -122,12 +122,14 @@ public class FlashHandler extends InboundHandler {
     ch.attr(HINT).set(null);
 
     if (success) {
-      TLOG.debug("FlashHandler: reply back to client with policy info");
+      if (CU.canLog())
+        TLOG.debug("FlashHandler: reply back to client with policy info");
       ByteBuf b= ctx.alloc().directBuffer();
       b.writeCharSequence(XML, CharsetUtil.US_ASCII);
       ctx.writeAndFlush(b).addListener(ChannelFutureListener.CLOSE);
     } else {
-      TLOG.debug("FlashHandler: removing self. finito!");
+      if (CU.canLog())
+        TLOG.debug("FlashHandler: removing self. finito!");
       ctx.pipeline().remove(this);
       ctx.fireChannelRead(msg);
     }

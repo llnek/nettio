@@ -1,4 +1,4 @@
-;; Copyright (c) 2013-2017, Kenneth Leung. All rights reserved.
+;; Copyright © 2013-2019, Kenneth Leung. All rights reserved.
 ;; The use and distribution terms for this software are covered by the
 ;; Eclipse Public License 1.0 (http://opensource.org/licenses/eclipse-1.0.php)
 ;; which can be found in the file epl-v10.html at the root of this distribution.
@@ -13,19 +13,19 @@
 
   (:gen-class)
 
-  (:require [czlab.basal.process :as p :refer [exitHook]]
-            [czlab.nettio.server :as sv]
-            [czlab.nettio.core :as nc]
-            [czlab.basal.log :as log]
+  (:require [czlab.basal.proc :as p]
+            [czlab.basal.log :as l]
             [czlab.basal.core :as c]
-            [czlab.basal.str :as s])
+            [czlab.basal.util :as u]
+            [czlab.basal.str :as s]
+            [czlab.nettio.core :as nc]
+            [czlab.nettio.server :as sv])
+
 
   (:import [io.netty.handler.codec.http HttpResponseStatus]
            [io.netty.handler.codec.http LastHttpContent]
-           [czlab.nettio.server NettyWebServer]
            [czlab.nettio InboundHandler]
            [clojure.lang APersistentMap]
-           [czlab.jasal CU LifeCycle]
            [io.netty.channel
             ChannelPipeline
             ChannelHandler
@@ -39,43 +39,39 @@
 (defonce ^:private svr (atom nil))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
 (defn- h1proxy "" [cb]
   (proxy [InboundHandler][true]
     (readMsg [ctx _]
-      (nc/replyStatus ctx) (c/trye!! nil (cb)))))
+      (nc/reply-status ctx) (c/try! (cb)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn discardHTTPD<>
+(defn discard-httpd<>
   "Drops the req and returns OK"
 
-  ([cb] (discardHTTPD<> cb nil))
+  ([cb] (discard-httpd<> cb nil))
   ([cb args]
-   (c/do-with [^LifeCycle
-               w (c/mutable<> NettyWebServer)]
-     (.init w (assoc args
-                     :hh1 (h1proxy cb))))))
+   (sv/netty-web-server<> (assoc args
+                                 :hh1 (h1proxy cb)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn finzServer "" [] (.stop ^LifeCycle @svr) (reset! svr nil))
+(defn finz-server "" []
+  (when @svr
+    (sv/stop-web-server @svr) (reset! svr nil)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
 (defn -main "" [& args]
   (cond
     (< (count args) 2)
     (println "usage: discard host port")
     :else
-    (let [^LifeCycle
-          s (discardHTTPD<>
+    (let [s (discard-httpd<>
               #(println "hello, poked by discarder"))]
-      (.start s {:host (nth args 0)
-                 :port (c/convInt (nth args 1) 8080)})
-      (p/exitHook #(.stop s))
+      (sv/start-web-server s
+                           {:host (nth args 0)
+                            :port (c/s->int (nth args 1) 8080)})
+      (p/exit-hook #(sv/stop-web-server s))
       (reset! svr s)
-      (CU/block))))
+      (u/block!))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF

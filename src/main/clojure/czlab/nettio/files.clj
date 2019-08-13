@@ -1,4 +1,4 @@
-;; Copyright (c) 2013-2017, Kenneth Leung. All rights reserved.
+;; Copyright © 2013-2019, Kenneth Leung. All rights reserved.
 ;; The use and distribution terms for this software are covered by the
 ;; Eclipse Public License 1.0 (http://opensource.org/licenses/eclipse-1.0.php)
 ;; which can be found in the file epl-v10.html at the root of this distribution.
@@ -13,19 +13,19 @@
 
   (:gen-class)
 
-  (:require [czlab.basal.log :as log]
+  (:require [czlab.basal.log :as l]
             [clojure.java.io :as io]
             [clojure.string :as cs]
             [czlab.nettio.server :as sv]
-            [czlab.basal.process :as p]
+            [czlab.basal.proc :as p]
             [czlab.basal.core :as c]
+            [czlab.basal.util :as u]
             [czlab.basal.str :as s]
             [czlab.basal.io :as i]
             [czlab.nettio.core :as nc])
 
   (:import [io.netty.handler.stream ChunkedFile ChunkedStream]
            [io.netty.bootstrap ServerBootstrap]
-           [czlab.nettio.server NettyWebServer]
            [czlab.nettio InboundHandler]
            [io.netty.channel
             Channel
@@ -43,28 +43,26 @@
             LastHttpContent]
            [io.netty.buffer Unpooled]
            [java.io IOException File]
-           [czlab.jasal LifeCycle CU XData]))
+           [czlab.basal XData]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;(set! *warn-on-reflection* false)
-
 (defonce ^:private svr (atom nil))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- replyGetVFile ""
+(defn- reply-get-vfile ""
   [^ChannelHandlerContext ctx req ^XData xdata]
 
-  (let [keep? (:isKeepAlive? req)
-        res (nc/httpReply<>)
+  (let [keep? (:is-keep-alive? req)
+        res (nc/http-reply<>)
         ch (.channel ctx)
         clen (.size xdata)]
     (doto res
-      (nc/setHeader "Content-Type" "application/octet-stream")
-      (nc/setHeader "Connection" (if keep? "keep-alive" "close"))
-      (nc/setHeader "Transfer-Encoding" "chunked")
+      (nc/set-header "Content-Type" "application/octet-stream")
+      (nc/set-header "Connection" (if keep? "keep-alive" "close"))
+      (nc/set-header "Transfer-Encoding" "chunked")
       (HttpHeaders/setContentLength clen))
-    (log/debug "Flushing file of %s bytes to client" clen)
+    (l/debug "Flushing file of %s bytes to client" clen)
     (.write ctx res)
     (->
       (->> (.fileRef xdata)
@@ -74,76 +72,73 @@
            ;;(.javaBytes xdata)
            ;;(Unpooled/wrappedBuffer )
            (.writeAndFlush ctx ))
-      (nc/closeCF keep?))))
+      (nc/close-cf keep?))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- fPutter "" [ctx req ^String fname args]
+(defn- fputter "" [ctx req ^String fname args]
 
-  (log/debug "fPutter file= %s" (io/file (:vdir args) fname))
+  (l/debug "fPutter file= %s" (io/file (:vdir args) fname))
   (let [vdir (io/file (:vdir args))
         ^XData body (:body req)]
     (if (.isFile body)
-      (log/debug "fPutter orig= %s" (.fileRef body)))
-    (->> (c/try!!
+      (l/debug "fPutter orig= %s" (.fileRef body)))
+    (->> (u/try!!
            (nc/scode HttpResponseStatus/INTERNAL_SERVER_ERROR)
            (do
-             (i/saveFile vdir fname body)
+             (i/save-file vdir fname body)
              (nc/scode HttpResponseStatus/OK)))
-         (nc/replyStatus ctx ))))
+         (nc/reply-status ctx ))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- fGetter "" [ctx req ^String fname args]
+(defn- fgetter "" [ctx req ^String fname args]
 
-  (log/debug "fGetter: file= %s" (io/file (:vdir args) fname))
+  (l/debug "fGetter: file= %s" (io/file (:vdir args) fname))
   (let [vdir (io/file (:vdir args))
-        xdata (i/getFile vdir fname)]
-    (if (.hasContent xdata)
-      (replyGetVFile ctx req xdata)
-      (nc/replyStatus ctx (nc/scode HttpResponseStatus/NO_CONTENT)))))
+        ^XData f (i/get-file vdir fname)]
+    (if (.hasContent f)
+      (reply-get-vfile ctx req f)
+      (nc/reply-status ctx
+                       (nc/scode HttpResponseStatus/NO_CONTENT)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
 (defn- h1proxy "" [args]
   (proxy [InboundHandler][true]
     (readMsg [ctx msg]
       (let
         [^String uri (:uri2 msg)
          mtd (:method msg)
-         pos (.lastIndexOf uri (int \/))
-         p (if (< pos 0)
+         pos (cs/last-index-of uri \/)
+         p (if (nil? pos)
              uri
-             (.substring uri (inc pos)))
-         nm (s/stror p (str (c/jid<>) ".dat"))]
-        (log/debug "%s: uri= %s, file= %s" mtd uri nm)
-        (log/debug "args= %s" args)
+             (subs uri (inc pos)))
+         nm (s/stror p (str (u/jid<>) ".dat"))]
+        (l/debug "%s: uri= %s, file= %s" mtd uri nm)
+        (l/debug "args= %s" args)
         (cond
           (= mtd "POST")
-          (fPutter ctx msg nm args)
+          (fputter ctx msg nm args)
           (= mtd "GET")
-          (fGetter ctx msg nm args)
+          (fgetter ctx msg nm args)
           :else
-          (nc/replyStatus ctx
-                          (nc/scode HttpResponseStatus/METHOD_NOT_ALLOWED)))))))
+          (nc/reply-status ctx
+                           (nc/scode HttpResponseStatus/METHOD_NOT_ALLOWED)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; make a In memory File Server
-(defn memFileServer<>
+(defn mem-file-server<>
   "A file server which can get/put files"
 
-  ([vdir] (memFileServer<> vdir nil))
+  ([vdir] (mem-file-server<> vdir nil))
   ([vdir args]
-   (c/do-with [^LifeCycle
-               w (c/mutable<> NettyWebServer)]
-              (let [args (assoc args :vdir vdir)]
-                (.init w
-                       (assoc args
-                              :hh1 (h1proxy args)))))))
+   (let [args (assoc args :vdir vdir)]
+     (sv/netty-web-server<> (assoc args
+                                   :hh1 (h1proxy args))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; filesvr host port vdir
-(defn finzServer "" [] (.stop ^LifeCycle @svr) (reset! svr nil))
+(defn finz-server "" []
+  (when @svr
+    (sv/stop-web-server @svr) (reset! svr nil)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; filesvr host port vdir
@@ -153,13 +148,13 @@
     (< (count args) 3)
     (println "usage: filesvr host port <rootdir>")
     :else
-    (let [^LifeCycle
-          w (memFileServer<> (nth args 2))]
-      (.start w {:host (nth args 0)
-                 :port (c/convInt (nth args 1) 8080)})
-      (p/exitHook #(.stop w))
+    (let [w (sv/start-web-server
+              (mem-file-server<> (nth args 2))
+              {:host (nth args 0)
+               :port (c/s->int (nth args 1) 8080)})]
+      (p/exit-hook #(sv/stop-web-server w))
       (reset! svr w)
-      (CU/block))))
+      (u/block!))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF

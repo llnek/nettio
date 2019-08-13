@@ -1,4 +1,4 @@
-;; Copyright (c) 2013-2017, Kenneth Leung. All rights reserved.
+;; Copyright © 2013-2019, Kenneth Leung. All rights reserved.
 ;; The use and distribution terms for this software are covered by the
 ;; Eclipse Public License 1.0 (http://opensource.org/licenses/eclipse-1.0.php)
 ;; which can be found in the file epl-v10.html at the root of this distribution.
@@ -13,17 +13,17 @@
 
   (:gen-class)
 
-  (:require [czlab.basal.process :as p :refer [exitHook]]
-            [czlab.basal.log :as log]
+  (:require [czlab.basal.proc :as p]
+            [czlab.basal.log :as l]
             [clojure.string :as cs]
             [czlab.basal.core :as c]
+            [czlab.basal.util :as u]
             [czlab.basal.str :as s]
             [czlab.convoy.core :as cc]
             [czlab.nettio.core :as nc]
             [czlab.nettio.server :as sv])
 
   (:import [io.netty.util Attribute AttributeKey CharsetUtil]
-           [czlab.nettio.server NettyWebServer]
            [czlab.nettio InboundHandler]
            [java.util Map$Entry]
            [io.netty.channel
@@ -48,7 +48,7 @@
             HttpRequest
             QueryStringDecoder
             LastHttpContent]
-           [czlab.jasal LifeCycle CU XData]
+           [czlab.basal XData]
            [io.netty.bootstrap ServerBootstrap]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -59,14 +59,13 @@
 (defonce ^:private svr (atom nil))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- writeReply
+(defn- write-reply
   "Reply back a string"
   [^ChannelHandlerContext ctx curObj]
 
   (let [cookies (:cookies curObj)
-        buf (nc/getAKey ctx msg-buf)
-        res (nc/httpFullReply<>
+        buf (nc/get-akey ctx msg-buf)
+        res (nc/http-reply<+>
               (nc/scode HttpResponseStatus/OK) (str buf) (.alloc ctx))
         hds (.headers res)
         ce ServerCookieEncoder/STRICT
@@ -76,7 +75,7 @@
               "text/plain; charset=UTF-8")
     (.set hds
           "Connection"
-          (if (nc/getAKey ctx keep-alive) "keep-alive" "close"))
+          (if (nc/get-akey ctx keep-alive) "keep-alive" "close"))
     (if (empty? cookies)
       (doto hds
         (.add "Set-Cookie"
@@ -86,111 +85,92 @@
       (doseq [v cookies]
         (.add hds
               "Set-Cookie"
-              (.encode ce (nc/nettyCookie<> v)))))
+              (.encode ce (nc/netty-cookie<> v)))))
     (.writeAndFlush ctx res)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- handleReq
+(defn- handle-req
   "Introspect the inbound request"
   [^ChannelHandlerContext ctx req]
   (let [^HttpHeaders headers (:headers req)
-        ka? (:isKeepAlive? req)
-        buf (s/strbf<>)]
-    (nc/setAKey ctx keep-alive ka?)
-    (nc/setAKey ctx msg-buf buf)
-    (doto buf
-      (.append "WELCOME TO THE TEST WEB SERVER\r\n")
-      (.append "==============================\r\n")
-      (.append "VERSION: ")
-      (.append (:version req))
-      (.append "\r\n")
-      (.append "HOSTNAME: ")
-      (.append (str (cc/msgHeader req "host")))
-      (.append "\r\n")
-      (.append "REQUEST_URI: ")
-      (.append (:uri2 req))
-      (.append "\r\n\r\n"))
-    (->>
-      (c/sreduce<>
-        (fn [memo ^String n]
-          (-> ^StringBuilder
-              memo
-              (.append "HEADER: ")
-              (.append n)
-              (.append " = ")
-              (.append (cs/join "," (.getAll headers n)))
-              (.append "\r\n")))
-        (.names headers))
-      (.append buf))
-    (.append buf "\r\n")
-    (->>
-      (c/sreduce<>
-        (fn [memo ^Map$Entry en]
-          (-> ^StringBuilder
-              memo
-              (.append "PARAM: ")
-              (.append (.getKey en))
-              (.append " = ")
-              (.append (cs/join "," (.getValue en)))
-              (.append "\r\n")))
-        (:parameters req))
-      (.append buf))
-    (.append buf "\r\n")))
+        ka? (:is-keep-alive? req)
+        buf (s/sbf<>)]
+    (nc/set-akey ctx keep-alive ka?)
+    (nc/set-akey ctx msg-buf buf)
+    (s/sbf+ buf
+            "WELCOME TO THE TEST WEB SERVER\r\n"
+            "==============================\r\n"
+            "VERSION: "
+            (:version req)
+            "\r\n"
+            "HOSTNAME: "
+            (str (cc/msg-header req "host"))
+            "\r\n"
+            "REQUEST_URI: "
+            (:uri2 req)
+            "\r\n\r\n"
+            (s/sreduce<>
+              #(s/sbf+ %1
+                       "HEADER: "
+                       %2
+                       " = "
+                       (cs/join "," (.getAll headers ^String %2))
+                       "\r\n")
+              (.names headers))
+            "\r\n"
+            (s/sreduce<>
+              (fn [b ^Map$Entry en]
+                (s/sbf+ b
+                        "PARAM: "
+                        (.getKey en)
+                        " = "
+                        (cs/join ","
+                                 (.getValue en)) "\r\n"))
+              (:parameters req))
+            "\r\n")))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn- handleCnt
+(defn- handle-cnt
   "Handle the request content"
   [^ChannelHandlerContext ctx msg]
-
-  (let [^StringBuilder buf (nc/getAKey ctx msg-buf)
-        ^XData ct (:body msg)]
-    (when (.hasContent ct)
-      (-> buf
-        (.append "CONTENT: ")
-        (.append (.strit ct))
-        (.append "\r\n")))
-    (do
-      (.append buf "END OF CONTENT\r\n")
-      (writeReply ctx msg))))
+  (let [^XData ct (:body msg)
+        buf (nc/get-akey ctx msg-buf)]
+    (if (.hasContent ct)
+      (s/sbf+ buf "CONTENT: " (.strit ct) "\r\n"))
+    (s/sbf+ buf "END OF CONTENT\r\n")
+    (write-reply ctx msg)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn snoopHTTPD<>
+(defn snoop-httpd<>
   "Sample Snooper HTTPD"
 
-  ([] (snoopHTTPD<> nil))
+  ([] (snoop-httpd<> nil))
   ([args]
-   (c/do-with [^LifeCycle w (c/mutable<> NettyWebServer)]
-     (.init w
-            (merge
-              args
-              {:hh1
-               (proxy [InboundHandler][true]
-                 (readMsg [ctx msg]
-                   (handleReq ctx msg)
-                   (handleCnt ctx msg)))})))))
+   (sv/netty-web-server<> (assoc args
+                                 :hh1
+                                 (proxy [InboundHandler][true]
+                                   (readMsg [ctx msg]
+                                     (handle-req ctx msg)
+                                     (handle-cnt ctx msg)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-(defn finzServer "" []
-  (.stop ^LifeCycle @svr) (reset! svr nil))
+(defn finz-server "" []
+  (when @svr
+    (sv/stop-web-server @svr) (reset! svr nil)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
 (defn -main "" [& args]
-
   (cond
     (< (count args) 2)
     (println "usage: snoop host port")
     :else
-    (let [^LifeCycle w (snoopHTTPD<>)]
-      (.start w {:host (nth args 0)
-                 :port (c/convInt (nth args 1) 8080)})
-      (p/exitHook #(.stop w))
+    (let [w (sv/start-web-server
+              (snoop-httpd<>)
+              {:host (nth args 0)
+               :port (c/s->int (nth args 1) 8080)})]
+      (p/exit-hook #(sv/stop-web-server w))
       (reset! svr w)
-      (CU/block))))
+      (u/block!))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF
