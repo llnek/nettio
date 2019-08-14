@@ -242,8 +242,7 @@
                                            (cc/ws-write-msg cc (CloseWebSocketFrame.))))
                                        {:server-cert "*"})
                   cc (deref rcp 5000 nil)]
-              (when (c/is? czlab.convoy.core.WSMsgWriter cc)
-                (cc/ws-write-msg cc "hello"))
+              (some-> cc (cc/ws-write-msg  "hello"))
               (u/pause 1000)
               (if cc (cc/cc-finz cc))
               (sv/stop-server! w)
@@ -272,8 +271,7 @@
                                            (reset! out (.strit ^XData b))
                                            (cc/ws-write-msg cc (CloseWebSocketFrame.)))))
                   cc (deref rcp 5000 nil)]
-              (when (c/is? czlab.convoy.core.WSMsgWriter cc)
-                (cc/ws-write-msg cc (i/x->bytes "hello")))
+              (some-> cc (cc/ws-write-msg  (i/x->bytes "hello")))
               (u/pause 1000)
               (if cc (cc/cc-finz cc))
               (sv/stop-server! w)
@@ -297,8 +295,7 @@
                                            (reset! pong true)
                                            (cc/ws-write-msg cc (CloseWebSocketFrame.)))))
                   cc (deref rcp 5000 nil)]
-              (when (c/is? czlab.convoy.core.WSMsgWriter cc)
-                (cc/ws-write-msg cc (PingWebSocketFrame.)))
+              (some-> cc (cc/ws-write-msg (PingWebSocketFrame.)))
               (u/pause 1000)
               (if cc (cc/cc-finz cc))
               (sv/stop-server! w)
