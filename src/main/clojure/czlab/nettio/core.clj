@@ -393,10 +393,10 @@
       :else (u/throw-IOE "bad type to ByteBuf."))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn bytebuf?? ""
+(defn bbuf?? ""
 
-  ([arg ch] (bytebuf?? arg ch nil))
-  ([arg] (bytebuf?? arg nil nil))
+  ([arg ch] (bbuf?? arg ch nil))
+  ([arg] (bbuf?? arg nil nil))
 
   ([arg ch encoding]
    (let [ct (if-some

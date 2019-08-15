@@ -133,7 +133,7 @@
                       {:server-key "*"
                        :passwd ""
                        :hh2
-                       (fn [ctx msg]
+                       (fn [^ChannelHandlerContext ctx msg]
                          (let [ch (nc/ch?? ctx)
                                rsp (nc/http-reply<+> 200
                                                      (i/x->bytes "hello")
@@ -253,7 +253,7 @@
             (let [args {:wsock-path "/web/sock"
                         :hh1
                         (fn [ctx msg]
-                          (let [m (-> (nc/bytebuf?? (:body msg)
+                          (let [m (-> (nc/bbuf?? (:body msg)
                                                     (nc/ch?? ctx))
                                       BinaryWebSocketFrame. )]
                             (.writeAndFlush ^ChannelHandlerContext ctx m)))}
