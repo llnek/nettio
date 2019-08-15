@@ -130,18 +130,19 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- cconn<>
-  ([module bs ch host port {:keys [awaitc finz]}]
+  ([module bs ^Channel ch host port]
+   (cconn<> module bs ch host port nil))
+  ([module bs ^Channel ch host port hint]
    (reify cc/ClientConnect
-     (cc-await-connect [_ ms]
-       (if awaitc (awaitc ms)))
      (cc-module [_] module)
      (cc-channel [_] ch)
      (cc-remote-port [_] port)
      (cc-remote-host [_] host)
      (cc-finz [_]
-       (if finz (finz) (nobs! bs ch)))))
-  ([module bs ch host port]
-   (cconn<> module bs ch host port nil)))
+       (if (:wsock? hint)
+         (c/try! (if (.isOpen ch)
+                   (.writeAndFlush ch (CloseWebSocketFrame.)))))
+       (nobs! bs ch)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- build-ctx
@@ -262,14 +263,13 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- h2pipe
-  ^ChannelHandler [ctx rcp reply args]
+  ^ChannelHandler [ctx rcp args]
   (l/debug "client:h2pipe: ssl ctx = %s." ctx)
   (proxy [ChannelInizer][]
     (onHandlerAdded [ctx]
-      (let [ch (nc/ch?? ctx)]
-        (deliver rcp (reply ch
-                            (nc/get-akey ch h2s-key)))))
-    (onError [_ e] (deliver rcp e))
+      (deliver rcp (nc/ch?? ctx)))
+    (onError [_ e]
+      (deliver rcp e))
     (initChannel [c]
       (let [hh (HttpToHttp2ConnectionHandlerBuilder.)
             ssl (c/cast? SslContext ctx)
@@ -298,11 +298,11 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- h1pipe
-  ^ChannelHandler [ctx rcp reply args]
+  ^ChannelHandler [ctx rcp args]
   (l/debug "client:h1pipe: ssl ctx = %s." ctx)
   (proxy [ChannelInizer][]
     (onHandlerAdded [ctx]
-      (deliver rcp (reply (nc/ch?? ctx))))
+      (deliver rcp (nc/ch?? ctx)))
     (onError [ctx exp]
       (deliver rcp exp))
     (initChannel [ch]
@@ -344,7 +344,7 @@
         (.addLast "ws-user" (wsock-hdlr user))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- boot!
+(defn- bootstrap!
   [{:keys [max-content-size max-in-memory
            version temp-dir
            server-cert scheme
@@ -380,35 +380,62 @@
     [bs ctx]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- mk-ws-cli
-  [module bs ^Channel ch host port]
-  (cconn<> module bs ch host port
-           {:finz (c/fn_0
-                    (c/try!
-                      (if (.isOpen ch)
-                        (.writeAndFlush ch (CloseWebSocketFrame.))))
-                    (nobs! bs ch))}))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- wsconn-cb
-  [module rcp bs host port]
-
-  (fn [^ChannelFuture ff]
-    (if (.isSuccess ff)
-      (let [ch (.channel ff)
-            cc (mk-ws-cli module bs ch host port)]
-        (deliver rcp cc)
-        (nc/set-akey ch cc-key cc))
-      (deliver rcp (or (.cause ff)
-                       (Exception. "Conn error!"))))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- h1c-finz [bs ch]
   (let [f (nc/get-akey ch nc/dfac-key)]
     (nc/future-cb (.closeFuture ^Channel ch)
                   (c/fn_1 (.cleanAllHttpData ^H1DataFactory f)
                           (nobs! bs nil)
                           (l/debug "shutdown: netty h1-client.")))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn- ret-conn [module bs host port rcp hint]
+  (reify
+    cc/ClientConnectPromise
+    (cc-sync-get-connect [_]
+      (cc/cc-sync-get-connect _ 5000))
+    (cc-sync-get-connect [_ ms]
+      (let [r (deref rcp ms nil)]
+        (cond
+          (not (c/is? Channel r))
+          r
+          (:v2? hint)
+          (try (let [^ChannelPromise pm (nc/get-akey r h2s-key)]
+                 (l/debug "client waits %s[ms] for h2-settings." ms)
+                 (if-not (.awaitUninterruptibly pm
+                                                ms TimeUnit/MILLISECONDS)
+                   (u/throw-ISE "Timed out waiting for h2-settings."))
+                 (if-not (.isSuccess pm)
+                   (.cause pm)
+                   (do (l/debug "client waited %s[ms] -success." ms)
+                       (cconn<> module bs r host port))))
+               (catch Throwable e e))
+          (:user hint)
+          (nc/set-akey r
+                       cc-key
+                       (cconn<> module bs r host port hint))
+          :else
+          (cconn<> module bs r host port))))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn- hx-conn [module host port args fpipe hint]
+  (let [args (assoc args
+                    :version
+                    (if (:v2? hint)
+                      "2" "1.1"))
+        rcp (promise)
+        [bs ctx] (bootstrap! args)
+        pp (if-not (:user hint)
+             (fpipe ctx rcp args)
+             (fpipe ctx
+                    (fn [^ChannelFuture ff]
+                      (deliver rcp
+                               (if (.isSuccess ff)
+                                 (.channel ff)
+                                 (or (.cause ff)
+                                     (Exception. "Conn error!"))))) (:user hint) args))]
+    (.handler ^Bootstrap bs pp)
+    (h1c-finz bs (connect bs host port ctx))
+    (ret-conn module bs host port rcp hint)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defrecord NettyClientModule []
@@ -476,41 +503,14 @@
                           ^InputStream body)
                         HttpChunkedInput. (.write ch)) cf)] (.flush ch)))))
 
-  (hc-ws-conn [module rcp host port user args]
-    (let [[bs ctx] (boot! args)
-          cb (wsconn-cb module rcp bs host port)]
-      (.handler ^Bootstrap bs
-                (wspipe ctx cb user args))
-      (h1c-finz bs (connect bs host port ctx)) rcp))
+  (hc-h2-conn [module host port args]
+    (hx-conn module host port args h2pipe {:v2? true}))
 
-  (hc-h2-conn [module rcp host port args]
-    (let [[bs ctx] (boot! args)
-          reply
-          (fn [ch ^ChannelPromise pm]
-            (cconn<> module
-                     bs ch
-                     host port
-                     {:awaitc
-                      (fn [ms]
-                        (l/debug "client waits %s[ms] for h2-settings." ms)
-                        (if-not (.awaitUninterruptibly pm
-                                                       ms TimeUnit/MILLISECONDS)
-                          (u/throw-ISE "Timed out waiting for h2-settings."))
-                        (if-not (.isSuccess pm)
-                          (c/trap! RuntimeException (.cause pm)))
-                        (l/debug "client waited %s[ms] -success." ms))}))]
-      (.handler ^Bootstrap bs
-                (h2pipe ctx rcp reply args))
-      (h1c-finz bs (connect bs host port ctx)) rcp))
+  (hc-h1-conn [module host port args]
+    (hx-conn module host port args h1pipe nil))
 
-  (hc-h1-conn [module rcp host port args]
-    (let [[bs ctx] (boot! args)
-          reply #(cconn<> module
-                          bs %1 host port)]
-      (.handler ^Bootstrap bs
-                (h1pipe ctx rcp reply args))
-      (h1c-finz bs
-                (connect bs host port ctx)) rcp)))
+  (hc-ws-conn [module host port user args]
+    (hx-conn module host port args wspipe {:user user})))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;writes messages via websock

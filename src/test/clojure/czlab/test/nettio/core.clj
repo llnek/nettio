@@ -183,7 +183,7 @@
                   _ (sv/start-web-server! w {:port port :host host})
                   rcp (cc/ws-connect<> (NettyClientModule.)
                                        host port "/websock" (fn [_ _]))
-                  cc (deref rcp 5000 nil)]
+                  cc (cc/cc-sync-get-connect rcp)]
               (sv/stop-server! w)
               (u/pause 1000)
               (c/is? Throwable cc)))
@@ -197,7 +197,7 @@
                       w {:port port :host nc/lhost-name})
                   rcp (cc/ws-connect<> (NettyClientModule.)
                                        nc/lhost-name port "/web/sock" (fn [_ _]))
-                  cc (deref rcp 5000 nil)]
+                  cc (cc/cc-sync-get-connect rcp)]
               (sv/stop-server! w)
               (if cc (cc/cc-finz cc))
               (u/pause 1000)
@@ -213,7 +213,7 @@
                   rcp (cc/ws-connect<> (NettyClientModule.)
                                        nc/lhost-name
                                        port "/web/sock" (fn [_ _]))
-                  cc (deref rcp 5000 nil)]
+                  cc (cc/cc-sync-get-connect rcp)]
               (if cc (cc/cc-finz cc))
               (sv/stop-server! w)
               (u/pause 1000)
@@ -241,7 +241,7 @@
                                            (reset! out (.strit ^XData s))
                                            (cc/ws-write-msg cc (CloseWebSocketFrame.))))
                                        {:server-cert "*"})
-                  cc (deref rcp 5000 nil)]
+                  cc (cc/cc-sync-get-connect rcp)]
               (some-> cc (cc/ws-write-msg  "hello"))
               (u/pause 1000)
               (if cc (cc/cc-finz cc))
@@ -270,7 +270,7 @@
                                          (when-some [b (:body msg)]
                                            (reset! out (.strit ^XData b))
                                            (cc/ws-write-msg cc (CloseWebSocketFrame.)))))
-                  cc (deref rcp 5000 nil)]
+                  cc (cc/cc-sync-get-connect rcp)]
               (some-> cc (cc/ws-write-msg  (i/x->bytes "hello")))
               (u/pause 1000)
               (if cc (cc/cc-finz cc))
@@ -294,7 +294,7 @@
                                          (when (:pong? msg)
                                            (reset! pong true)
                                            (cc/ws-write-msg cc (CloseWebSocketFrame.)))))
-                  cc (deref rcp 5000 nil)]
+                  cc (cc/cc-sync-get-connect rcp)]
               (some-> cc (cc/ws-write-msg (PingWebSocketFrame.)))
               (u/pause 1000)
               (if cc (cc/cc-finz cc))
