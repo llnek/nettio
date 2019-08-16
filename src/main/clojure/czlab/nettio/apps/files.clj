@@ -75,10 +75,10 @@
       (nc/close-cf keep?))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- fputter "" [ctx req ^String fname args]
+(defn- fputter "" [ctx req ^String fname udir]
 
-  (l/debug "fPutter file= %s" (io/file (:vdir args) fname))
-  (let [vdir (io/file (:vdir args))
+  (l/debug "fPutter file= %s" (io/file udir fname))
+  (let [vdir (io/file udir)
         ^XData body (:body req)]
     (if (.isFile body)
       (l/debug "fPutter orig= %s" (.fileRef body)))
@@ -90,10 +90,10 @@
          (nc/reply-status ctx ))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- fgetter "" [ctx req ^String fname args]
+(defn- fgetter "" [ctx req ^String fname udir]
 
-  (l/debug "fGetter: file= %s" (io/file (:vdir args) fname))
-  (let [vdir (io/file (:vdir args))
+  (l/debug "fGetter: file= %s" (io/file udir fname))
+  (let [vdir (io/file udir)
         ^XData f (i/get-file vdir fname)]
     (if (.hasContent f)
       (reply-get-vfile ctx req f)
@@ -101,7 +101,7 @@
                        (nc/scode HttpResponseStatus/NO_CONTENT)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- h1proxy "" [args]
+(defn- h1proxy "" [udir]
   (proxy [InboundHandler][true]
     (readMsg [ctx msg]
       (let
@@ -113,12 +113,12 @@
              (subs uri (inc pos)))
          nm (s/stror p (str (u/jid<>) ".dat"))]
         (l/debug "%s: uri= %s, file= %s" mtd uri nm)
-        (l/debug "args= %s" args)
+        (l/debug "udir= %s" udir)
         (cond
           (= mtd "POST")
-          (fputter ctx msg nm args)
+          (fputter ctx msg nm udir)
           (= mtd "GET")
-          (fgetter ctx msg nm args)
+          (fgetter ctx msg nm udir)
           :else
           (nc/reply-status ctx
                            (nc/scode HttpResponseStatus/METHOD_NOT_ALLOWED)))))))
@@ -126,13 +126,9 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; make a In memory File Server
 (defn mem-file-server<>
-  "A file server which can get/put files"
-
-  ([vdir] (mem-file-server<> vdir nil))
-  ([vdir args]
-   (let [args (assoc args :vdir vdir)]
-     (sv/netty-web-server<> (assoc args
-                                   :hh1 (h1proxy args))))))
+  "A file server which can get/put files."
+  [udir & args]
+  (apply sv/netty-web-server<> :udir udir :hh1 (h1proxy udir) args))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; filesvr host port vdir

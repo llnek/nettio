@@ -415,15 +415,11 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn netty-udp-server<>
-  "Create a UDP server using netty."
-  ([] (netty-udp-server<> nil))
-  ([carg] (init-udp-server carg)))
+  "A UDP server using netty." [& args] (init-udp-server (apply hash-map args)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn netty-web-server<>
-  "Create a TCP server using netty."
-  ([] (netty-web-server<> nil))
-  ([carg] (init-web-server carg)))
+  "A TCP server using netty." [& args] (init-web-server (apply hash-map args)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF

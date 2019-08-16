@@ -14,7 +14,7 @@
   (:require [czlab.nettio.msgs :as mg]
             [czlab.nettio.core :as nc]
             [czlab.convoy.util :as ct]
-            [czlab.convoy.core :as cc :refer [ws-write-msg]]
+            [czlab.convoy.core :as cc]
             [czlab.basal.log :as l]
             [clojure.java.io :as io]
             [clojure.string :as cs]
@@ -134,6 +134,7 @@
    (cconn<> module bs ch host port nil))
   ([module bs ^Channel ch host port hint]
    (reify cc/ClientConnect
+     (cc-ws-write [_ msg] (cc/hc-ws-send module _ msg))
      (cc-module [_] module)
      (cc-channel [_] ch)
      (cc-remote-port [_] port)
@@ -503,19 +504,8 @@
                           ^InputStream body)
                         HttpChunkedInput. (.write ch)) cf)] (.flush ch)))))
 
-  (hc-h2-conn [module host port args]
-    (hx-conn module host port args h2pipe {:v2? true}))
-
-  (hc-h1-conn [module host port args]
-    (hx-conn module host port args h1pipe nil))
-
-  (hc-ws-conn [module host port user args]
-    (hx-conn module host port args wspipe {:user user})))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;writes messages via websock
-(defmethod ws-write-msg NettyClientModule [conn msg]
-  (let [^Channel ch (cc/cc-channel conn)]
+  (hc-ws-send [_ conn msg]
+    (let [^Channel ch (cc/cc-channel conn)]
     (some->> (cond
                (c/is? WebSocketFrame msg)
                msg
@@ -527,53 +517,17 @@
                    (.writeBytes ^bytes msg)
                    (BinaryWebSocketFrame. ))) (.writeAndFlush ch))))
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn h2send
-  "Does a generic web operation,
-  result/error delivered in the returned promise."
-  ([target method data]
-   (h2send target method data nil))
-  ([target method data args]
-   (cc/hxsend (NettyClientModule.)
-              target method data (assoc args :version "2"))))
+  (hc-h2-conn [module host port args]
+    (hx-conn module host port args h2pipe {:v2? true}))
+
+  (hc-h1-conn [module host port args]
+    (hx-conn module host port args h1pipe nil))
+
+  (hc-ws-conn [module host port user args]
+    (hx-conn module host port args wspipe {:user user})))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn h1send
-  "Does a generic web operation,
-  result/error delivered in the returned promise."
-  ([target method data]
-   (h1send target method data nil))
-  ([target method data args]
-   (cc/hxsend (NettyClientModule.) target method data args)))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn h1post
-  "Does a web/post, result/error delivered in the returned promise."
-  ([target data] (h1post target data nil))
-  ([target data args] (cc/hxsend (NettyClientModule.) target :post data args)))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn h1get
-  "Does a web/get, result/error delivered in the returned promise."
-  ([target] (h1get target nil))
-  ([target args] (cc/hxsend (NettyClientModule.) target :get nil args)))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn h2post
-  "Does a web/post, result/error delivered in the returned promise."
-  ([target data]
-   (h2post target data nil))
-  ([target data args]
-   (cc/hxsend (NettyClientModule.)
-              target :post data (assoc args :version "2"))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn h2get
-  "Does a web/get, result/error delivered in the returned promise."
-  ([target] (h2get target nil))
-  ([target args]
-   (cc/hxsend (NettyClientModule.)
-              target :get nil (assoc args :version "2"))))
+(defn netty-module<> "" [] (NettyClientModule.))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF

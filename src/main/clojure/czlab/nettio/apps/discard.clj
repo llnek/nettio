@@ -47,11 +47,8 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn discard-httpd<>
   "Drops the req and returns OK"
-
-  ([cb] (discard-httpd<> cb nil))
-  ([cb args]
-   (sv/netty-web-server<> (assoc args
-                                 :hh1 (h1proxy cb)))))
+  [cb & args]
+  (apply sv/netty-web-server<> :hh1 (h1proxy cb) args))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn finz-server "" []

@@ -142,16 +142,12 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn snoop-httpd<>
-  "Sample Snooper HTTPD"
-
-  ([] (snoop-httpd<> nil))
-  ([args]
-   (sv/netty-web-server<> (assoc args
-                                 :hh1
+  "Sample Snooper HTTPD." [& args]
+   (apply sv/netty-web-server<> :hh1
                                  (proxy [InboundHandler][true]
                                    (readMsg [ctx msg]
                                      (handle-req ctx msg)
-                                     (handle-cnt ctx msg)))))))
+                                     (handle-cnt ctx msg))) args))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn finz-server "" []
