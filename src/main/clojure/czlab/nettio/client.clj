@@ -439,95 +439,93 @@
     (ret-conn module bs host port rcp hint)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defrecord NettyClientModule []
-  cc/HttpClientModule
+(defn netty-module<> "" []
+  (reify
+    cc/HttpClientModule
 
-  (hc-send-http [_ conn op uri data args]
-    (let [mt (HttpMethod/valueOf (s/ucase (name op)))
-          {:keys [encoding headers
-                  is-keep-alive?
-                  version override]} args
-          ^Channel ch (cc/cc-channel conn)
-          body (nc/bbuf?? data ch encoding)
-          ^URI uri uri
-          path (.getPath uri)
-          qy (.getQuery uri)
-          uriStr (if (s/hgl? qy)
-                   (str path "?" qy) path)
-          req (if-not (or (nil? body)
-                          (c/is? ByteBuf body))
-                (nc/http-req<> mt uriStr)
-                (nc/http-req<+> mt uriStr body))
-          clen (cond (c/is? ByteBuf body) (.readableBytes ^ByteBuf body)
-                     (c/is? File body) (.length ^File body)
-                     (c/is? InputStream body) -1
-                     (nil? body) 0
-                     :else (u/throw-IOE "Bad type %s." (class body)))]
-      (doseq [[k v] (seq headers)
-              :let [kw (name k)]]
-        (if (seq? v)
-          (doseq [vv (seq v)]
-            (nc/add-header req kw vv))
-          (nc/set-header req kw v)))
-      (nc/set-header req HttpHeaderNames/HOST (:host args))
-      (if (= version "2")
-        (nc/set-header req
-                       (.text HttpConversionUtil$ExtensionHeaderNames/SCHEME)
-                       (.getScheme uri))
-        (nc/set-header req
-                       HttpHeaderNames/CONNECTION
-                       (if-not is-keep-alive?
-                         HttpHeaderValues/CLOSE
-                         HttpHeaderValues/KEEP_ALIVE)))
-      (c/if-some+ [mo (s/stror override "")]
-        (nc/set-header req "X-HTTP-Method-Override" mo))
-      (if (zero? clen)
-        (HttpUtil/setContentLength req 0)
-        (do (if-not (c/is? FullHttpRequest req)
-              (HttpUtil/setTransferEncodingChunked req true))
-            (if-not (nc/has-header? req "content-type")
-              (nc/set-header req
-                             HttpHeaderNames/CONTENT_TYPE
-                             "application/octet-stream"))
-            (if (c/spos? clen)
-              (HttpUtil/setContentLength req clen))))
-      (l/debug (str "about to flush out req (headers), "
-                    "isKeepAlive= %s, content-length= %s") is-keep-alive? clen)
-      (c/do-with [out (nc/set-akey ch rsp-key (promise))]
-        (let [cf (.write ch req)
-              cf (condp instance? body
-                   File
-                   (->> (ChunkedFile. ^File body)
-                        HttpChunkedInput. (.write ch))
-                   InputStream
-                   (->> (ChunkedStream.
-                          ^InputStream body)
-                        HttpChunkedInput. (.write ch)) cf)] (.flush ch)))))
+    (hc-send-http [_ conn op uri data args]
+      (let [mt (HttpMethod/valueOf (s/ucase (name op)))
+            {:keys [encoding headers
+                    is-keep-alive?
+                    version override]} args
+            ^Channel ch (cc/cc-channel conn)
+            body (nc/bbuf?? data ch encoding)
+            ^URI uri uri
+            path (.getPath uri)
+            qy (.getQuery uri)
+            uriStr (if (s/hgl? qy)
+                     (str path "?" qy) path)
+            req (if-not (or (nil? body)
+                            (c/is? ByteBuf body))
+                  (nc/http-req<> mt uriStr)
+                  (nc/http-req<+> mt uriStr body))
+            clen (cond (c/is? ByteBuf body) (.readableBytes ^ByteBuf body)
+                       (c/is? File body) (.length ^File body)
+                       (c/is? InputStream body) -1
+                       (nil? body) 0
+                       :else (u/throw-IOE "Bad type %s." (class body)))]
+        (doseq [[k v] (seq headers)
+                :let [kw (name k)]]
+          (if (seq? v)
+            (doseq [vv (seq v)]
+              (nc/add-header req kw vv))
+            (nc/set-header req kw v)))
+        (nc/set-header req HttpHeaderNames/HOST (:host args))
+        (if (= version "2")
+          (nc/set-header req
+                         (.text HttpConversionUtil$ExtensionHeaderNames/SCHEME)
+                         (.getScheme uri))
+          (nc/set-header req
+                         HttpHeaderNames/CONNECTION
+                         (if-not is-keep-alive?
+                           HttpHeaderValues/CLOSE
+                           HttpHeaderValues/KEEP_ALIVE)))
+        (c/if-some+ [mo (s/stror override "")]
+          (nc/set-header req "X-HTTP-Method-Override" mo))
+        (if (zero? clen)
+          (HttpUtil/setContentLength req 0)
+          (do (if-not (c/is? FullHttpRequest req)
+                (HttpUtil/setTransferEncodingChunked req true))
+              (if-not (nc/has-header? req "content-type")
+                (nc/set-header req
+                               HttpHeaderNames/CONTENT_TYPE
+                               "application/octet-stream"))
+              (if (c/spos? clen)
+                (HttpUtil/setContentLength req clen))))
+        (l/debug (str "about to flush out req (headers), "
+                      "isKeepAlive= %s, content-length= %s") is-keep-alive? clen)
+        (c/do-with [out (nc/set-akey ch rsp-key (promise))]
+          (let [cf (.write ch req)
+                cf (condp instance? body
+                     File
+                     (->> (ChunkedFile. ^File body)
+                          HttpChunkedInput. (.write ch))
+                     InputStream
+                     (->> (ChunkedStream.
+                            ^InputStream body)
+                          HttpChunkedInput. (.write ch)) cf)] (.flush ch)))))
 
-  (hc-ws-send [_ conn msg]
-    (let [^Channel ch (cc/cc-channel conn)]
-    (some->> (cond
-               (c/is? WebSocketFrame msg)
-               msg
-               (string? msg)
-               (TextWebSocketFrame. ^String msg)
-               (bytes? msg)
-               (-> (.alloc ch)
-                   (.directBuffer (int 4096))
-                   (.writeBytes ^bytes msg)
-                   (BinaryWebSocketFrame. ))) (.writeAndFlush ch))))
+    (hc-ws-send [_ conn msg]
+      (let [^Channel ch (cc/cc-channel conn)]
+      (some->> (cond
+                 (c/is? WebSocketFrame msg)
+                 msg
+                 (string? msg)
+                 (TextWebSocketFrame. ^String msg)
+                 (bytes? msg)
+                 (-> (.alloc ch)
+                     (.directBuffer (int 4096))
+                     (.writeBytes ^bytes msg)
+                     (BinaryWebSocketFrame. ))) (.writeAndFlush ch))))
 
-  (hc-h2-conn [module host port args]
-    (hx-conn module host port args h2pipe {:v2? true}))
+    (hc-h2-conn [module host port args]
+      (hx-conn module host port args h2pipe {:v2? true}))
 
-  (hc-h1-conn [module host port args]
-    (hx-conn module host port args h1pipe nil))
+    (hc-h1-conn [module host port args]
+      (hx-conn module host port args h1pipe nil))
 
-  (hc-ws-conn [module host port user args]
-    (hx-conn module host port args wspipe {:user user})))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn netty-module<> "" [] (NettyClientModule.))
+    (hc-ws-conn [module host port user args]
+      (hx-conn module host port args wspipe {:user user}))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF

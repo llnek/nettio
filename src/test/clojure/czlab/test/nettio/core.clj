@@ -37,7 +37,6 @@
   (:import [io.netty.buffer Unpooled ByteBuf ByteBufHolder]
            [org.apache.commons.fileupload FileItem]
            [czlab.basal XData]
-           [czlab.nettio.client NettyClientModule]
            [io.netty.handler.codec.http.websocketx
             BinaryWebSocketFrame
             TextWebSocketFrame
@@ -303,9 +302,9 @@
                     ^ByteBufHolder r2 (.poll q)
                     ^ByteBufHolder r3 (.poll q)
                     r4 (.poll q)
-                    rc (str (i/x->str (nc/to-byte-array (.content r1)))
-                            (i/x->str (nc/to-byte-array (.content r2)))
-                            (i/x->str (nc/to-byte-array (.content r3))))]
+                    rc (str (i/x->str (nc/bbuf->bytes (.content r1)))
+                            (i/x->str (nc/bbuf->bytes (.content r2)))
+                            (i/x->str (nc/bbuf->bytes (.content r3))))]
                 (.close ec)
                 (u/pause 1000)
                 (and (nil? r4)
@@ -332,8 +331,8 @@
                     (.flushOutbound ec))
                   (let [^ByteBufHolder b1 (.poll outq)
                         ^ByteBufHolder b2 (.poll outq)
-                        rc (str (i/x->str (nc/to-byte-array (.content b1)))
-                                (i/x->str (nc/to-byte-array (.content b2))))]
+                        rc (str (i/x->str (nc/bbuf->bytes (.content b1)))
+                                (i/x->str (nc/bbuf->bytes (.content b2))))]
                     (.close ec)
                     (if (= "r1r2" rc) (swap! sum inc)))))
               (u/pause 1000)

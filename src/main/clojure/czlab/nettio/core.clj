@@ -369,7 +369,7 @@
       (.readBytes buf out (int len)) (.flush out) len) 0))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn to-byte-array
+(defn bbuf->bytes
   "" ^bytes [^ByteBuf buf]
   (let [out (i/baos<>)]
     (if (pos? (slurp-bytebuf buf out)) (i/x->bytes out))))
