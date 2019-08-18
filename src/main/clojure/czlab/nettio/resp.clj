@@ -11,8 +11,8 @@
 
   czlab.nettio.resp
 
-  (:require [czlab.convoy.mime :as mm]
-            [czlab.convoy.core :as cc]
+  (:require [czlab.niou.mime :as mm]
+            [czlab.niou.core :as cc]
             [czlab.nettio.core :as nc]
             [czlab.basal.log :as l]
             [clojure.java.io :as io]
@@ -22,7 +22,7 @@
             [czlab.basal.str :as s]
             [czlab.basal.io :as i]
             [czlab.basal.core :as c]
-            [czlab.convoy.webss :as ss]
+            [czlab.niou.webss :as ss]
             [czlab.nettio.ranges :as nr])
 
   (:import [io.netty.channel ChannelFuture Channel ChannelHandlerContext]

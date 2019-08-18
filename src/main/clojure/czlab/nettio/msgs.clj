@@ -11,8 +11,8 @@
 
   czlab.nettio.msgs
 
-  (:require [czlab.convoy.upload :as cu]
-            [czlab.convoy.core :as cc]
+  (:require [czlab.niou.upload :as cu]
+            [czlab.niou.core :as cc]
             [czlab.nettio.core :as nc]
             [czlab.basal.log :as l]
             [clojure.java.io :as io]
@@ -20,10 +20,11 @@
             [czlab.basal.str :as s]
             [czlab.basal.io :as i]
             [czlab.basal.util :as u]
-            [czlab.basal.core :as c])
+            [czlab.basal.core :as c]
+            [czlab.niou.routes :as cr])
 
-  (:import [io.netty.util AttributeKey ReferenceCountUtil]
-           [czlab.nettio.core NettyH2Msg NettyWsockMsg]
+  (:import [czlab.nettio.core NettyH1Msg NettyH2Msg NettyWsockMsg]
+           [io.netty.util AttributeKey ReferenceCountUtil]
            [czlab.nettio DuplexHandler H1DataFactory]
            [io.netty.handler.codec.http.websocketx
             BinaryWebSocketFrame
@@ -64,6 +65,11 @@
             HttpRequest
             HttpResponseStatus
             HttpHeaders]
+           [java.net
+            InetAddress
+            URL
+            HttpCookie
+            InetSocketAddress]
            [io.netty.handler.codec.http2
             Http2FrameAdapter
             Http2Headers
@@ -97,56 +103,126 @@
 (def ^:private ^String body-attr-id "--body--")
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- fmt-wsmsg "" [m]
-  (merge m {:route {:status? true}}))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- add-content "" [whole ^HttpContent c isLast?]
-  (let [{:keys [impl]} (nc/deref-msg whole)]
-    (cond
-      (c/is? Attribute impl)
-      (.addContent ^Attribute impl
-                   (.. c content retain) isLast?)
-      (c/is? InterfaceHttpPostRequestDecoder impl)
-      (.offer ^InterfaceHttpPostRequestDecoder impl c))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- append-content "" [whole ^HttpContent c isLast?]
-  (let [{:keys [body impl
-                fac owner]} (nc/deref-msg whole)]
-    (add-content whole c isLast?)
-    (if isLast?
-      (cond
-        (c/is? Attribute impl)
-        (do
-          (.removeHttpDataFromClean
-            ^HttpDataFactory
-            fac
-            ^HttpRequest
-            owner
-            ^Attribute
-            impl)
-          (.reset ^XData body
-                  (nc/end-msg-content whole))
-          (.release ^Attribute impl))
-        (c/is? InterfaceHttpPostRequestDecoder impl)
-        (do (.reset ^XData body (nc/end-msg-content whole))
-            (try (.destroy
-                   ^InterfaceHttpPostRequestDecoder impl)
-                 (catch Throwable _ (l/exception  _ ))))))))
+(declare end-msg-content append-msg-content)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- fire-msg "" [ctx msg]
-  (when (some? msg)
-    (l/debug "about to firemsg ===> %s." msg)
-    (some->> (or (some-> (nc/gist-h1-msg ctx msg)
-                         nc/netty-msg<>) msg)
-             (.fireChannelRead ^ChannelHandlerContext ctx))))
+(defn- fmt-wsmsg "" [m] (merge m {:route {:status? true}}))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; rename to self ,trick code to not delete the file
-(defn- get-http-data "" [^HttpData d]
-  (XData. (if (.isInMemory d) (.get d) (c/doto->> (.getFile d) (.renameTo d)))))
+(defn- get-http-data
+  ([d] (get-http-data d nil))
+  ([^HttpData d wrap?]
+   (let [x (if (.isInMemory d)
+             (.get d)
+             (c/doto->> (.getFile d) (.renameTo d)))]
+     (if wrap? (XData. x) x))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn- append-msg-content [ctx whole ^HttpContent c isLast?]
+  (let [{:keys [body impl fac req res]} whole]
+    (cond (c/is? Attribute impl)
+          (.addContent ^Attribute impl
+                       (.. c content retain) isLast?)
+          (c/is? InterfaceHttpPostRequestDecoder impl)
+          (.offer ^InterfaceHttpPostRequestDecoder impl c))
+    (when isLast?
+      (.reset ^XData body (end-msg-content ctx whole))
+      (cond (c/is? Attribute impl)
+            (do (.removeHttpDataFromClean
+                  ^HttpDataFactory fac
+                  ^HttpRequest req
+                  ^Attribute impl)
+                (.release ^Attribute impl))
+            (c/is? InterfaceHttpPostRequestDecoder impl)
+            (try (.destroy
+                   ^InterfaceHttpPostRequestDecoder impl)
+                 (catch Throwable _ (l/exception  _ ))))
+      (nc/set-akey ctx h1pipe-M-key (dissoc whole :impl)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn- match-one-route [ctx msg]
+  (l/debug "match route for msg: %s." msg)
+  ;make sure it's a request
+  (or (c/when-some+ [u2 (:uri2 msg)]
+        (when-some [c (nc/get-akey ctx nc/routes-key)]
+          (l/debug "cracker == %s, uri= %s." c u2)
+          (when (cr/rc-has-routes? c)
+            (->> (select-keys msg [:method :uri])
+                 (cr/rc-crack-route c))))) {:status? true}))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn- gist-h1-request [ctx msg]
+  (let [{:keys [body ^HttpRequest req]} msg
+        hs (.headers req)
+        laddr (c/cast? InetSocketAddress
+                       (.localAddress (nc/ch?? ctx)))
+        out {:is-keep-alive? (HttpUtil/isKeepAlive req)
+             :version (.. req protocolVersion text)
+             :headers hs
+             :ssl? (nc/maybe-ssl? ctx)
+             :remote-port (c/s->long (.get hs "remote_port") 0)
+             :remote-addr (str (.get hs "remote_addr"))
+             :remote-host (str (.get hs "remote_host"))
+             :server-port (c/s->long (.get hs "server_port") 0)
+             :server-name (str (.get hs "server_name"))
+             :method (nc/get-method req)
+             :body body
+             :socket (nc/ch?? ctx)
+             :parameters (nc/get-uri-params req)
+             :uri2 (str (.uri req))
+             :uri (nc/get-uri-path req)
+             :charset (nc/get-msg-charset req)
+             :cookies (nc/crack-cookies req)
+             :local-host (some-> laddr .getHostName)
+             :local-port (some-> laddr .getPort)
+             :chunked? (HttpUtil/isTransferEncodingChunked req)
+             :local-addr (some-> laddr .getAddress .getHostAddress)}
+        {:keys [matcher status?
+                route-info redirect] :as ro}
+        (match-one-route ctx out)
+        ri (if (and status? route-info matcher)
+             (cr/ri-collect-info route-info matcher))]
+    (merge (NettyH1Msg.)
+           out
+           {:scheme (if (:ssl? out) "https" "http")
+            :route (merge (dissoc ro
+                           :matcher
+                           :route-info)
+                          {:info route-info} ri)})))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn- gist-h1-response [ctx msg]
+  (let [{:keys [^HttpResponse res body]} msg
+        s (.status res)]
+    (merge (NettyH1Msg.)
+      {:is-keep-alive? (HttpUtil/isKeepAlive res)
+       :version (.. res protocolVersion text)
+       :socket (nc/ch?? ctx)
+       :body body
+       :ssl? (nc/maybe-ssl? ctx)
+       :headers (.headers res)
+       :charset (nc/get-msg-charset res)
+       :cookies (nc/crack-cookies res)
+       :status {:code (.code s)
+                :reason (.reasonPhrase s)}
+       :chunked? (HttpUtil/isTransferEncodingChunked res)})))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn- gist-h1-msg [ctx msg]
+  (if (map? msg)
+    (c/do-with [m (cond (c/is? HttpResponse (:res msg))
+                        (gist-h1-response ctx msg)
+                        (c/is? HttpRequest (:req msg))
+                        (gist-h1-request ctx msg))]
+      (l/debug "gisted h1-msg: %s." (if m (i/fmt->edn m) "nil")))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn- fire-msg [ctx msg]
+  (when-some [m (or (some->> msg
+                             (gist-h1-msg ctx)) msg)]
+    (l/debug "about to firemsg ===> %s." m)
+    (.fireChannelRead ^ChannelHandlerContext ctx m)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- safe-has-next? "" [^InterfaceHttpPostRequestDecoder deco]
@@ -168,16 +244,27 @@
                                   nil
                                   (.getName u)
                                   (.getFilename u)
-                                  (get-http-data u)))
+                                  (get-http-data u true)))
                 (c/is? Attribute n)
                 (let [a (c/cast? Attribute n)]
                   (cu/file-item<> true
                                   "" nil
                                   (.getName a) ""
-                                  (get-http-data a)))
+                                  (get-http-data a true)))
                 :else (l/error "Unknown post content %s." n))]
         (recur
           (if z (cu/add-item out z) out))))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn- end-msg-content [ctx whole]
+  (let [{:keys [req res impl]} whole]
+    (if res
+      (get-http-data impl)
+      (try (cond (c/is? InterfaceHttpPostRequestDecoder impl)
+                 (parse-post impl)
+                 (c/is? Attribute impl)
+                 (get-http-data impl))
+             (catch Throwable _ (l/exception _) (throw _))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- chk-form-post
@@ -193,7 +280,7 @@
            (s/eq-any? method ["POST" "PUT"])) :multipart)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- prepare-body "" [^HttpDataFactory df ^HttpRequest msg]
+(defn- prepare-body [^HttpDataFactory df ^HttpRequest msg]
   (let [rc (chk-form-post msg)
         cs (nc/get-msg-charset msg)]
     (if (or (= rc :post)
@@ -202,76 +289,16 @@
           (HttpPostRequestDecoder. df msg cs))
       (.createAttribute df msg body-attr-id))))
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- whole-request<+> "" [^HttpDataFactory fac ^HttpRequest owner]
-  (let [impl (prepare-body fac owner)
-        _ (assert (some? impl))
-        target {:impl impl :fac fac
-                :owner owner :body (XData.)}]
-    (reify HttpRequest
-      (getMethod [me] (.method me))
-      (getUri [me] (.uri me))
-      (method [me]
-        (c/if-some+ [x (-> (.headers owner)
-                           (.get "X-HTTP-Method-Override"))]
-          (HttpMethod/valueOf x)
-          (.method owner)))
-      (setProtocolVersion [_ _] (u/throw-UOE ""))
-      (setMethod [_ _] (u/throw-UOE ""))
-      (setUri [_ _] (u/throw-UOE ""))
-      (uri [_] (.uri owner))
-      (getDecoderResult [me] (.decoderResult me))
-      (decoderResult [_] (.decoderResult owner))
-      (setDecoderResult [_ _] (u/throw-UOE ""))
-      (getProtocolVersion [me] (.protocolVersion me))
-      (headers [_] (.headers owner))
-      (protocolVersion [_] (.protocolVersion owner))
-      nc/WholeMsgAPI
-      (append-msg-content [me c last?]
-        (append-content me c last?))
-      (add-msg-content [me c last?]
-        (add-content me c last?))
-      (deref-msg [_] target)
-      (end-msg-content [me]
-        (try (cond (c/is? InterfaceHttpPostRequestDecoder impl)
-                   (parse-post impl)
-                   (c/is? Attribute impl)
-                   (get-http-data impl))
-             (catch Throwable _
-               (l/exception _)
-               (throw _)))))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- whole-response<+> [^HttpDataFactory fac ^HttpResponse resp]
-  (let [owner (nc/fake-request<>)
-        impl (prepare-body fac owner)
-        target {:impl impl :fac fac
-                :owner owner :body (XData.)}]
-    (reify HttpResponse
-      (setProtocolVersion [_ _] (u/throw-UOE ""))
-      (getDecoderResult [me] (.decoderResult me))
-      (decoderResult [_] (.decoderResult owner))
-      (setDecoderResult [_ _] (u/throw-UOE ""))
-      (getProtocolVersion [me] (.protocolVersion me))
-      (headers [_] (.headers resp))
-      (protocolVersion [_] (.protocolVersion owner))
-      (getStatus [me] (.status me))
-      (setStatus [_ _] (u/throw-UOE ""))
-      (status [_] (.status resp))
-      nc/WholeMsgAPI
-      (append-msg-content [me c last?]
-        (append-content me c last?))
-      (add-msg-content [me c last?]
-        (add-content me c last?))
-      (deref-msg [_] target)
-      (end-msg-content [me]
-        (get-http-data impl)))))
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- h11msg<> [ctx msg]
-  (let [fac (nc/get-akey ctx nc/dfac-key)]
-    (if (c/is? HttpRequest msg)
-      (whole-request<+> fac msg) (whole-response<+> fac msg))))
+  (let [fac (nc/get-akey ctx nc/dfac-key)
+        [req res] (if (c/is? HttpRequest msg)
+                    [msg nil] [(nc/fake-request<>) msg])]
+    {:body (XData.)
+     :req req
+     :res res
+     :fac fac
+     :impl (prepare-body fac req)}))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- read-h1-chunk [ctx part pipelining?]
@@ -279,20 +306,20 @@
     [last? (c/is? LastHttpContent part)
      msg (nc/get-akey ctx h1pipe-M-key)]
     (if-not last?
-      (l/debug "received chunk for msg-part %s." part))
+      (l/debug "received chunk %s." part))
     (try
       (if-not (nc/decoder-success? part)
         (if (c/is? HttpRequest msg)
           (nc/reply-status ctx
                            (nc/scode HttpResponseStatus/BAD_REQUEST))
           (nc/close-ch ctx))
-        (nc/append-msg-content msg part last?))
+        (append-msg-content ctx msg part last?))
       (finally
         (nc/ref-del part)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- read-last-h1-chunk [ctx part pipelining?]
-  (l/debug "received last-chunk for msg-part %s." part)
+  (l/debug "received last-chunk %s." part)
   (read-h1-chunk ctx part pipelining?)
   (let
     [q (nc/get-akey ctx h1pipe-Q-key)
@@ -315,7 +342,8 @@
   ;;no need to release msg -> request or response
   (let [{:keys [max-in-memory
                 max-content-size]} (nc/get-akey ctx nc/chcfg-key)]
-    (l/debug "reading message: %s." msg)
+    (l/debug "reading %s: %s."
+             (if (c/is? HttpRequest msg) "REQUEST" "RESPONSE") msg)
     (cond
       (not (nc/decoder-success? msg))
       (if (c/is? HttpRequest msg)

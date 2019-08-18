@@ -17,17 +17,18 @@
             [clojure.string :as cs]
             [clojure.java.io :as io]
             [czlab.nettio.msgs :as mg]
-            [czlab.convoy.routes :as cr]
+            [czlab.niou.routes :as cr]
             [czlab.nettio.http11 :as h1]
             [czlab.nettio.ranges :as nr]
             [czlab.nettio.core :as nc]
             [czlab.nettio.resp :as rs]
             [czlab.nettio.server :as sv]
             [czlab.nettio.client :as cl]
-            [czlab.convoy.core :as cc]
-            [czlab.convoy.upload :as cu]
+            [czlab.niou.core :as cc]
+            [czlab.niou.upload :as cu]
             [czlab.basal.proc :as p]
             [czlab.basal.util :as u]
+            [czlab.basal.log :as l]
             [czlab.basal.io :as i]
             [czlab.basal.str :as s]
             [clojure.test :as ct]
@@ -201,7 +202,7 @@
               (if cc (cc/cc-finz cc))
               (sv/stop-server! w)
               (u/pause 1000)
-              (and (c/is? czlab.convoy.core.ClientConnect cc)
+              (and (c/is? czlab.niou.core.ClientConnect cc)
                    (not (.isOpen ^Channel (cc/cc-channel cc))))))
 
   (ensure?? "websock/text"

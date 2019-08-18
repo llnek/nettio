@@ -20,8 +20,7 @@
             [czlab.basal.str :as s]
             [czlab.basal.io :as i]
             [czlab.basal.core :as c]
-            [czlab.convoy.core :as cc]
-            [czlab.convoy.routes :as cr])
+            [czlab.niou.core :as cc])
 
   (:import [clojure.lang APersistentMap APersistentSet APersistentVector]
            [io.netty.handler.codec DecoderResultProvider DecoderResult]
@@ -118,20 +117,13 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;(set! *warn-on-reflection* true)
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defprotocol WholeMsgAPI
-  (end-msg-content [_] "")
-  (deref-msg [_] "")
-  (add-msg-content [_ c last?] "")
-  (append-msg-content [_ c last?] ""))
+(defn mg-cs?? "Cheap way to cast to a CharSequence." ^CharSequence [s] s)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn mg-headers??
-  "" ^HttpHeaders [msg] (:headers (if (c/is? IDeref msg) @msg msg)))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn mg-cs?? "" ^CharSequence [s] s)
+  "Get the HttpHeaders object."
+  ^HttpHeaders [msg] (:headers (if (c/is? IDeref msg) @msg msg)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defmacro ref-del "" [r] `(io.netty.util.ReferenceCountUtil/release ~r))
@@ -139,15 +131,11 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defmacro ref-add "" [r] `(io.netty.util.ReferenceCountUtil/retain ~r))
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defrecord NettyWsockMsg [] cc/WsockMsg cc/WsockMsgGist)
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defrecord NettyH2Msg [])
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defrecord NettyWsockMsg [] cc/WsockMsg)
+(defrecord NettyH2Msg [] cc/Http2xMsg)
 (defrecord NettyH1Msg []
-  cc/HttpMsg
+  cc/Http1xMsg
   cc/HttpMsgGist
   (msg-header? [msg h]
     (.contains (mg-headers?? msg) (mg-cs?? h)))
@@ -157,11 +145,6 @@
     (set (.names (mg-headers?? msg))))
   (msg-header-vals [msg h]
     (vec (.getAll (mg-headers?? msg) (mg-cs?? h)))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn netty-msg<> ""
-  ([] (netty-msg<> nil))
-  ([s] (merge (NettyH1Msg.) s)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (let [a (InetAddress/getLoopbackAddress)
@@ -179,10 +162,12 @@
     (println "loop addr= " host-loopback-addr)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(def ^String user-handler-id "netty-user-handler")
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defmacro akey<>
   "New Attribute."
   [n] `(io.netty.util.AttributeKey/newInstance (name ~n)))
-(def ^String user-handler-id "netty-user-handler")
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defonce ^AttributeKey dfac-key (akey<> :data-factory))
@@ -192,14 +177,18 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defmacro cfop<e>
-  "" [] `io.netty.channel.ChannelFutureListener/FIRE_EXCEPTION_ON_FAILURE)
+  "ChannelFuture - exception." []
+  `io.netty.channel.ChannelFutureListener/FIRE_EXCEPTION_ON_FAILURE)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defmacro cfop<x>
-  "" [] `io.netty.channel.ChannelFutureListener/CLOSE_ON_FAILURE)
+  "ChannelFuture - close-error." []
+  `io.netty.channel.ChannelFutureListener/CLOSE_ON_FAILURE)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defmacro cfop<z> "" [] `io.netty.channel.ChannelFutureListener/CLOSE)
+(defmacro cfop<z>
+  "ChannelFuture - close-success."
+  [] `io.netty.channel.ChannelFutureListener/CLOSE)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defmacro scode "Http status code." [s] `(.code ~s))
@@ -216,13 +205,12 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn g-and-c
   "" {:no-doc true} [t kind]
-  (if-some [x
-            ({:tcps {:epoll EpollServerSocketChannel
-                     :nio NioServerSocketChannel}
-              :tcpc {:epoll EpollSocketChannel
-                     :nio NioSocketChannel}
-              :udps {:epoll EpollDatagramChannel
-                     :nio NioDatagramChannel}} kind)]
+  (if-some [x ({:tcps {:epoll EpollServerSocketChannel
+                       :nio NioServerSocketChannel}
+                :tcpc {:epoll EpollSocketChannel
+                       :nio NioSocketChannel}
+                :udps {:epoll EpollDatagramChannel
+                       :nio NioDatagramChannel}} kind)]
     (if-not (Epoll/isAvailable)
      [(NioEventLoopGroup. (int t)) (:nio x)]
      [(EpollEventLoopGroup. (int t)) (:epoll x)])))
@@ -457,8 +445,8 @@
     (or c (Charset/forName "utf-8"))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn get-msg-charset
-  "" ^Charset [^HttpMessage msg]
+(defn get-msg-charset ""
+  ^Charset [^HttpMessage msg]
   (HttpUtil/getCharset msg (Charset/forName "utf-8")))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -476,7 +464,8 @@
   ([mt uri] (http-req<+> mt uri nil))
   ([^HttpMethod mt ^String uri ^ByteBuf body]
    (if (nil? body)
-     (DefaultFullHttpRequest. HttpVersion/HTTP_1_1 mt uri)
+     (let [x (DefaultFullHttpRequest. HttpVersion/HTTP_1_1 mt uri)]
+       (HttpUtil/setContentLength x 0) x)
      (DefaultFullHttpRequest. HttpVersion/HTTP_1_1 mt uri body))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -517,7 +506,8 @@
        (c/is? ByteBuf msg)
        (DefaultFullHttpResponse. ver code ^ByteBuf msg)
        (nil? msg)
-       (DefaultFullHttpResponse. ver code)
+       (let [x (DefaultFullHttpResponse. ver code)]
+         (HttpUtil/setContentLength x 0) x)
        :else
        (let [bb (some-> alloc .directBuffer)
              _
@@ -558,7 +548,7 @@
                keepAlive?)]
      (l/debug "returning status [%s]." status)
      (HttpUtil/setKeepAlive rsp ka?)
-     (HttpUtil/setContentLength rsp 0)
+     ;(HttpUtil/setContentLength rsp 0)
      (close-cf (.writeAndFlush inv rsp) ka?))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -734,120 +724,6 @@
       (get-header-vals msg HttpHeaderNames/SET_COOKIE))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn match-one-route "" [ctx msg]
-  (l/debug "match route for msg: %s." msg)
-  (let [dft {:status? true}
-        rc
-        (if (c/is? HttpRequest msg)
-          (let [c (get-akey ctx routes-key)
-                p {:method (get-method msg)
-                   :uri (get-uri-path msg)}]
-            (l/debug "cracker ======= %s." c)
-            (when (and c (cr/rc-has-routes? c))
-              (l/debug "cracking route uri= %s." p)
-              (cr/rc-crack-route c p))))]
-    (or rc dft)))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- dft-req-msg-obj "" []
-  (hash-map :is-keep-alive? false
-            :chunked? false
-            :version ""
-            :method ""
-            :socket nil
-            :ssl? false
-            :uri2 ""
-            :uri ""
-            :charset nil
-            :cookies []
-            :parameters (HashMap.)
-            :headers (DefaultHttpHeaders.)))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- dft-rsp-msg-obj "" []
-  (hash-map :is-keep-alive? false
-            :chunked? false
-            :version ""
-            :socket nil
-            :ssl? false
-            :charset nil
-            :cookies []
-            :status {}
-            :headers (DefaultHttpHeaders.)))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- gist-h1-request
-  "" [ctx ^HttpRequest msg]
-  (let
-    [laddr (c/cast? InetSocketAddress
-                    (.localAddress (ch?? ctx)))
-     {:keys [body]} (deref-msg msg)
-     ssl? (maybe-ssl? ctx)
-     hs (.headers msg)
-     {:keys [route-info matcher
-             status? redirect] :as ro}
-     (match-one-route ctx msg)
-     ri (if (and status? route-info matcher)
-          (cr/ri-collect-info route-info matcher))
-     msg (assoc (dft-req-msg-obj)
-                :chunked? (HttpUtil/isTransferEncodingChunked msg)
-                :is-keep-alive? (HttpUtil/isKeepAlive msg)
-                :version (.. msg protocolVersion text)
-                :route (merge (dissoc ro
-                                      :matcher
-                                      :route-info) {:info route-info} ri)
-                :local-addr (some-> laddr .getAddress .getHostAddress)
-                :local-host (some-> laddr .getHostName)
-                :local-port (some-> laddr .getPort)
-                :remote-port (c/s->long (.get hs "remote_port") 0)
-                :remote-addr (str (.get hs "remote_addr"))
-                :remote-host (str (.get hs "remote_host"))
-                :server-port (c/s->long (.get hs "server_port") 0)
-                :server-name (str (.get hs "server_name"))
-                :scheme (if ssl? "https" "http")
-                :method (get-method msg)
-                :body body
-                :socket (ch?? ctx)
-                :ssl? ssl?
-                :parameters (get-uri-params msg)
-                :headers (.headers msg)
-                :uri2 (str (some-> msg .uri))
-                :uri (get-uri-path msg)
-                :charset (get-msg-charset msg)
-                :cookies (crack-cookies msg))]
-    msg))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- gist-h1-response
-  "" [ctx ^HttpResponse msg]
-  (let [{:keys [body]} (deref-msg msg)]
-    (merge
-      (dft-rsp-msg-obj)
-      {:chunked? (HttpUtil/isTransferEncodingChunked msg)
-       :is-keep-alive? (HttpUtil/isKeepAlive msg)
-       :version (.. msg protocolVersion text)
-       :socket (ch?? ctx)
-       :body body
-       :ssl? (maybe-ssl? ctx)
-       :headers (.headers msg)
-       :charset (get-msg-charset msg)
-       :cookies (crack-cookies msg)}
-      (let [s (.status msg)]
-        {:status {:code (.code s)
-                  :reason (.reasonPhrase s)}}))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn gist-h1-msg "" [ctx msg]
-  (if (satisfies? WholeMsgAPI msg)
-    (c/do-with [m
-                (cond
-                  (c/is? HttpRequest msg)
-                  (gist-h1-request ctx msg)
-                  (c/is? HttpResponse msg)
-                  (gist-h1-response ctx msg))]
-               (l/debug "gisted h1-msg: %s." (i/fmt->edn m)))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn content-length-as-int
   "" [^HttpMessage m] (HttpUtil/getContentLength m (int 0)))
 
@@ -866,9 +742,7 @@
       (not (> (HttpUtil/getContentLength m -1) 0))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defonce
-  ^:private
-  error-filter
+(defonce ^:private error-filter
   (proxy [InboundHandler][]
     (onRead [_ _])
     (exceptionCaught [_ t] (l/exception t))))

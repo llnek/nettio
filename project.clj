@@ -10,8 +10,8 @@
 
   :dependencies [[io.netty/netty-tcnative-boringssl-static "2.0.25.Final"]
                  [org.javassist/javassist "3.25.0-GA"]
-                 [io.netty/netty-all "4.1.38.Final"]
-                 [io.czlab/convoy "1.1.0"]]
+                 [io.netty/netty-all "4.1.39.Final"]
+                 [io.czlab/niou "1.1.0"]]
 
   :plugins [[cider/cider-nrepl "0.21.1"]
             [lein-javadoc "0.3.0"]
