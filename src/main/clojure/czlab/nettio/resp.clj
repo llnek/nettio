@@ -69,9 +69,8 @@
     [:ctype HttpHeaderNames/CONTENT_TYPE]])
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defrecord NettyResultObj []
-  cc/HttpResultMsg
-  cc/HttpMsgGist
+(extend-protocol cc/HttpMsgGist
+  czlab.niou.core.HttpResultMsg
   (msg-header? [msg h]
     (.contains (nc/mg-headers?? msg) (nc/mg-cs?? h)))
   (msg-header [msg h]
@@ -85,47 +84,48 @@
 (declare replyer<> result<>)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- result<> "" [theReq status]
+(defn- result<>
+  "" [theReq status]
   {:pre [(or (nil? status)
              (number? status))]}
-  (assoc (NettyResultObj.)
-         :ver (.text HttpVersion/HTTP_1_1)
-         :headers (DefaultHttpHeaders.)
-         :request theReq
-         :cookies {}
-         :framework :netty
-         :status (or status (nc/scode HttpResponseStatus/OK))))
+  (c/object<> czlab.niou.core.HttpResultMsg
+              :ver (.text HttpVersion/HTTP_1_1)
+              :headers (DefaultHttpHeaders.)
+              :request theReq
+              :cookies {}
+              :framework :netty
+              :status (or status (nc/scode HttpResponseStatus/OK))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(extend-type czlab.nettio.core.NettyH1Msg
-  cc/HttpResultMsgCreator
+(extend-protocol cc/HttpResultMsgCreator
+  czlab.niou.core.Http1xMsg
   (http-result
     ([theReq] (cc/http-result theReq 200))
     ([theReq status] (result<> theReq status))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(extend-type czlab.nettio.resp.NettyResultObj
-  cc/HttpResultMsgReplyer
+(extend-protocol cc/HttpResultMsgReplyer
+  czlab.niou.core.HttpResultMsg
   (reply-result
     ([theRes] (cc/reply-result theRes nil))
-    ([theRes arg] (replyer<> theRes arg)))
-  cc/HttpResultMsgModifier
+    ([theRes arg] (replyer<> theRes arg))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(extend-protocol cc/HttpResultMsgModifier
+  czlab.niou.core.HttpResultMsg
   (res-header-del [res name]
-    (c/do-with
-      [res res]
+    (c/do-with [res res]
       (.remove ^HttpHeaders (:headers res) ^CharSequence name)))
   (res-header-add [res name value]
-    (c/do-with
-      [res res]
+    (c/do-with [res res]
       (nc/add-header (:headers res) name value)))
   (res-header-set [res name value]
-    (c/do-with
-      [res res]
+    (c/do-with [res res]
       (nc/set-header (:headers res) name value))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn etag-from-file
-  "ETag based on a file object" [^File f]
+  "ETag based on a file object" ^String [^File f]
   (format "\"%s-%s\"" (.lastModified f) (.hashCode f)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -134,7 +134,8 @@
             (and (>= c# 200)(< c# 300))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defmacro ^:private cond-err-code "" [m]
+(defmacro ^:private cond-err-code
+  "" [m]
   `(if
      (s/eq-any? ~m ["GET" "HEAD"])
      (nc/scode HttpResponseStatus/NOT_MODIFIED)
@@ -262,15 +263,15 @@
 
   (let [body (if (c/is? XData body)
                (.content ^XData body) body)]
-    (cond
-      (bytes? body)
-      body
-      (string? body)
-      (i/x->bytes body cs)
-      :else body)))
+    (cond (bytes? body)
+          body
+          (string? body)
+          (i/x->bytes body cs)
+          :else body)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- zmap-headers "" [msg headers]
+(defn- zmap-headers
+  "" [msg headers]
   (zipmap (map #(let [[k v] %1] k) headers)
           (map #(let [[k v] %1]
                   {:has? (cc/msg-header? msg v)
@@ -282,7 +283,8 @@
   [^HttpResponse rsp headers] (.set (.headers rsp) headers))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- replyer<> "" [res sessionObj]
+(defn- replyer<>
+  "" [res sessionObj]
   (l/debug "replyer called with res = %s.\nsessionObj = %s." res sessionObj)
   (let
     [res (ss/downstream res sessionObj)
@@ -369,9 +371,9 @@
       (nr/fmt-error hds body0)
       (some? rangeRef)
       (nr/fmt-success hds rangeRef))
-    (l/debug "response = %s" rsp)
-    (l/debug "body = %s" body)
-    (l/debug "body-len = %s" clen)
+    (l/debug "response = %s." rsp)
+    (l/debug "body = %s." body)
+    (l/debug "body-len = %s." clen)
     (->> (and (not (c/is? FullHttpResponse rsp))
               (some? body))
          (HttpUtil/setTransferEncodingChunked rsp ))
@@ -384,7 +386,7 @@
             (and (zero? clen)(nil? body)))
       (.remove hds HttpHeaderNames/CONTENT_TYPE))
     (doseq [s (nc/encode-java-cookies (vals cookies))]
-      (l/debug "resp: setting cookie: %s" s)
+      (l/debug "resp: setting cookie: %s." s)
       (.add hds HttpHeaderNames/SET_COOKIE s))
     (if (and (c/spos? last-mod)
              (not (get-in rhds [:last-mod :has?])))
@@ -397,14 +399,14 @@
     (let [c? (HttpUtil/isKeepAlive rsp)
           cf (if (nil? body)
                (do
-                 (l/debug "reply has NO body, write and flush %s" rsp)
+                 (l/debug "reply has NO body, write and flush %s." rsp)
                  (.writeAndFlush ch rsp))
                (do
-                 (l/debug "reply has SOME body, write and flush %s" rsp)
+                 (l/debug "reply has SOME body, write and flush %s." rsp)
                  (.write ch rsp)
-                 (l/debug "reply body, write and flush body: %s" body)
+                 (l/debug "reply body, write and flush body: %s." body)
                  (.writeAndFlush ch body)))]
-      (l/debug "resp replied, keep-alive? = %s" c?)
+      (l/debug "resp replied, keep-alive? = %s." c?)
       (nc/close-cf cf c?))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

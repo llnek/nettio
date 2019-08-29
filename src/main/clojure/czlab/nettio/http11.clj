@@ -91,47 +91,50 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;(set! *warn-on-reflection* true)
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- cors-preflight? "" [req]
+(defn- cors-preflight?
+  "" [req]
   (and (= (.name HttpMethod/OPTIONS)
           (:method req))
        (cc/msg-header? req HttpHeaderNames/ORIGIN)
        (cc/msg-header? req HttpHeaderNames/ACCESS_CONTROL_REQUEST_METHOD)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- valid-origin? "" [ctx corsCfg]
+(defn- valid-origin?
+  "" [ctx corsCfg]
   (let [req (nc/get-akey ctx nc/h1msg-key)
         allowed (:origins corsCfg)
         o? (cc/msg-header? req HttpHeaderNames/ORIGIN)
         origin (cc/msg-header req HttpHeaderNames/ORIGIN)]
-    (cond
-      (or (:any-origin? corsCfg) (not o?)) true
-      (and (= "null" origin) (:nullable? corsCfg)) true
-      (nil? allowed) true
-      :else
-      (s/eq-any? origin allowed))))
+    (cond (or (:any-origin? corsCfg) (not o?)) true
+          (and (= "null" origin) (:nullable? corsCfg)) true
+          (nil? allowed) true
+          :else (s/eq-any? origin allowed))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defmacro ^:private set-origin "" [rsp origin]
+(defmacro ^:private set-origin
+  "" [rsp origin]
   `(nc/set-header ~rsp
                   HttpHeaderNames/ACCESS_CONTROL_ALLOW_ORIGIN ~origin))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defmacro ^:private
-  echo-request-origin "" [rsp origin] `(set-origin ~rsp ~origin))
+(defmacro ^:private echo-request-origin
+  "" [rsp origin] `(set-origin ~rsp ~origin))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defmacro ^:private
-  set-vary-header "" [rsp]
-  `(nc/set-header ~rsp HttpHeaderNames/VARY HttpHeaderNames/ORIGIN))
+(defmacro ^:private set-vary-header
+  "" [rsp] `(nc/set-header ~rsp HttpHeaderNames/VARY HttpHeaderNames/ORIGIN))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defmacro ^:private set-null-origin "" [rsp] `(set-origin ~rsp "null"))
+(defmacro ^:private set-null-origin
+  "" [rsp] `(set-origin ~rsp "null"))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defmacro ^:private set-any-origin "" [rsp] `(set-origin ~rsp "*"))
+(defmacro ^:private set-any-origin
+  "" [rsp] `(set-origin ~rsp "*"))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- set-allow-credentials "" [rsp corsCfg]
+(defn- set-allow-credentials
+  "" [rsp corsCfg]
   (if (and (:credentials? corsCfg)
            (not= "*"
                  (nc/get-header rsp
@@ -140,31 +143,36 @@
                     HttpHeaderNames/ACCESS_CONTROL_ALLOW_CREDENTIALS "true")))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- set-allow-methods "" [rsp corsCfg]
+(defn- set-allow-methods
+  "" [rsp corsCfg]
   (c/when-some+ [m (:allowed-methods corsCfg)]
                 (nc/set-header rsp
                                HttpHeaderNames/ACCESS_CONTROL_ALLOW_METHODS m)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- set-allow-headers "" [rsp corsCfg]
+(defn- set-allow-headers
+  "" [rsp corsCfg]
   (c/when-some+ [h (:allowed-headers corsCfg)]
                 (nc/set-header rsp
                                HttpHeaderNames/ACCESS_CONTROL_ALLOW_HEADERS h)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- set-max-age "" [rsp corsCfg]
+(defn- set-max-age
+  "" [rsp corsCfg]
   (if (number? (:max-age corsCfg))
     (nc/set-header rsp
                    HttpHeaderNames/ACCESS_CONTROL_MAX_AGE (:max-age corsCfg))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- set-expose-headers "" [rsp corsCfg]
+(defn- set-expose-headers
+  "" [rsp corsCfg]
   (c/when-some+ [h (:exposed-headers corsCfg)]
                 (nc/set-header rsp
                                HttpHeaderNames/ACCESS_CONTROL_EXPOSE_HEADERS h)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- set-origin? "" [ctx rsp corsCfg]
+(defn- set-origin?
+  "" [ctx rsp corsCfg]
   (let [req (nc/get-akey ctx nc/h1msg-key)
         o? (cc/msg-header? req HttpHeaderNames/ORIGIN)
         origin (cc/msg-header req HttpHeaderNames/ORIGIN)]
@@ -192,10 +200,12 @@
           (l/warn "Origin %s not configured." origin))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- reply-preflight "" [ctx req]
-  (let [{:keys [cors-cfg]} (nc/get-akey ctx nc/chcfg-key)
-        {:keys [is-keep-alive?]} req
-        rsp (nc/http-reply<+>)]
+(defn- reply-preflight
+  "" [ctx req]
+  (let [{:keys [cors-cfg]}
+        (nc/get-akey ctx nc/chcfg-key)
+        rsp (nc/http-reply<+>)
+        {:keys [is-keep-alive?]} req]
     (when (set-origin? ctx rsp cors-cfg)
       (set-allow-methods rsp cors-cfg)
       (set-allow-headers rsp cors-cfg)
@@ -279,7 +289,8 @@
       (nc/ref-del req))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- process-write "" [ctx msg _]
+(defn- process-write
+  "" [ctx msg _]
   (let [{:keys [cors-cfg]}
         (nc/get-akey ctx nc/chcfg-key)]
     (if (and (:enabled? cors-cfg)
@@ -291,7 +302,8 @@
     (.write ^ChannelHandlerContext ctx msg _)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- process-other "" [ctx msg]
+(defn- process-other
+  "" [ctx msg]
   (.fireChannelRead ^ChannelHandlerContext ctx msg))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

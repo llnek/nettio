@@ -100,8 +100,10 @@
 (def ^:private ^ChannelHandler req-hdr (h1/h1req-handler<>))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defmacro ^:private tmfda "" [] `(TrustManagerFactory/getDefaultAlgorithm))
-(defmacro ^:private kmfda "" [] `(KeyManagerFactory/getDefaultAlgorithm))
+(defmacro ^:private tmfda
+  "" [] `(TrustManagerFactory/getDefaultAlgorithm))
+(defmacro ^:private kmfda
+  "" [] `(KeyManagerFactory/getDefaultAlgorithm))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- build-ctx
@@ -193,7 +195,8 @@
       (.addLast nc/user-handler-id p))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- cfgh1 "" [^ChannelPipeline pp h1 args]
+(defn- cfgh1
+  "" [^ChannelPipeline pp h1 args]
   (let
     [^ChannelHandler
      u
@@ -203,7 +206,7 @@
        (proxy [InboundHandler][true]
          (readMsg [ctx msg] (h1 ctx msg)))
        :else
-       (u/throw-BadData "bad handler type"))]
+       (u/throw-BadData "Bad handler type"))]
     (doto pp
       (.addLast "SC" (HttpServerCodec.))
       (.addLast "OA" obj-agg)
@@ -289,11 +292,13 @@
           (c/try! (.. bs config group shutdownGracefully)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- finz-ch [^Channel ch]
+(defn- finz-ch
+  [^Channel ch]
   (c/try! (if (and ch (.isOpen ch)) (.close ch))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- init-web-server "" [carg]
+(defn- init-web-server
+  "" [carg]
   (let [{:keys [threads routes rcv-buf backlog
                 shared-group? temp-dir
                 ciz hh1 hh2
@@ -369,7 +374,8 @@
                 :channel (start-svr bs host port)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- init-udp-server "" [carg]
+(defn- init-udp-server
+  "" [carg]
   (let [{:keys [max-msgs-per-read
                 threads
                 ciz hu rcv-buf options]
@@ -415,11 +421,11 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn netty-udp-server<>
-  "A UDP server using netty." [& args] (init-udp-server (apply hash-map args)))
+  "A UDP server using netty." [& args] (init-udp-server (c/kvs->map args)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn netty-web-server<>
-  "A TCP server using netty." [& args] (init-web-server (apply hash-map args)))
+  "A TCP server using netty." [& args] (init-web-server (c/kvs->map args)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF

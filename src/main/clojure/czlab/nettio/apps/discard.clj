@@ -21,7 +21,6 @@
             [czlab.nettio.core :as nc]
             [czlab.nettio.server :as sv])
 
-
   (:import [io.netty.handler.codec.http HttpResponseStatus]
            [io.netty.handler.codec.http LastHttpContent]
            [czlab.nettio InboundHandler]
@@ -35,11 +34,10 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;(set! *warn-on-reflection* false)
-
 (defonce ^:private svr (atom nil))
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- h1proxy "" [cb]
+(defn- h1proxy
+  "" [cb]
   (proxy [InboundHandler][true]
     (readMsg [ctx _]
       (nc/reply-status ctx) (c/try! (cb)))))
@@ -51,12 +49,14 @@
   (apply sv/netty-web-server<> :hh1 (h1proxy cb) args))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn finz-server "" []
+(defn finz-server
+  "" []
   (when @svr
     (sv/stop-server! @svr) (reset! svr nil)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn -main "" [& args]
+(defn -main
+  "" [& args]
   (cond
     (< (count args) 2)
     (println "usage: discard host port")

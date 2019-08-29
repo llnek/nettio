@@ -68,10 +68,12 @@
                       "are you doing ok? " "very cool!"))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- bbuf ^ByteBuf [_ s] (Unpooled/wrappedBuffer (i/x->bytes s)))
+(defn- bbuf
+  ^ByteBuf [_ s] (Unpooled/wrappedBuffer (i/x->bytes s)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- server-handler<> []
+(defn- server-handler<>
+  []
   (proxy [InboundHandler][true]
     (readMsg [ctx msg]
       (let [c (.getBytes ^XData (:body msg))
@@ -520,9 +522,9 @@
   (ensure?? "test-end" (= 1 1)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(ct/deftest ^:test-core basal-test-core
-  (ct/is (let [[ok? r]
-               (c/runtest test-core "test-core")] (println r) ok?)))
+(ct/deftest
+  ^:test-core basal-test-core
+  (ct/is (c/clj-test?? test-core)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF

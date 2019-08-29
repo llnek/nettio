@@ -111,10 +111,10 @@
 ;;(set! *warn-on-reflection* false)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(def ^:private ^AttributeKey h2s-key  (nc/akey<> "h2settings-promise"))
-(def ^:private ^AttributeKey rsp-key  (nc/akey<> "rsp-result"))
-(def ^:private ^AttributeKey cf-key  (nc/akey<> "wsock-future"))
-(def ^:private ^AttributeKey cc-key  (nc/akey<> "wsock-client"))
+(def ^:private ^AttributeKey h2s-key  (nc/akey<> :h2settings-promise))
+(def ^:private ^AttributeKey rsp-key  (nc/akey<> :rsp-result))
+(def ^:private ^AttributeKey cf-key  (nc/akey<> :wsock-future))
+(def ^:private ^AttributeKey cc-key  (nc/akey<> :wsock-client))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;Aggregates all chunks into a full message.
@@ -124,7 +124,8 @@
     (readMsg [ctx msg] (mg/agg-h1-read ctx msg false))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- nobs! [^Bootstrap bs ^Channel ch]
+(defn- nobs!
+  [^Bootstrap bs ^Channel ch]
   (c/try! (if (and ch (.isOpen ch)) (.close ch)))
   (c/try! (.. bs config group shutdownGracefully)))
 
@@ -355,7 +356,6 @@
          rcv-buf (* 2 c/MegaBytes)
          threads 0
          max-content-size Integer/MAX_VALUE}}]
-
   (let [ctx (maybe-ssl server-cert scheme (= version "2"))
         temp-dir (u/fpath (or temp-dir
                               i/*tempfile-repo*))
@@ -421,8 +421,7 @@
 (defn- hx-conn [module host port args fpipe hint]
   (let [args (assoc args
                     :version
-                    (if (:v2? hint)
-                      "2" "1.1"))
+                    (if (:v2? hint) "2" "1.1"))
         rcp (promise)
         [bs ctx] (bootstrap! args)
         pp (if-not (:user hint)
@@ -439,7 +438,8 @@
     (ret-conn module bs host port rcp hint)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn netty-module<> "" []
+(defn netty-module<>
+  "" []
   (reify
     cc/HttpClientModule
 

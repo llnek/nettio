@@ -53,16 +53,14 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;(set! *warn-on-reflection* true)
-(def ^:private keep-alive (nc/akey<> "keepalive"))
-(def ^:private cookie-buf (nc/akey<> "cookies"))
-(def ^:private msg-buf (nc/akey<> "msg"))
+(def ^:private keep-alive (nc/akey<> :keepalive))
+(def ^:private cookie-buf (nc/akey<> :cookies))
+(def ^:private msg-buf (nc/akey<> :msg))
 (defonce ^:private svr (atom nil))
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- write-reply
   "Reply back a string"
   [^ChannelHandlerContext ctx curObj]
-
   (let [cookies (:cookies curObj)
         buf (nc/get-akey ctx msg-buf)
         res (nc/http-reply<+>
@@ -150,12 +148,14 @@
                                      (handle-cnt ctx msg))) args))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn finz-server "" []
+(defn finz-server
+  "" []
   (when @svr
     (sv/stop-server! @svr) (reset! svr nil)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn -main "" [& args]
+(defn -main
+  "" [& args]
   (cond
     (< (count args) 2)
     (println "usage: snoop host port")

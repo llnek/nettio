@@ -118,7 +118,8 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;(set! *warn-on-reflection* true)
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn mg-cs?? "Cheap way to cast to a CharSequence." ^CharSequence [s] s)
+(defn mg-cs??
+  "Cheap way to cast to a CharSequence." ^CharSequence [s] s)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn mg-headers??
@@ -126,17 +127,18 @@
   ^HttpHeaders [msg] (:headers (if (c/is? IDeref msg) @msg msg)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defmacro ref-del "" [r] `(io.netty.util.ReferenceCountUtil/release ~r))
+(defmacro ref-del
+  "" [r] `(io.netty.util.ReferenceCountUtil/release ~r))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defmacro ref-add "" [r] `(io.netty.util.ReferenceCountUtil/retain ~r))
+(defmacro ref-add
+  "" [r] `(io.netty.util.ReferenceCountUtil/retain ~r))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defrecord NettyWsockMsg [] cc/WsockMsg)
-(defrecord NettyH2Msg [] cc/Http2xMsg)
-(defrecord NettyH1Msg []
-  cc/Http1xMsg
-  cc/HttpMsgGist
+;(defrecord NettyWsockMsg [] cc/WsockMsg)
+;(defrecord NettyH2Msg [] cc/Http2xMsg)
+(extend-protocol cc/HttpMsgGist
+  czlab.niou.core.Http1xMsg
   (msg-header? [msg h]
     (.contains (mg-headers?? msg) (mg-cs?? h)))
   (msg-header [msg h]
@@ -191,7 +193,8 @@
   [] `io.netty.channel.ChannelFutureListener/CLOSE)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defmacro scode "Http status code." [s] `(.code ~s))
+(defmacro scode
+  "Http status code." [s] `(.code ~s))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn config-disk-files
@@ -236,11 +239,11 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn chanid
   "Channel Id." ^String [c]
-  (str (condp instance? c
+  (str (c/condp?? instance? c
          Channel
          (.id ^Channel c)
          ChannelHandlerContext
-         (.. ^ChannelHandlerContext c channel id) nil)))
+         (.. ^ChannelHandlerContext c channel id))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn decoder-result
@@ -255,33 +258,35 @@
 (defn decoder-error
   "" ^Throwable [msg]
   (if-some
-    [r (some-> (c/cast? DecoderResultProvider msg)
-               .decoderResult)]
+    [r (some-> (c/cast? DecoderResultProvider msg) .decoderResult)]
     (if-not (.isSuccess r) (.cause r))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn set-decoder-error!
-  "" [msg err] {:pre [(c/is? Throwable err)]}
+  "" [msg err]
+  {:pre [(c/is? Throwable err)]}
   (if-some
     [p (c/cast? DecoderResultProvider msg)]
     (.setDecoderResult p
                        (DecoderResult/failure ^Throwable err))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn cpipe "" ^ChannelPipeline [c]
-  (condp instance? c
+(defn cpipe
+  "" ^ChannelPipeline [c]
+  (c/condp?? instance? c
     Channel
     (.pipeline ^Channel c)
     ChannelHandlerContext
-    (.pipeline ^ChannelHandlerContext c) nil))
+    (.pipeline ^ChannelHandlerContext c)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn ch?? "" ^Channel [arg]
-  (condp instance? arg
+(defn ch??
+  "" ^Channel [arg]
+  (c/condp?? instance? arg
     Channel
     arg
     ChannelHandlerContext
-    (.channel ^ChannelHandlerContext arg) nil))
+    (.channel ^ChannelHandlerContext arg)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn set-akey
@@ -311,21 +316,23 @@
   [^ChannelPipeline pp ^ChannelHandler h] (some-> pp (.context h) .name))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn close-ch "" [c]
-  (condp instance? c
+(defn close-ch
+  "" [c]
+  (c/condp?? instance? c
     Channel
     (.close ^Channel c)
     ChannelHandlerContext
-    (.close ^ChannelHandlerContext c) nil))
+    (.close ^ChannelHandlerContext c)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- to-hhs "" ^HttpHeaders [obj]
+(defn- to-hhs
+  "" ^HttpHeaders [obj]
   (condp instance? obj
     HttpHeaders
     obj
     HttpMessage
     (.headers ^HttpMessage obj)
-    (u/throw-BadArg "expecting http-msg or http-headers.")))
+    (u/throw-BadArg "Expecting http-msg or http-headers.")))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn add-header
@@ -378,10 +385,10 @@
       (if buf
         (doto buf (.writeCharSequence  ^CharSequence arg cs))
         (Unpooled/copiedBuffer ^CharSequence arg cs))
-      :else (u/throw-IOE "bad type to ByteBuf."))))
+      :else (u/throw-IOE "Bad type to ByteBuf."))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn bbuf?? ""
+(defn bbuf??
 
   ([arg ch] (bbuf?? arg ch nil))
   ([arg] (bbuf?? arg nil nil))
@@ -414,12 +421,11 @@
               (HttpVersion/valueOf version)
               (HttpMethod/valueOf method) uri2)]
     (assert (c/is? HttpHeaders headers))
-    (.set (.headers rc)
-          ^HttpHeaders headers)
-    rc))
+    (.set (.headers rc) ^HttpHeaders headers) rc))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn fake-request<> "" ^HttpRequest []
+(defn fake-request<>
+  "" ^HttpRequest []
   (DefaultHttpRequest.
     HttpVersion/HTTP_1_1 HttpMethod/POST "/" (DefaultHttpHeaders.)))
 
@@ -445,8 +451,8 @@
     (or c (Charset/forName "utf-8"))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn get-msg-charset ""
-  ^Charset [^HttpMessage msg]
+(defn get-msg-charset
+  "" ^Charset [^HttpMessage msg]
   (HttpUtil/getCharset msg (Charset/forName "utf-8")))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -584,8 +590,7 @@
   "Show ref-count of object" [obj]
   (if-some
     [rc (c/cast? ReferenceCounted obj)]
-    (l/debug
-      "object %s: has refcount: %s." obj (.refCnt rc))))
+    (l/debug "object %s: has refcount: %s." obj (.refCnt rc))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn dbg-pipeline
@@ -678,10 +683,12 @@
          (= "GET" (:method req)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn maybe-ssl? "" [c] (some-> (cpipe c) (.get SslHandler) (some?)))
+(defn maybe-ssl?
+  "" [c] (some-> (cpipe c) (.get SslHandler) (some?)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn get-uri-path "" ^String [msg]
+(defn get-uri-path
+  "" ^String [msg]
   (if-some [req (c/cast? HttpRequest msg)]
     (. (QueryStringDecoder. (.uri req)) path) ""))
 
@@ -690,8 +697,7 @@
   "" ^Map [^HttpMessage msg]
   (if-some
     [req (c/cast? HttpRequest msg)]
-    (-> (.uri req)
-        QueryStringDecoder.  .parameters)))
+    (-> (.uri req) QueryStringDecoder.  .parameters)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn http-cookie<>
@@ -706,7 +712,8 @@
     (.setHttpOnly (.isHttpOnly c))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn crack-cookies "" [msg]
+(defn crack-cookies
+  "" [msg]
   (if (c/is? HttpRequest msg)
     (c/if-some+
       [v (get-header msg
@@ -737,7 +744,8 @@
   (-> (.headers m) (.get HttpHeaderNames/CONTENT_TYPE "")))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn no-content? "" [^HttpMessage m]
+(defn no-content?
+  "" [^HttpMessage m]
   (or (not (HttpUtil/isContentLengthSet m))
       (not (> (HttpUtil/getContentLength m -1) 0))))
 
@@ -748,7 +756,8 @@
     (exceptionCaught [_ t] (l/exception t))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn shared-error-sink<> "" ^ChannelHandler [] error-filter)
+(defn shared-error-sink<>
+  "" ^ChannelHandler [] error-filter)
 (def ^String shared-error-sink-name "sharedErrorSink")
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -756,11 +765,9 @@
   "Convert Certs" ^APersistentVector [arg]
 
   (let [[del? inp] (i/input-stream?? arg)]
-    (try
-      (-> (CertificateFactory/getInstance "X.509")
-          (.generateCertificates ^InputStream inp) vec)
-      (finally
-        (if del? (i/klose inp))))))
+    (try (-> (CertificateFactory/getInstance "X.509")
+             (.generateCertificates ^InputStream inp) vec)
+      (finally (if del? (i/klose inp))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (extend-protocol cc/WsockMsgReplyer
@@ -774,7 +781,8 @@
          (.writeAndFlush ^Channel me ))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- maybe-akey "" [k]
+(defn- maybe-akey
+  "" [k]
   (let [s (s/sname k)]
     (if-not (AttributeKey/exists s)
       (AttributeKey/newInstance s) (AttributeKey/valueOf s))))

@@ -48,11 +48,9 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;(set! *warn-on-reflection* false)
 (defonce ^:private svr (atom nil))
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- reply-get-vfile ""
-  [^ChannelHandlerContext ctx req ^XData xdata]
-
+(defn- reply-get-vfile
+  "" [^ChannelHandlerContext ctx req ^XData xdata]
   (let [keep? (:is-keep-alive? req)
         res (nc/http-reply<>)
         ch (.channel ctx)
@@ -62,7 +60,7 @@
       (nc/set-header "Connection" (if keep? "keep-alive" "close"))
       (nc/set-header "Transfer-Encoding" "chunked")
       (HttpHeaders/setContentLength clen))
-    (l/debug "Flushing file of %s bytes to client" clen)
+    (l/debug "flushing file of %s bytes to client." clen)
     (.write ctx res)
     (->
       (->> (.fileRef xdata)
@@ -75,13 +73,13 @@
       (nc/close-cf keep?))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- fputter "" [ctx req ^String fname udir]
-
-  (l/debug "fPutter file= %s" (io/file udir fname))
+(defn- fputter
+  "" [ctx req ^String fname udir]
+  (l/debug "fPutter file= %s." (io/file udir fname))
   (let [vdir (io/file udir)
         ^XData body (:body req)]
     (if (.isFile body)
-      (l/debug "fPutter orig= %s" (.fileRef body)))
+      (l/debug "fPutter orig= %s." (.fileRef body)))
     (->> (u/try!!
            (nc/scode HttpResponseStatus/INTERNAL_SERVER_ERROR)
            (do
@@ -90,9 +88,9 @@
          (nc/reply-status ctx ))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- fgetter "" [ctx req ^String fname udir]
-
-  (l/debug "fGetter: file= %s" (io/file udir fname))
+(defn- fgetter
+  "" [ctx req ^String fname udir]
+  (l/debug "fGetter: file= %s." (io/file udir fname))
   (let [vdir (io/file udir)
         ^XData f (i/get-file vdir fname)]
     (if (.hasContent f)
@@ -101,7 +99,8 @@
                        (nc/scode HttpResponseStatus/NO_CONTENT)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- h1proxy "" [udir]
+(defn- h1proxy
+  "" [udir]
   (proxy [InboundHandler][true]
     (readMsg [ctx msg]
       (let
@@ -112,8 +111,8 @@
              uri
              (subs uri (inc pos)))
          nm (s/stror p (str (u/jid<>) ".dat"))]
-        (l/debug "%s: uri= %s, file= %s" mtd uri nm)
-        (l/debug "udir= %s" udir)
+        (l/debug "%s: uri= %s, file= %s." mtd uri nm)
+        (l/debug "udir= %s." udir)
         (cond
           (= mtd "POST")
           (fputter ctx msg nm udir)
@@ -132,14 +131,15 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; filesvr host port vdir
-(defn finz-server "" []
+(defn finz-server
+  "" []
   (when @svr
     (sv/stop-server! @svr) (reset! svr nil)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; filesvr host port vdir
-(defn -main "" [& args]
-
+(defn -main
+  "" [& args]
   (cond
     (< (count args) 3)
     (println "usage: filesvr host port <rootdir>")
