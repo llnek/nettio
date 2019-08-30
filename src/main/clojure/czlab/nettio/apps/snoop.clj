@@ -62,9 +62,9 @@
   "Reply back a string"
   [^ChannelHandlerContext ctx curObj]
   (let [cookies (:cookies curObj)
-        buf (nc/get-akey ctx msg-buf)
+        buf (nc/get-akey msg-buf ctx)
         res (nc/http-reply<+>
-              (nc/scode HttpResponseStatus/OK) (str buf) (.alloc ctx))
+              (.code HttpResponseStatus/OK) (str buf) (.alloc ctx))
         hds (.headers res)
         ce ServerCookieEncoder/STRICT
         clen (-> (.content res) .readableBytes)]
@@ -73,7 +73,7 @@
               "text/plain; charset=UTF-8")
     (.set hds
           "Connection"
-          (if (nc/get-akey ctx keep-alive) "keep-alive" "close"))
+          (if (nc/get-akey keep-alive ctx) "keep-alive" "close"))
     (if (empty? cookies)
       (doto hds
         (.add "Set-Cookie"
@@ -83,7 +83,7 @@
       (doseq [v cookies]
         (.add hds
               "Set-Cookie"
-              (.encode ce (nc/netty-cookie<> v)))))
+              (.encode ce ^Cookie (nc/netty-cookie<> v)))))
     (.writeAndFlush ctx res)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -93,8 +93,8 @@
   (let [^HttpHeaders headers (:headers req)
         ka? (:is-keep-alive? req)
         buf (s/sbf<>)]
-    (nc/set-akey ctx keep-alive ka?)
-    (nc/set-akey ctx msg-buf buf)
+    (nc/set-akey keep-alive ctx ka?)
+    (nc/set-akey msg-buf ctx buf)
     (s/sbf+ buf
             "WELCOME TO THE TEST WEB SERVER\r\n"
             "==============================\r\n"
@@ -132,7 +132,7 @@
   "Handle the request content"
   [^ChannelHandlerContext ctx msg]
   (let [^XData ct (:body msg)
-        buf (nc/get-akey ctx msg-buf)]
+        buf (nc/get-akey msg-buf ctx)]
     (if (.hasContent ct)
       (s/sbf+ buf "CONTENT: " (.strit ct) "\r\n"))
     (s/sbf+ buf "END OF CONTENT\r\n")

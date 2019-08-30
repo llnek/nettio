@@ -98,6 +98,7 @@
 ;;(set! *warn-on-reflection* true)
 (def ^:private ^ChannelHandler obj-agg (mg/h1req-aggregator<>))
 (def ^:private ^ChannelHandler req-hdr (h1/h1req-handler<>))
+(def ^:private ^String user-handler-id "netty-user-handler")
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defmacro ^:private tmfda
@@ -192,7 +193,7 @@
       ;;(.addLast "in-codec" (buildH2 c args))
       (.addLast "out-codec" (.build hh))
       (.addLast "cw" (ChunkedWriteHandler.))
-      (.addLast nc/user-handler-id p))))
+      (.addLast user-handler-id p))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- cfgh1
@@ -212,7 +213,7 @@
       (.addLast "OA" obj-agg)
       (.addLast "RH" req-hdr)
       (.addLast "CW" (ChunkedWriteHandler.))
-      (.addLast nc/user-handler-id u))))
+      (.addLast user-handler-id u))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- onssl
@@ -251,7 +252,7 @@
       (let [ch (c/cast? Channel ch)
             pp (.pipeline ch)]
         (.addLast pp
-                  nc/user-handler-id
+                  user-handler-id
                   ^ChannelHandler hu)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

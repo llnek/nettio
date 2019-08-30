@@ -61,6 +61,7 @@
             DefaultFullHttpRequest
             DefaultHttpResponse
             DefaultHttpRequest
+            DefaultHttpHeaders
             HttpRequest
             HttpResponseStatus
             HttpHeaders]
@@ -139,7 +140,7 @@
             (try (.destroy
                    ^InterfaceHttpPostRequestDecoder impl)
                  (catch Throwable _ (l/exception  _ ))))
-      (nc/set-akey ctx h1pipe-M-key (dissoc whole :impl)))))
+      (nc/set-akey h1pipe-M-key ctx (dissoc whole :impl)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- match-one-route
@@ -147,7 +148,7 @@
   (l/debug "match route for msg: %s." msg)
   ;make sure it's a request
   (or (c/when-some+ [u2 (:uri2 msg)]
-        (when-some [c (nc/get-akey ctx nc/routes-key)]
+        (when-some [c (nc/get-akey nc/routes-key ctx)]
           (l/debug "cracker == %s, uri= %s." c u2)
           (when (cr/rc-has-routes? c)
             (->> (select-keys msg [:method :uri])
@@ -159,11 +160,11 @@
   (let [{:keys [body ^HttpRequest req]} msg
         hs (.headers req)
         laddr (c/cast? InetSocketAddress
-                       (.localAddress (nc/ch?? ctx)))
+                       (.localAddress ^Channel (nc/ch?? ctx)))
         out {:is-keep-alive? (HttpUtil/isKeepAlive req)
              :version (.. req protocolVersion text)
              :headers hs
-             :ssl? (nc/maybe-ssl? ctx)
+             :ssl? (nc/maybe-ssl? (nc/cpipe ctx))
              :remote-port (c/s->long (.get hs "remote_port") 0)
              :remote-addr (str (.get hs "remote_addr"))
              :remote-host (str (.get hs "remote_host"))
@@ -204,7 +205,7 @@
                 :version (.. res protocolVersion text)
                 :socket (nc/ch?? ctx)
                 :body body
-                :ssl? (nc/maybe-ssl? ctx)
+                :ssl? (nc/maybe-ssl? (nc/cpipe ctx))
                 :headers (.headers res)
                 :charset (nc/get-msg-charset res)
                 :cookies (nc/crack-cookies res)
@@ -299,11 +300,17 @@
       (.createAttribute df msg body-attr-id))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn- fake-request<>
+  ^HttpRequest []
+  (DefaultHttpRequest.
+    HttpVersion/HTTP_1_1 HttpMethod/POST "/" (DefaultHttpHeaders.)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- h11msg<>
   [ctx msg]
-  (let [fac (nc/get-akey ctx nc/dfac-key)
+  (let [fac (nc/get-akey nc/dfac-key ctx)
         [req res] (if (c/is? HttpRequest msg)
-                    [msg nil] [(nc/fake-request<>) msg])]
+                    [msg nil] [(fake-request<>) msg])]
     {:body (XData.)
      :req req
      :res res
@@ -315,14 +322,14 @@
   [ctx part pipelining?]
   (let
     [last? (c/is? LastHttpContent part)
-     msg (nc/get-akey ctx h1pipe-M-key)]
+     msg (nc/get-akey h1pipe-M-key ctx)]
     (if-not last?
       (l/debug "received chunk %s." part))
     (try
       (if-not (nc/decoder-success? part)
         (if (c/is? HttpRequest msg)
           (nc/reply-status ctx
-                           (nc/scode HttpResponseStatus/BAD_REQUEST))
+                           (.code HttpResponseStatus/BAD_REQUEST))
           (nc/close-ch ctx))
         (append-msg-content ctx msg part last?))
       (finally
@@ -334,14 +341,14 @@
   (l/debug "received last-chunk %s." part)
   (read-h1-chunk ctx part pipelining?)
   (let
-    [q (nc/get-akey ctx h1pipe-Q-key)
-     msg (nc/get-akey ctx h1pipe-M-key)
-     cur (nc/get-akey ctx h1pipe-C-key)]
-    (nc/del-akey ctx h1pipe-M-key)
+    [q (nc/get-akey h1pipe-Q-key ctx)
+     msg (nc/get-akey h1pipe-M-key ctx)
+     cur (nc/get-akey h1pipe-C-key ctx)]
+    (nc/del-akey h1pipe-M-key ctx)
     (l/debug "got last chunk for msg %s." msg)
     (if pipelining?
       (cond (nil? cur)
-            (do (nc/set-akey ctx h1pipe-C-key msg)
+            (do (nc/set-akey h1pipe-C-key ctx msg)
                 (fire-msg ctx msg))
             :else
             (do (.add ^List q msg)
@@ -354,20 +361,20 @@
   [ctx msg pipelining?]
   ;;no need to release msg -> request or response
   (let [{:keys [max-in-memory
-                max-content-size]} (nc/get-akey ctx nc/chcfg-key)]
+                max-content-size]} (nc/get-akey nc/chcfg-key ctx)]
     (l/debug "reading %s: %s."
              (if (c/is? HttpRequest msg) "REQUEST" "RESPONSE") msg)
     (cond
       (not (nc/decoder-success? msg))
       (if (c/is? HttpRequest msg)
         (nc/reply-status ctx
-                         (nc/scode HttpResponseStatus/BAD_REQUEST))
+                         (.code HttpResponseStatus/BAD_REQUEST))
         (nc/close-ch ctx))
       (not (nc/maybe-handle-100? ctx msg max-content-size))
       nil
       :else
       (let [wo (h11msg<> ctx msg)]
-        (nc/set-akey ctx h1pipe-M-key wo)
+        (nc/set-akey h1pipe-M-key ctx wo)
         (cond (c/is? LastHttpContent msg)
               (do (read-last-h1-chunk ctx msg pipelining?)
                   (l/debug "last-content same as message..."))
@@ -392,12 +399,12 @@
   [^ChannelHandlerContext ctx msg pipe?]
   (when (and (or (c/is? FullHttpResponse msg)
                  (c/is? LastHttpContent msg)) pipe?)
-    (let [^List q (nc/get-akey ctx h1pipe-Q-key)
-          cur (nc/get-akey ctx h1pipe-C-key)]
+    (let [^List q (nc/get-akey h1pipe-Q-key ctx)
+          cur (nc/get-akey h1pipe-C-key ctx)]
       (if (nil? cur) (u/throw-ISE "response but no request, msg=%s." msg))
       (if (nil? q) (u/throw-ISE "request queue is null."))
       (let [c (if-not (.isEmpty q) (.remove q 0))]
-        (nc/set-akey ctx h1pipe-C-key c) (fire-msg ctx c)))))
+        (nc/set-akey h1pipe-C-key ctx c) (fire-msg ctx c)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn h1req-aggregator<>
@@ -410,9 +417,9 @@
   ([pipelining?]
    (proxy [DuplexHandler][false]
      (onActive [ctx]
-       (nc/set-akey* ctx
-                     h1pipe-Q-key (ArrayList.)
-                     h1pipe-M-key nil h1pipe-C-key nil))
+       (nc/set-akey h1pipe-Q-key ctx (ArrayList.))
+       (nc/set-akey h1pipe-M-key ctx nil)
+       (nc/set-akey h1pipe-C-key ctx nil))
      (readMsg [ctx msg]
        (agg-h1-read ctx msg pipelining?))
      (onWrite [ctx msg cp]
@@ -423,14 +430,16 @@
          (if-not skip?
            (dequeue-req ctx msg pipelining?))))
      (onInactive [ctx]
-       (nc/del-akey* ctx h1pipe-Q-key h1pipe-M-key h1pipe-C-key)))))
+       (nc/del-akey h1pipe-Q-key ctx)
+       (nc/del-akey h1pipe-M-key ctx)
+       (nc/del-akey h1pipe-C-key ctx)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- finito
   [^ChannelHandlerContext ctx sid]
-  (let [^Map hh (nc/get-akey ctx h2msg-h-key)
-        ^Map dd (nc/get-akey ctx h2msg-d-key)
-        df (nc/get-akey ctx nc/dfac-key)
+  (let [^Map hh (nc/get-akey h2msg-h-key ctx)
+        ^Map dd (nc/get-akey h2msg-d-key ctx)
+        df (nc/get-akey nc/dfac-key ctx)
         [^HttpRequest fake ^Attribute attr]
         (some-> dd (.get sid))
         hds (some-> hh (.get sid))]
@@ -451,7 +460,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- read-h2-frameEx
   [ctx sid ^ByteBuf data end?]
-  (let [^Map m (nc/get-akey ctx h2msg-d-key)
+  (let [^Map m (nc/get-akey h2msg-d-key ctx)
         [_ attr] (.get m sid)]
     (.addContent ^Attribute attr (.retain data) end?)
     (if end? (finito ctx sid))))
@@ -459,12 +468,12 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- read-h2-frame
   [^ChannelHandlerContext ctx sid]
-  (let [df (nc/get-akey ctx nc/dfac-key)
-        ^Map m (or (nc/get-akey ctx h2msg-d-key)
-                   (nc/set-akey ctx h2msg-d-key (HashMap.)))
+  (let [df (nc/get-akey nc/dfac-key ctx)
+        ^Map m (or (nc/get-akey h2msg-d-key ctx)
+                   (nc/set-akey h2msg-d-key ctx (HashMap.)))
         [fake attr] (.get m sid)]
     (if (nil? fake)
-      (let [r (nc/fake-request<>)]
+      (let [r (fake-request<>)]
         (.put m sid [r (.createAttribute ^HttpDataFactory df r body-attr-id)])))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -484,8 +493,8 @@
      (onHeadersRead
        ([ctx sid hds pad end?]
         (l/debug "rec'ved headers: sid#%s, end?=%s." sid end?)
-        (let [^Map m (or (nc/get-akey ctx h2msg-h-key)
-                         (nc/set-akey ctx h2msg-h-key (HashMap.)))]
+        (let [^Map m (or (nc/get-akey h2msg-h-key ctx)
+                         (nc/set-akey h2msg-h-key ctx (HashMap.)))]
           (.put m sid hds)
           (if end? (finito ctx sid))))
        ([ctx sid hds
@@ -496,10 +505,10 @@
 (defn- read-ws-frame-ex
   [^ChannelHandlerContext ctx
    ^ContinuationWebSocketFrame msg]
-  (let [^HttpDataFactory df (nc/get-akey ctx nc/dfac-key)
+  (let [^HttpDataFactory df (nc/get-akey nc/dfac-key ctx)
         last? (.isFinalFragment msg)
         {:keys [^Attribute attr fake] :as rc}
-        (nc/get-akey ctx wsock-res-key)]
+        (nc/get-akey wsock-res-key ctx)]
     (.addContent attr (.. msg content retain) last?)
     (nc/ref-del msg)
     (when last?
@@ -530,14 +539,14 @@
                                                       :body (XData.
                                                               (nc/bbuf->bytes (.content msg)))))))
       :else
-      (let [df (nc/get-akey ctx nc/dfac-key)
-            req (nc/fake-request<>)
+      (let [df (nc/get-akey nc/dfac-key ctx)
+            req (fake-request<>)
             a (.createAttribute ^HttpDataFactory
                                 df req body-attr-id)]
         (.addContent ^Attribute
                      a (.. msg content retain) false)
         (->> (assoc rc :attr a :fake req)
-             (nc/set-akey ctx wsock-res-key))))
+             (nc/set-akey wsock-res-key ctx))))
     (nc/ref-del msg)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

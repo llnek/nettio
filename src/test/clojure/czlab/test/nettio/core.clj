@@ -77,9 +77,9 @@
   (proxy [InboundHandler][true]
     (readMsg [ctx msg]
       (let [c (.getBytes ^XData (:body msg))
-            ch (nc/ch?? ctx)
+            ^Channel ch (nc/ch?? ctx)
             r (nc/http-reply<+>
-                (nc/scode HttpResponseStatus/OK) c (.alloc ch))]
+                (.code HttpResponseStatus/OK) c (.alloc ch))]
         (.writeAndFlush ^ChannelHandlerContext ctx r)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -131,7 +131,7 @@
             (let [w (sv/netty-web-server<> :server-key "*"
                                            :passwd ""
                                            :hh2 (fn [ctx msg]
-                                                  (let [ch (nc/ch?? ctx)
+                                                  (let [^Channel ch (nc/ch?? ctx)
                                                         rsp (nc/http-reply<+> 200
                                                                               (i/x->bytes "hello")
                                                                               (.alloc ch))]
@@ -289,9 +289,9 @@
                                  (h1/h1req-handler<>)
                                  (server-handler<>)))
                   dfac (H1DataFactory. 1000000)
-                  r3 (nc/http-post<+> "/r3" (bbuf ec "r3"))
-                  r2 (nc/http-post<+> "/r2" (bbuf ec "r2"))
-                  r1 (nc/http-post<+> "/r1" (bbuf ec "r1"))]
+                  r3 (cl/http-post<+> "/r3" (bbuf ec "r3"))
+                  r2 (cl/http-post<+> "/r2" (bbuf ec "r2"))
+                  r1 (cl/http-post<+> "/r1" (bbuf ec "r1"))]
               ;;(.set (.headers r2) "expect" "100-continue")
               (.set (.attr ec nc/dfac-key) dfac)
               (.writeOneInbound ec r1)
@@ -324,8 +324,8 @@
                                      (server-handler<>)))
                       dfac (H1DataFactory. 1000000)
                       outq (.outboundMessages ec)
-                      r2 (nc/http-post<+> "/r2" (bbuf ec "r2"))
-                      r1 (nc/http-post<+> "/r1" (bbuf ec "r1"))]
+                      r2 (cl/http-post<+> "/r2" (bbuf ec "r2"))
+                      r1 (cl/http-post<+> "/r1" (bbuf ec "r1"))]
                   (.set (.attr ec nc/dfac-key) dfac)
                   (doseq [p [r1 r2]]
                     (.writeOneInbound ec p)

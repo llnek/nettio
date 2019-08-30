@@ -117,14 +117,111 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;(set! *warn-on-reflection* true)
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn mg-cs??
-  "Cheap way to cast to a CharSequence." ^CharSequence [s] s)
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defprotocol ChannelXXXAPI
+  ""
+  (cpipe [_] "")
+  (ch?? [_] "")
+  (chanid [_] "")
+  (close-ch [_] "")
+  (fire-next-and-quit [_ h msg]
+                      [_ h msg retain?] ""))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defprotocol AttributeKeyAPI
+  ""
+  (set-akey [_ arg aval] "")
+  (del-akey [_ arg] "")
+  (get-akey [_ arg] ""))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defprotocol HeadersAPI
+  ""
+  (add-header [_ nm value] "")
+  (set-header [_ nm value] "")
+  (get-header-vals [_ nm]  "")
+  (get-header [_ nm]  "")
+  (has-header? [_ nm]  ""))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defprotocol ByteBufAPI
+  ""
+  (slurp-bytebuf [_ out] "")
+  (bbuf->bytes [_] ""))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defprotocol ChannelFutureAPI
+  ""
+  (future-cb [_ arg] "")
+  (close-cf [_]
+            [_ keepAlive?] ""))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defprotocol OutboundAPI
+  ""
+  (maybe-handle-100? [_ msg]
+                     [_ msg maxSize] "")
+  (write-last-content [inv]
+                      [inv flush?] "")
+  (reply-status [inv]
+                [inv status]
+                [inv status keepAlive?] "")
+  (reply-redirect [inv perm? location]
+                  [inv perm? location keepAlive?] "")
+  (continue-100 [inv] ""))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defprotocol PipelineAPI
+  ""
+  (maybe-ssl? [_] "")
+  (dbg-pipeline [_] "")
+  (ctx-name [_ h] "")
+  (safe-remove-handler [_ cz] ""))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defprotocol HttpMessageAPI
+  ""
+  (get-uri-path [_] "")
+  (get-uri-params [_] "")
+  (get-msg-charset [_] "")
+  (get-method [_] "")
+  (get-headers [_] "")
+  (crack-cookies [_] "")
+  (no-content? [_] "")
+  (content-type [_] "")
+  (content-length! [_ len] "")
+  (content-length-as-int [_] "")
+  (detect-acceptable-charset [_] ""))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn cfop<>
+  "Create a ChannelFutureListener"
+  ^ChannelFutureListener [func] {:pre [(fn? func)]}
+  (reify ChannelFutureListener (operationComplete
+                                 [_ ff] (c/try! (func ff)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defmacro cfop<e>
+  "ChannelFuture - exception." []
+  `io.netty.channel.ChannelFutureListener/FIRE_EXCEPTION_ON_FAILURE)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defmacro cfop<x>
+  "ChannelFuture - close-error." []
+  `io.netty.channel.ChannelFutureListener/CLOSE_ON_FAILURE)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defmacro cfop<z>
+  "ChannelFuture - close-success."
+  [] `io.netty.channel.ChannelFutureListener/CLOSE)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn mg-headers??
-  "Get the HttpHeaders object."
-  ^HttpHeaders [msg] (:headers (if (c/is? IDeref msg) @msg msg)))
+  "Get the HttpHeaders object." ^HttpHeaders [msg] (:headers msg))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn mg-cs??
+  "Cast to a CharSequence." ^CharSequence [s] s)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defmacro ref-del
@@ -135,8 +232,6 @@
   "" [r] `(io.netty.util.ReferenceCountUtil/retain ~r))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;(defrecord NettyWsockMsg [] cc/WsockMsg)
-;(defrecord NettyH2Msg [] cc/Http2xMsg)
 (extend-protocol cc/HttpMsgGist
   czlab.niou.core.Http1xMsg
   (msg-header? [msg h]
@@ -164,9 +259,6 @@
     (println "loop addr= " host-loopback-addr)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(def ^String user-handler-id "netty-user-handler")
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defmacro akey<>
   "New Attribute."
   [n] `(io.netty.util.AttributeKey/newInstance (name ~n)))
@@ -176,25 +268,6 @@
 (defonce ^AttributeKey h1msg-key (akey<> :h1req))
 (defonce ^AttributeKey routes-key (akey<> :cracker))
 (defonce ^AttributeKey chcfg-key (akey<> :ch-config))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defmacro cfop<e>
-  "ChannelFuture - exception." []
-  `io.netty.channel.ChannelFutureListener/FIRE_EXCEPTION_ON_FAILURE)
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defmacro cfop<x>
-  "ChannelFuture - close-error." []
-  `io.netty.channel.ChannelFutureListener/CLOSE_ON_FAILURE)
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defmacro cfop<z>
-  "ChannelFuture - close-success."
-  [] `io.netty.channel.ChannelFutureListener/CLOSE)
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defmacro scode
-  "Http status code." [s] `(.code ~s))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn config-disk-files
@@ -219,163 +292,97 @@
      [(EpollEventLoopGroup. (int t)) (:epoll x)])))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn netty-cookie<>
-  "" ^Cookie
-  [^HttpCookie c] {:pre [(some? c)]}
-  ;; stick with version 0, Java's HttpCookie defaults to 1 but that
-  ;; screws up the Path attribute on the wire => it's quoted but
-  ;; browser seems to not like it and mis-interpret it.
-  ;; Netty's cookie defaults to 0, which is cool with me.
-  (l/debug "http->netty cookie: %s=[%s]." (.getName c) (.getValue c))
-  (doto (DefaultCookie. (.getName c) (.getValue c))
-    ;;(.setComment (.getComment c))
-    (.setDomain (.getDomain c))
-    (.setMaxAge (.getMaxAge c))
-    (.setPath (.getPath c))
-    ;;(.setDiscard (.getDiscard c))
-    ;;(.setVersion 0)
-    (.setHttpOnly (.isHttpOnly c))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn chanid
-  "Channel Id." ^String [c]
-  (str (c/condp?? instance? c
-         Channel
-         (.id ^Channel c)
-         ChannelHandlerContext
-         (.. ^ChannelHandlerContext c channel id))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn decoder-result
   "" ^DecoderResult [msg]
   (some-> (c/cast? DecoderResultProvider msg) .decoderResult))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn decoder-success?
-  "" [msg] (if-some [r (decoder-result msg)] (.isSuccess r) true))
+  "" [msg]
+  (if-some [r (decoder-result msg)] (.isSuccess r) true))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn decoder-error
-  "" ^Throwable [msg]
-  (if-some
-    [r (some-> (c/cast? DecoderResultProvider msg) .decoderResult)]
-    (if-not (.isSuccess r) (.cause r))))
+(extend-protocol ChannelXXXAPI
+  Object
+  (fire-next-and-quit
+    ([_ h msg]
+     (fire-next-and-quit _ h msg false))
+    ([c h msg retain?]
+     (if-some [ctx (c/cast? ChannelHandlerContext c)]
+       (let [pp (.pipeline ctx)]
+         (if-not (c/is? ChannelHandler h)
+           (.remove pp (str h))
+           (.remove pp ^ChannelHandler h))
+         (dbg-pipeline pp)
+         (if retain? (ref-add msg))
+         (.fireChannelRead ctx msg)))))
+  (chanid [c]
+    (str (c/condp?? instance? c
+           Channel (.id ^Channel c)
+           ChannelHandlerContext (.. ^ChannelHandlerContext c channel id))))
+  (cpipe [c]
+    (c/condp?? instance? c
+      Channel (.pipeline ^Channel c)
+      ChannelHandlerContext (.pipeline ^ChannelHandlerContext c)))
+  (ch?? [arg]
+    (c/condp?? instance? arg
+      Channel arg
+      ChannelHandlerContext (.channel ^ChannelHandlerContext arg)))
+  (close-ch [c]
+    (c/condp?? instance? c
+      Channel (.close ^Channel c)
+      ChannelHandlerContext (.close ^ChannelHandlerContext c))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn set-decoder-error!
-  "" [msg err]
-  {:pre [(c/is? Throwable err)]}
-  (if-some
-    [p (c/cast? DecoderResultProvider msg)]
-    (.setDecoderResult p
-                       (DecoderResult/failure ^Throwable err))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn cpipe
-  "" ^ChannelPipeline [c]
-  (c/condp?? instance? c
-    Channel
-    (.pipeline ^Channel c)
-    ChannelHandlerContext
-    (.pipeline ^ChannelHandlerContext c)))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn ch??
-  "" ^Channel [arg]
-  (c/condp?? instance? arg
-    Channel
-    arg
-    ChannelHandlerContext
-    (.channel ^ChannelHandlerContext arg)))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn set-akey
-  "" [arg ^AttributeKey akey aval]
-  (some-> (ch?? arg) (.attr akey) (.set aval)) aval)
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn set-akey*
-  "" [arg & kvs]
-  (doseq [[k v] (partition 2 kvs)] (set-akey arg k v)))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn del-akey
-  "" [arg ^AttributeKey akey] (set-akey arg akey nil))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn del-akey*
-  "" [arg & kvs] (doseq [k kvs] (del-akey arg k)))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn get-akey
-  "" [arg ^AttributeKey akey] (some-> (ch?? arg) (.attr akey) .get))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn ctx-name
-  "" ^String
-  [^ChannelPipeline pp ^ChannelHandler h] (some-> pp (.context h) .name))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn close-ch
-  "" [c]
-  (c/condp?? instance? c
-    Channel
-    (.close ^Channel c)
-    ChannelHandlerContext
-    (.close ^ChannelHandlerContext c)))
+(extend-protocol AttributeKeyAPI
+  AttributeKey
+  (set-akey [akey arg aval]
+    (some-> ^Channel (ch?? arg) (.attr ^AttributeKey akey) (.set aval)) aval)
+  (del-akey [akey arg]
+    (set-akey akey arg nil))
+  (get-akey [akey arg]
+    (some-> ^Channel (ch?? arg) (.attr ^AttributeKey akey) .get)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- to-hhs
   "" ^HttpHeaders [obj]
   (condp instance? obj
-    HttpHeaders
-    obj
-    HttpMessage
-    (.headers ^HttpMessage obj)
+    HttpHeaders obj
+    HttpMessage (get-headers obj)
     (u/throw-BadArg "Expecting http-msg or http-headers.")))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn add-header
-  "" [obj nm value]
-  (.add (to-hhs obj) ^CharSequence nm ^String value))
+(extend-protocol HeadersAPI
+  Object
+  (add-header [obj nm value]
+    (.add (to-hhs obj) ^CharSequence nm ^String value))
+  (set-header [obj nm value]
+    (.set (to-hhs obj) ^CharSequence nm ^String value))
+  (get-header-vals [obj nm]
+    (.getAll (to-hhs obj) ^CharSequence nm))
+  (get-header [obj nm]
+    (.get (to-hhs obj) ^CharSequence nm))
+  (has-header? [obj nm]
+    (.contains (to-hhs obj) ^CharSequence nm)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn set-header
-  "" [obj nm value]
-  (.set (to-hhs obj) ^CharSequence nm ^String value))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn get-header-vals
-  "" [obj nm] (.getAll (to-hhs obj) ^CharSequence nm))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn get-header
-  "" ^String [obj nm] (.get (to-hhs obj) ^CharSequence nm))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn has-header?
-  "" [obj nm] (.contains (to-hhs obj) ^CharSequence nm))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn slurp-bytebuf
-  "" ^long [^ByteBuf buf ^OutputStream out]
-  (if-some [len (some-> buf .readableBytes)]
-    (when (pos? len)
-      (.readBytes buf out (int len)) (.flush out) len) 0))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn bbuf->bytes
-  "" ^bytes [^ByteBuf buf]
-  (let [out (i/baos<>)]
-    (if (pos? (slurp-bytebuf buf out)) (i/x->bytes out))))
+(extend-protocol ByteBufAPI
+  ByteBuf
+  (slurp-bytebuf [buf out]
+    (if-some [len (some-> ^ByteBuf buf .readableBytes)]
+      (if (pos? len)
+        (do (.readBytes ^ByteBuf buf
+                        ^OutputStream out (int len))
+            (.flush ^OutputStream out) len) 0) 0))
+  (bbuf->bytes [buf]
+    (let [out (i/baos<>)]
+      (if (pos? (slurp-bytebuf buf out)) (i/x->bytes out)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- x->bbuf
   ^ByteBuf [ch arg encoding]
-  (let [buf (some-> ^Channel
-                    ch
-                    .alloc .directBuffer)
-        cs (u/charset?? encoding)]
+  (let [cs (u/charset?? encoding)
+        buf (some-> ^Channel ch .alloc .directBuffer)]
     (cond
       (bytes? arg)
       (if buf
@@ -389,114 +396,21 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn bbuf??
-
   ([arg ch] (bbuf?? arg ch nil))
   ([arg] (bbuf?? arg nil nil))
-
   ([arg ch encoding]
    (let [ct (if-some
-              [c (c/cast? XData arg)]
-              (.content c) arg)]
+              [c (c/cast? XData arg)] (.content c) arg)]
      (cond
        (bytes? ct) (x->bbuf ch ct encoding)
        (string? ct) (x->bbuf ch ct encoding) :else ct))))
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn write-last-content
-  "" {:tag ChannelFuture}
-
-  ([^ChannelOutboundInvoker inv flush?]
-   (if flush?
-     (.writeAndFlush inv LastHttpContent/EMPTY_LAST_CONTENT)
-     (.write inv LastHttpContent/EMPTY_LAST_CONTENT)))
-
-  ([inv] (write-last-content inv false)))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn mock-request<+>
-  "" ^FullHttpRequest [req]
-  (let [{:keys [headers uri2
-                version method]} req
-        rc (DefaultFullHttpRequest.
-              (HttpVersion/valueOf version)
-              (HttpMethod/valueOf method) uri2)]
-    (assert (c/is? HttpHeaders headers))
-    (.set (.headers rc) ^HttpHeaders headers) rc))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn fake-request<>
-  "" ^HttpRequest []
-  (DefaultHttpRequest.
-    HttpVersion/HTTP_1_1 HttpMethod/POST "/" (DefaultHttpHeaders.)))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn encode-netty-cookies
-  "" ^APersistentVector [cookies]
-  (c/preduce<vec>
-    #(conj! %1
-            (.encode
-              ServerCookieEncoder/STRICT ^Cookie %2)) cookies))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn encode-java-cookies
-  "" ^APersistentVector [cookies]
-  (encode-netty-cookies (map #(netty-cookie<> %) cookies)))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn detect-acceptable-charset
-  "" ^Charset [^HttpRequest req]
-  (let [cs (get-header req HttpHeaderNames/ACCEPT_CHARSET)
-        c (->> (.split (str cs) "[,;\\s]+")
-               (some #(c/try! (Charset/forName ^String %))))]
-    (or c (Charset/forName "utf-8"))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn get-msg-charset
-  "" ^Charset [^HttpMessage msg]
-  (HttpUtil/getCharset msg (Charset/forName "utf-8")))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn close-cf
-  "Close the channel unless keep-alive is set"
-  ([cf] (close-cf cf false))
-  ([^ChannelFuture cf keepAlive?]
-    (if (and cf
-             (not (boolean keepAlive?)))
-      (.addListener cf ChannelFutureListener/CLOSE))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn http-req<+>
-  "" {:tag FullHttpRequest}
-  ([mt uri] (http-req<+> mt uri nil))
-  ([^HttpMethod mt ^String uri ^ByteBuf body]
-   (if (nil? body)
-     (let [x (DefaultFullHttpRequest. HttpVersion/HTTP_1_1 mt uri)]
-       (HttpUtil/setContentLength x 0) x)
-     (DefaultFullHttpRequest. HttpVersion/HTTP_1_1 mt uri body))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn http-req<>
-  "" ^HttpRequest [^HttpMethod mt ^String uri]
-  (DefaultHttpRequest. HttpVersion/HTTP_1_1 mt uri))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn http-post<+>
-  "" ^FullHttpRequest
-  [^String uri ^ByteBuf body] (http-req<+> HttpMethod/POST uri body))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn http-post<>
-  "" ^HttpRequest [uri] (http-req<> HttpMethod/POST uri))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn http-get<>
-  "" ^FullHttpRequest [uri] (http-req<+> HttpMethod/GET uri nil))
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn http-reply<>
-  "Create an incomplete response" {:tag HttpResponse}
-
-  ([] (http-reply<> (scode HttpResponseStatus/OK)))
+  "Create an incomplete response"
+  {:tag HttpResponse}
+  ([]
+   (http-reply<> (.code HttpResponseStatus/OK)))
   ([code]
    {:pre [(number? code)]}
    (DefaultHttpResponse. HttpVersion/HTTP_1_1
@@ -504,7 +418,8 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn http-reply<+>
-  "Create a complete response" {:tag FullHttpResponse}
+  "Create a complete response"
+  {:tag FullHttpResponse}
   ([status msg ^ByteBufAllocator alloc]
    (let [code (HttpResponseStatus/valueOf status)
          ver HttpVersion/HTTP_1_1]
@@ -536,174 +451,124 @@
 
   ([code] (http-reply<+> code nil nil))
 
-  ([] (http-reply<+> (scode HttpResponseStatus/OK))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn reply-status
-  "Reply back to client with a status, no body"
-
-  ([inv status] (reply-status inv status false))
-  ([inv] (reply-status inv 200))
-  ([^ChannelOutboundInvoker inv status keepAlive?]
-   {:pre [(number? status)]}
-   (let [rsp (http-reply<+> status)
-         code (.. rsp status code)
-         ka? (if-not (and (>= code 200)
-                          (< code 300))
-               false
-               keepAlive?)]
-     (l/debug "returning status [%s]." status)
-     (HttpUtil/setKeepAlive rsp ka?)
-     ;(HttpUtil/setContentLength rsp 0)
-     (close-cf (.writeAndFlush inv rsp) ka?))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn send-redirect
-  "Reply back to client with a redirect"
-  ([^ChannelOutboundInvoker inv perm? location keepAlive?]
-   (let
-     [rsp (http-reply<+>
-            (if perm?
-              (scode HttpResponseStatus/MOVED_PERMANENTLY)
-              (scode HttpResponseStatus/TEMPORARY_REDIRECT)))
-      ka? false]
-     (l/debug "redirecting to -> %s." location)
-     (set-header rsp
-                 HttpHeaderNames/LOCATION location)
-     (HttpUtil/setKeepAlive rsp ka?)
-     (close-cf (.writeAndFlush inv rsp) ka?)))
-
-  ([inv perm? location]
-   (send-redirect inv perm? location false)))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn continue-100
-  "Reply back to client with a 100 continue."
-  [^ChannelOutboundInvoker inv]
-  (-> (->> (http-reply<+>
-             (scode HttpResponseStatus/CONTINUE))
-           (.writeAndFlush inv ))
-      (.addListener (cfop<e>))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn dbg-ref-count
-  "Show ref-count of object" [obj]
-  (if-some
-    [rc (c/cast? ReferenceCounted obj)]
-    (l/debug "object %s: has refcount: %s." obj (.refCnt rc))))
+  ([] (http-reply<+> (.code HttpResponseStatus/OK))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn dbg-pipeline
-  "List all handlers" [pipe]
-  (l/debug "pipeline= %s"
-           (cs/join "|" (.names ^ChannelPipeline pipe))))
+(extend-protocol ChannelFutureAPI
+  ChannelFuture
+  (future-cb [cf arg]
+    (if-some
+      [ln (cond
+            (c/is? ChannelFutureListener arg) arg
+            (fn? arg) (cfop<> arg)
+            (nil? arg) nil
+            :else
+            (u/throw-IOE "Rogue object %s." (type arg)))]
+      (-> ^ChannelFuture
+          cf
+          (.addListener ^ChannelFutureListener ln))))
+  (close-cf
+    ([cf]
+     (close-cf cf false))
+    ([cf keepAlive?]
+     (if (not (boolean keepAlive?))
+       (.addListener cf ChannelFutureListener/CLOSE)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn safe-remove-handler
-  "" [^ChannelPipeline cp ^Class cz] (c/try! (.remove cp cz)))
+(extend-protocol OutboundAPI
+  ChannelOutboundInvoker
+  (maybe-handle-100?
+    ([_ msg]
+     (maybe-handle-100? _ msg -1))
+    ([inv msg maxSize]
+     (if (and (c/is? HttpRequest msg)
+              (HttpUtil/is100ContinueExpected ^HttpMessage msg))
+       (let [err? (and (HttpUtil/isContentLengthSet ^HttpMessage msg)
+                       (c/spos? maxSize)
+                       (> (HttpUtil/getContentLength ^HttpMessage msg) maxSize))
+             rsp (http-reply<+>
+                   (if err?
+                     (.code HttpResponseStatus/EXPECTATION_FAILED)
+                     (.code HttpResponseStatus/CONTINUE)))]
+         (-> (.writeAndFlush ^ChannelOutboundInvoker inv rsp)
+             (future-cb (if err? (cfop<z>))))
+         (not err?))
+       true)))
+  (write-last-content
+    ([inv]
+     (write-last-content inv false))
+    ([inv flush?]
+     (if flush?
+       (.writeAndFlush ^ChannelOutboundInvoker inv LastHttpContent/EMPTY_LAST_CONTENT)
+       (.write ^ChannelOutboundInvoker inv LastHttpContent/EMPTY_LAST_CONTENT))))
+  (reply-status
+    ([inv status] (reply-status inv status false))
+    ([inv] (reply-status inv 200))
+    ([inv status keepAlive?]
+     {:pre [(number? status)]}
+     (let [rsp (http-reply<+> status)
+           code (.. rsp status code)
+           ka? (if-not (and (>= code 200)
+                            (< code 300)) false keepAlive?)]
+       (l/debug "returning status [%s]." status)
+       (HttpUtil/setKeepAlive rsp ka?)
+       ;(HttpUtil/setContentLength rsp 0)
+       (close-cf (.writeAndFlush ^ChannelOutboundInvoker inv rsp) ka?))))
+  (reply-redirect
+    ([inv perm? location]
+     (reply-redirect inv perm? location false))
+    ([inv perm? location keepAlive?]
+     (let [rsp (http-reply<+>
+                 (if perm?
+                   (.code HttpResponseStatus/MOVED_PERMANENTLY)
+                   (.code HttpResponseStatus/TEMPORARY_REDIRECT)))
+           ka? false]
+       (l/debug "redirecting to -> %s." location)
+       (set-header rsp
+                   HttpHeaderNames/LOCATION location)
+       (HttpUtil/setKeepAlive rsp ka?)
+       (close-cf (.writeAndFlush ^ChannelOutboundInvoker inv rsp) ka?))))
+  (continue-100 [inv]
+    (-> (->> (http-reply<+>
+               (.code HttpResponseStatus/CONTINUE))
+             (.writeAndFlush ^ChannelOutboundInvoker inv ))
+        (.addListener (cfop<e>)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn fire-next-and-quit
-  "Fire msg and remove the handler"
-  ([^ChannelHandlerContext ctx handler msg retain?]
-   (let [pp (.pipeline ctx)]
-    (if (c/is? ChannelHandler handler)
-      (.remove pp ^ChannelHandler handler)
-      (.remove pp (str handler)))
-    (dbg-pipeline pp)
-    (if retain?
-      (ref-add msg))
-    (.fireChannelRead ctx msg)))
-
-  ([ctx handler msg]
-   (fire-next-and-quit ctx handler msg false)))
+(extend-protocol PipelineAPI
+  ChannelPipeline
+  (maybe-ssl? [pipe]
+    (some? (.get ^ChannelPipeline pipe SslHandler)))
+  (dbg-pipeline [pipe]
+    (l/debug "pipeline= %s"
+             (cs/join "|" (.names ^ChannelPipeline pipe))))
+  (safe-remove-handler [pipe cz]
+    (c/try! (.remove ^ChannelPipeline pipe ^Class cz)))
+  (ctx-name [pipe h]
+    (some-> (.context ^ChannelPipeline pipe ^ChannelHandler h) .name)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn cfop<>
-  "Create a ChannelFutureListener"
-  ^ChannelFutureListener [func] {:pre [(fn? func)]}
-  (reify ChannelFutureListener (operationComplete
-                                 [_ ff] (c/try! (func ff)))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn future-cb
-  "Reg. callback" ^ChannelFuture [cf arg]
-  (if-some
-    [ln (cond
-          (c/is? ChannelFutureListener arg) arg
-          (fn? arg) (cfop<> arg)
-          (nil? arg) nil
-          :else
-          (u/throw-IOE "Rogue object %s." (type arg)))]
-    (-> ^ChannelFuture
-        cf
-        (.addListener ^ChannelFutureListener ln))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn maybe-handle-100?
-  "Handle a *expect* header."
-
-  ([^ChannelOutboundInvoker inv msg maxSize]
-   (if (and (c/is? HttpRequest msg)
-            (HttpUtil/is100ContinueExpected msg))
-     (let [error (and (HttpUtil/isContentLengthSet msg)
-                      (c/spos? maxSize)
-                      (> (HttpUtil/getContentLength msg) maxSize))
-           rsp (http-reply<+>
-                 (if error
-                   (scode HttpResponseStatus/EXPECTATION_FAILED)
-                   (scode HttpResponseStatus/CONTINUE)))]
-       (-> (.writeAndFlush inv rsp)
-           (future-cb (if error (cfop<z>))))
-       (not error))
-     true))
-
-  ([inv msg]
-   (maybe-handle-100? inv msg -1)))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn get-method
-  "Get the req method" ^String [msg]
-  (if-some
-    [req (c/cast? HttpRequest msg)]
-    (s/ucase (s/stror (get-header req
-                                 "X-HTTP-Method-Override")
-                      (.. req getMethod name)))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn is-websock?
-  "Detects if a websock req?" [req]
-  (let [cn (->> HttpHeaderNames/CONNECTION
-                (cc/msg-header req) str s/lcase)
-        ws (->> HttpHeaderNames/UPGRADE
-                (cc/msg-header req) str s/lcase)]
-    ;(l/debug "checking if it's a websock request......")
-    (and (s/embeds? ws "websocket")
-         (s/embeds? cn "upgrade")
-         (= "GET" (:method req)))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn maybe-ssl?
-  "" [c] (some-> (cpipe c) (.get SslHandler) (some?)))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn get-uri-path
-  "" ^String [msg]
-  (if-some [req (c/cast? HttpRequest msg)]
-    (. (QueryStringDecoder. (.uri req)) path) ""))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn get-uri-params
-  "" ^Map [^HttpMessage msg]
-  (if-some
-    [req (c/cast? HttpRequest msg)]
-    (-> (.uri req) QueryStringDecoder.  .parameters)))
+(defn netty-cookie<>
+  "" ^Cookie [^HttpCookie c]
+  ;; stick with version 0, Java's HttpCookie defaults to 1 but that
+  ;; screws up the Path attribute on the wire => it's quoted but
+  ;; browser seems to not like it and mis-interpret it.
+  ;; Netty's cookie defaults to 0, which is cool with me.
+  (l/debug "http->netty cookie: %s=[%s]." (.getName c) (.getValue c))
+  (doto (DefaultCookie. (.getName c) (.getValue c))
+    ;;(.setComment (.getComment c))
+    (.setDomain (.getDomain c))
+    (.setMaxAge (.getMaxAge c))
+    (.setPath (.getPath c))
+    ;;(.setDiscard (.getDiscard c))
+    ;;(.setVersion 0)
+    (.setHttpOnly (.isHttpOnly c))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn http-cookie<>
-  "" ^HttpCookie [^Cookie c] {:pre [(some? c)]}
-  (doto (HttpCookie. (.name c)
-                     (.value c))
+  "" ^HttpCookie [^Cookie c]
+  {:pre [(some? c)]}
+  (doto (HttpCookie. (.name c) (.value c))
     ;;(.setComment (.comment c))
     (.setDomain (.domain c))
     (.setMaxAge (.maxAge c))
@@ -712,87 +577,85 @@
     (.setHttpOnly (.isHttpOnly c))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn crack-cookies
-  "" [msg]
-  (if (c/is? HttpRequest msg)
-    (c/if-some+
-      [v (get-header msg
-                     HttpHeaderNames/COOKIE)]
+(extend-protocol HttpMessageAPI
+  HttpMessage
+  (detect-acceptable-charset [msg]
+    (if-some [req (c/cast? HttpRequest msg)]
+      (let [cs (get-header req HttpHeaderNames/ACCEPT_CHARSET)
+            c (->> (s/split (str cs) "[,;\\s]+")
+                   (some #(c/try! (Charset/forName ^String %))))]
+        (or c (Charset/forName "utf-8")))))
+  (get-headers [msg] (.headers ^HttpMessage msg))
+  (get-method [msg]
+    (if-some [req (c/cast? HttpRequest msg)]
+      (s/ucase (s/stror (get-header req
+                                    "X-HTTP-Method-Override")
+                        (.. req getMethod name)))))
+  (get-uri-path [msg]
+    (if-some [req (c/cast? HttpRequest msg)]
+      (. (QueryStringDecoder. (.uri req)) path) ""))
+  (get-uri-params [msg]
+    (if-some [req (c/cast? HttpRequest msg)]
+      (-> (.uri req) QueryStringDecoder.  .parameters)))
+  (get-msg-charset [msg]
+    (HttpUtil/getCharset ^HttpMessage msg (Charset/forName "utf-8")))
+  (crack-cookies [msg]
+    (c/condp?? instance? msg
+      HttpRequest
+      (c/if-some+
+        [v (get-header msg
+                       HttpHeaderNames/COOKIE)]
+        (c/preduce<map>
+          #(assoc! %1
+                   (.name ^Cookie %2)
+                   (http-cookie<> %2))
+          (.decode ServerCookieDecoder/STRICT v)))
+      HttpResponse
       (c/preduce<map>
-        #(assoc! %1
-                 (.name ^Cookie %2)
-                 (http-cookie<> %2))
-        (.decode ServerCookieDecoder/STRICT v)))
-    (c/preduce<map>
-      #(let [v (.decode ClientCookieDecoder/STRICT %2)]
-         (assoc! %1
-                 (.name v)
-                 (http-cookie<> v)))
-      (get-header-vals msg HttpHeaderNames/SET_COOKIE))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn content-length-as-int
-  "" [^HttpMessage m] (HttpUtil/getContentLength m (int 0)))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn content-length!
-  "" [^HttpMessage m len] (HttpUtil/setContentLength m (long len)))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn content-type
-  "" ^String [^HttpMessage m]
-  (-> (.headers m) (.get HttpHeaderNames/CONTENT_TYPE "")))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn no-content?
-  "" [^HttpMessage m]
-  (or (not (HttpUtil/isContentLengthSet m))
-      (not (> (HttpUtil/getContentLength m -1) 0))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defonce ^:private error-filter
-  (proxy [InboundHandler][]
-    (onRead [_ _])
-    (exceptionCaught [_ t] (l/exception t))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn shared-error-sink<>
-  "" ^ChannelHandler [] error-filter)
-(def ^String shared-error-sink-name "sharedErrorSink")
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn conv-certs
-  "Convert Certs" ^APersistentVector [arg]
-
-  (let [[del? inp] (i/input-stream?? arg)]
-    (try (-> (CertificateFactory/getInstance "X.509")
-             (.generateCertificates ^InputStream inp) vec)
-      (finally (if del? (i/klose inp))))))
+        #(let [v (.decode ClientCookieDecoder/STRICT %2)]
+           (assoc! %1
+                   (.name v) (http-cookie<> v)))
+        (get-header-vals msg HttpHeaderNames/SET_COOKIE))))
+  (no-content? [m]
+    (or (not (HttpUtil/isContentLengthSet ^HttpMessage m))
+        (not (> (HttpUtil/getContentLength ^HttpMessage m -1) 0))))
+  (content-type [m]
+    (-> (.headers ^HttpMessage m)
+        (.get HttpHeaderNames/CONTENT_TYPE "")))
+  (content-length! [m len]
+    (HttpUtil/setContentLength ^HttpMessage m (long len)))
+  (content-length-as-int [m]
+    (HttpUtil/getContentLength ^HttpMessage m (int 0))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (extend-protocol cc/WsockMsgReplyer
-  io.netty.channel.Channel
-  (send-ws-string [me s]
-    (->> (TextWebSocketFrame. ^String s)
-         (.writeAndFlush ^Channel me )))
-  (send-ws-bytes [me b]
-    (->> (x->bbuf me b)
-         (BinaryWebSocketFrame. )
-         (.writeAndFlush ^Channel me ))))
+  Channel
+  (send-ws-string [c s]
+    (.writeAndFlush ^Channel c
+                    (TextWebSocketFrame. ^String s)))
+  (send-ws-bytes [c b]
+    (.writeAndFlush ^Channel c
+                    (BinaryWebSocketFrame. (x->bbuf c b)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- maybe-akey
-  "" [k]
-  (let [s (s/sname k)]
-    (if-not (AttributeKey/exists s)
-      (AttributeKey/newInstance s) (AttributeKey/valueOf s))))
+  [k] (let [s (s/sname k)]
+        (if-not (AttributeKey/exists s)
+          (AttributeKey/newInstance s) (AttributeKey/valueOf s))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (extend-protocol cc/SocketAttrProvider
-  io.netty.channel.Channel
-  (socket-attr-get [me k] (get-akey me (maybe-akey k)))
-  (socket-attr-del [me k] (del-akey me (maybe-akey k)))
-  (socket-attr-set [me k a] (set-akey me (maybe-akey k) a)))
+  Channel
+  (socket-attr-get [c k] (get-akey (maybe-akey k) c))
+  (socket-attr-del [c k] (del-akey (maybe-akey k) c))
+  (socket-attr-set [c k a] (set-akey (maybe-akey k) c a)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn dbg-ref-count
+  "Show ref-count of object" [obj]
+  (if-some
+    [rc (c/cast? ReferenceCounted obj)]
+    (l/debug "object %s: has refcount: %s." obj (.refCnt rc))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF

@@ -35,13 +35,15 @@
            [java.util Date]
            [czlab.basal XData]
            [czlab.nettio DateUtil]
+           [io.netty.handler.codec.http.cookie
+            Cookie
+            ServerCookieEncoder]
            [io.netty.handler.codec.http
             HttpResponseStatus
             DefaultHttpHeaders
             FullHttpResponse
             HttpChunkedInput
             HttpVersion
-            Cookie
             HttpUtil
             HttpHeaderValues
             HttpHeaderNames
@@ -94,7 +96,7 @@
               :request theReq
               :cookies {}
               :framework :netty
-              :status (or status (nc/scode HttpResponseStatus/OK))))
+              :status (or status (.code HttpResponseStatus/OK))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (extend-protocol cc/HttpResultMsgCreator
@@ -138,8 +140,8 @@
   "" [m]
   `(if
      (s/eq-any? ~m ["GET" "HEAD"])
-     (nc/scode HttpResponseStatus/NOT_MODIFIED)
-     (nc/scode HttpResponseStatus/PRECONDITION_FAILED)))
+     (.code HttpResponseStatus/NOT_MODIFIED)
+     (.code HttpResponseStatus/PRECONDITION_FAILED)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- if-none-match?
@@ -227,8 +229,8 @@
   [eTag lastMod code cType body conds]
 
   (let
-    [ec (nc/scode HttpResponseStatus/REQUESTED_RANGE_NOT_SATISFIABLE)
-     pc (nc/scode HttpResponseStatus/PARTIAL_CONTENT)
+    [ec (.code HttpResponseStatus/REQUESTED_RANGE_NOT_SATISFIABLE)
+     pc (.code HttpResponseStatus/PARTIAL_CONTENT)
      ^String hd (get-in conds [:if-range :value])
      {:keys [value has?]}
      (:range conds)
@@ -281,6 +283,17 @@
 (defn- write-headers
   "" ^HttpHeaders
   [^HttpResponse rsp headers] (.set (.headers rsp) headers))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn- encode-cookies
+  [cookies]
+  (c/preduce<vec>
+    #(let [^Cookie c
+           (condp instance? %2
+             Cookie %2
+             HttpCookie (nc/netty-cookie<> %2)
+             (u/throw-BadArg "Bad cookie"))]
+       (conj! %1 (.encode ServerCookieEncoder/STRICT c))) cookies))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- replyer<>
@@ -385,7 +398,7 @@
     (if (or (nil? body)
             (and (zero? clen)(nil? body)))
       (.remove hds HttpHeaderNames/CONTENT_TYPE))
-    (doseq [s (nc/encode-java-cookies (vals cookies))]
+    (doseq [s (encode-cookies (vals cookies))]
       (l/debug "resp: setting cookie: %s." s)
       (.add hds HttpHeaderNames/SET_COOKIE s))
     (if (and (c/spos? last-mod)

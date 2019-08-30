@@ -81,10 +81,10 @@
     (if (.isFile body)
       (l/debug "fPutter orig= %s." (.fileRef body)))
     (->> (u/try!!
-           (nc/scode HttpResponseStatus/INTERNAL_SERVER_ERROR)
+           (.code HttpResponseStatus/INTERNAL_SERVER_ERROR)
            (do
              (i/save-file vdir fname body)
-             (nc/scode HttpResponseStatus/OK)))
+             (.code HttpResponseStatus/OK)))
          (nc/reply-status ctx ))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -96,7 +96,7 @@
     (if (.hasContent f)
       (reply-get-vfile ctx req f)
       (nc/reply-status ctx
-                       (nc/scode HttpResponseStatus/NO_CONTENT)))))
+                       (.code HttpResponseStatus/NO_CONTENT)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- h1proxy
@@ -120,7 +120,7 @@
           (fgetter ctx msg nm udir)
           :else
           (nc/reply-status ctx
-                           (nc/scode HttpResponseStatus/METHOD_NOT_ALLOWED)))))))
+                           (.code HttpResponseStatus/METHOD_NOT_ALLOWED)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; make a In memory File Server

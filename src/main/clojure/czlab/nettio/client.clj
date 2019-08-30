@@ -39,7 +39,7 @@
             WebSocketClientHandshakerFactory]
            [io.netty.channel.nio NioEventLoopGroup]
            [clojure.lang IDeref APersistentVector]
-           [java.security.cert X509Certificate]
+           [java.security.cert X509Certificate CertificateFactory]
            [java.util.concurrent TimeUnit]
            [io.netty.handler.codec.http2
             HttpConversionUtil$ExtensionHeaderNames
@@ -147,13 +147,21 @@
        (nobs! bs ch)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn- conv-certs
+  "Convert Certs" [arg]
+  (let [[del? inp] (i/input-stream?? arg)]
+    (try (-> (CertificateFactory/getInstance "X.509")
+             (.generateCertificates ^InputStream inp) vec)
+         (finally (if del? (i/klose inp))))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- build-ctx
   ^SslContextBuilder [scert]
   (let [ctx (SslContextBuilder/forClient)]
     (if (= "*" scert)
       (.trustManager ctx InsecureTrustManagerFactory/INSTANCE)
       (let [#^"[Ljava.security.cert.X509Certificate;"
-            cs (->> (nc/conv-certs (io/as-url scert))
+            cs (->> (conv-certs (io/as-url scert))
                     (c/vargs X509Certificate))] (.trustManager ctx cs)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -205,14 +213,14 @@
   (proxy [InboundHandler][true]
     (readMsg [ctx msg]
       (when-some
-        [p (nc/get-akey ctx rsp-key)]
+        [p (nc/get-akey rsp-key ctx)]
         (deliver p msg)
-        (nc/del-akey ctx rsp-key)))
+        (nc/del-akey rsp-key ctx)))
     (exceptionCaught [ctx err]
       (try (when-some
-             [p (nc/get-akey ctx rsp-key)]
+             [p (nc/get-akey rsp-key ctx)]
              (deliver p err)
-             (nc/del-akey ctx rsp-key))
+             (nc/del-akey rsp-key ctx))
            (finally (nc/close-ch ctx))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -220,7 +228,7 @@
   ^ChannelHandler [user]
   (proxy [InboundHandler][true]
     (exceptionCaught [ctx err] (nc/close-ch ctx))
-    (readMsg [ctx msg] (user (nc/get-akey ctx cc-key) msg))))
+    (readMsg [ctx msg] (user (nc/get-akey cc-key ctx) msg))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- wsh<>
@@ -229,7 +237,7 @@
   (proxy [InboundHandler][true]
     (handlerAdded [ctx]
       (let [p (.newPromise ^ChannelHandlerContext ctx)]
-        (nc/set-akey ctx cf-key p)
+        (nc/set-akey cf-key ctx p)
         (.addListener p (nc/cfop<> cb))
         (l/debug "wsc handler-added.")))
     (channelActive [ctx]
@@ -237,14 +245,14 @@
       (.handshake handshaker (nc/ch?? ctx)))
     (exceptionCaught [ctx err]
       (if-some [^ChannelPromise
-                f (nc/get-akey ctx cf-key)]
+                f (nc/get-akey cf-key ctx)]
         (if-not (.isDone f)
           (.setFailure f ^Throwable err)))
       (nc/close-ch ctx)
       (l/warn "%s." (.getMessage ^Throwable err)))
     (readMsg [ctx msg]
       (let [ch (nc/ch?? ctx)
-            ^ChannelPromise f (nc/get-akey ctx cf-key)]
+            ^ChannelPromise f (nc/get-akey cf-key ctx)]
         (cond
           (not (.isHandshakeComplete handshaker))
           (do (l/debug "attempt to finz the hand-shake...")
@@ -275,10 +283,10 @@
     (initChannel [c]
       (let [hh (HttpToHttp2ConnectionHandlerBuilder.)
             ssl (c/cast? SslContext ctx)
-            ch (nc/ch?? c)
-            pp (nc/cpipe ch)
+            ^Channel ch (nc/ch?? c)
+            ^ChannelPipeline pp (nc/cpipe ch)
             pm (.newPromise ch)]
-        (nc/set-akey c h2s-key pm)
+        (nc/set-akey h2s-key c pm)
         (doto hh
           (.server false)
           (.frameListener (mg/h20-aggregator<> pm)))
@@ -291,7 +299,8 @@
                   (proxy [ApplicationProtocolNegotiationHandler][""]
                     (configurePipeline [cx pn]
                       (if (.equals ApplicationProtocolNames/HTTP_2 ^String pn)
-                        (doto (nc/cpipe cx)
+                        (doto ^ChannelPipeline
+                          (nc/cpipe cx)
                           (.addLast "codec" (.build hh))
                           (.addLast "cw" (ChunkedWriteHandler.))
                           (.addLast "user-cb" user-hdlr))
@@ -308,42 +317,44 @@
     (onError [ctx exp]
       (deliver rcp exp))
     (initChannel [ch]
-      (if-some
-        [ssl (c/cast? SslContext ctx)]
-        (.addLast (nc/cpipe ch)
-                  "ssl"
-                  (.newHandler ssl
-                               (.alloc ^Channel ch))))
-      (doto (nc/cpipe ch)
-        (.addLast "codec" (HttpClientCodec.))
-        (.addLast "msg-agg" msg-agg)
-        (.addLast "cw" (ChunkedWriteHandler.))
-        (.addLast "user-cb" user-hdlr)))))
+      (let [^ChannelPipeline pp (nc/cpipe ch)]
+        (if-some
+          [ssl (c/cast? SslContext ctx)]
+          (.addLast pp
+                    "ssl"
+                    (.newHandler ssl
+                                 (.alloc ^Channel ch))))
+        (doto pp
+          (.addLast "codec" (HttpClientCodec.))
+          (.addLast "msg-agg" msg-agg)
+          (.addLast "cw" (ChunkedWriteHandler.))
+          (.addLast "user-cb" user-hdlr))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- wspipe
   ^ChannelHandler [ctx cb user args]
   (proxy [ChannelInitializer][]
     (initChannel [ch]
-      (l/debug "client: wspipe is ssl? = %s." (some? ctx))
-      (if-some
-        [ssl (c/cast? SslContext ctx)]
-        (.addLast (nc/cpipe ch)
-                  "ssl"
-                  (.newHandler ssl
-                               (.alloc ^Channel ch))))
-      (doto (nc/cpipe ch)
-        (.addLast "codec" (HttpClientCodec.))
-        (.addLast "agg" (HttpObjectAggregator. 96000))
-        (.addLast "wcc" WebSocketClientCompressionHandler/INSTANCE)
-        (.addLast "wsh"
-                  (wsh<>
-                    (WebSocketClientHandshakerFactory/newHandshaker
-                      (:uri args)
-                      WebSocketVersion/V13
-                      nil true (DefaultHttpHeaders.)) cb args))
-        (.addLast "ws-agg" mg/wsock-aggregator<>)
-        (.addLast "ws-user" (wsock-hdlr user))))))
+      (let [^ChannelPipeline pp (nc/cpipe ch)]
+        (l/debug "client: wspipe is ssl? = %s." (some? ctx))
+        (if-some
+          [ssl (c/cast? SslContext ctx)]
+          (.addLast pp
+                    "ssl"
+                    (.newHandler ssl
+                                 (.alloc ^Channel ch))))
+        (doto pp
+          (.addLast "codec" (HttpClientCodec.))
+          (.addLast "agg" (HttpObjectAggregator. 96000))
+          (.addLast "wcc" WebSocketClientCompressionHandler/INSTANCE)
+          (.addLast "wsh"
+                    (wsh<>
+                      (WebSocketClientHandshakerFactory/newHandshaker
+                        (:uri args)
+                        WebSocketVersion/V13
+                        nil true (DefaultHttpHeaders.)) cb args))
+          (.addLast "ws-agg" mg/wsock-aggregator<>)
+          (.addLast "ws-user" (wsock-hdlr user)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- bootstrap!
@@ -382,7 +393,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- h1c-finz [bs ch]
-  (let [f (nc/get-akey ch nc/dfac-key)]
+  (let [f (nc/get-akey nc/dfac-key ch)]
     (nc/future-cb (.closeFuture ^Channel ch)
                   (c/fn_1 (.cleanAllHttpData ^H1DataFactory f)
                           (nobs! bs nil)
@@ -400,7 +411,7 @@
           (not (c/is? Channel r))
           r
           (:v2? hint)
-          (try (let [^ChannelPromise pm (nc/get-akey r h2s-key)]
+          (try (let [^ChannelPromise pm (nc/get-akey h2s-key r)]
                  (l/debug "client waits %s[ms] for h2-settings." ms)
                  (if-not (.awaitUninterruptibly pm
                                                 ms TimeUnit/MILLISECONDS)
@@ -411,8 +422,8 @@
                        (cconn<> module bs r host port))))
                (catch Throwable e e))
           (:user hint)
-          (nc/set-akey r
-                       cc-key
+          (nc/set-akey cc-key
+                       r
                        (cconn<> module bs r host port hint))
           :else
           (cconn<> module bs r host port))))))
@@ -437,6 +448,35 @@
     (h1c-finz bs (connect bs host port ctx))
     (ret-conn module bs host port rcp hint)))
 
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn http-req<>
+  "" ^HttpRequest [^HttpMethod mt ^String uri]
+  (DefaultHttpRequest. HttpVersion/HTTP_1_1 mt uri))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn http-req<+>
+  "" {:tag FullHttpRequest}
+  ([mt uri] (http-req<+> mt uri nil))
+  ([^HttpMethod mt ^String uri ^ByteBuf body]
+   (if (nil? body)
+     (let [x (DefaultFullHttpRequest. HttpVersion/HTTP_1_1 mt uri)]
+       (HttpUtil/setContentLength x 0) x)
+     (DefaultFullHttpRequest. HttpVersion/HTTP_1_1 mt uri body))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn http-post<+>
+  "" ^FullHttpRequest
+  [^String uri ^ByteBuf body] (http-req<+> HttpMethod/POST uri body))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn http-post<>
+  "" ^HttpRequest [uri] (http-req<> HttpMethod/POST uri))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn http-get<>
+  "" ^FullHttpRequest [uri] (http-req<+> HttpMethod/GET uri nil))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn netty-module<>
   "" []
@@ -457,8 +497,8 @@
                      (str path "?" qy) path)
             req (if-not (or (nil? body)
                             (c/is? ByteBuf body))
-                  (nc/http-req<> mt uriStr)
-                  (nc/http-req<+> mt uriStr body))
+                  (http-req<> mt uriStr)
+                  (http-req<+> mt uriStr body))
             clen (cond (c/is? ByteBuf body) (.readableBytes ^ByteBuf body)
                        (c/is? File body) (.length ^File body)
                        (c/is? InputStream body) -1
@@ -494,7 +534,7 @@
                 (HttpUtil/setContentLength req clen))))
         (l/debug (str "about to flush out req (headers), "
                       "isKeepAlive= %s, content-length= %s") is-keep-alive? clen)
-        (c/do-with [out (nc/set-akey ch rsp-key (promise))]
+        (c/do-with [out (nc/set-akey rsp-key ch (promise))]
           (let [cf (.write ch req)
                 cf (condp instance? body
                      File

@@ -101,7 +101,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- valid-origin?
   "" [ctx corsCfg]
-  (let [req (nc/get-akey ctx nc/h1msg-key)
+  (let [req (nc/get-akey nc/h1msg-key ctx)
         allowed (:origins corsCfg)
         o? (cc/msg-header? req HttpHeaderNames/ORIGIN)
         origin (cc/msg-header req HttpHeaderNames/ORIGIN)]
@@ -173,7 +173,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- set-origin?
   "" [ctx rsp corsCfg]
-  (let [req (nc/get-akey ctx nc/h1msg-key)
+  (let [req (nc/get-akey nc/h1msg-key ctx)
         o? (cc/msg-header? req HttpHeaderNames/ORIGIN)
         origin (cc/msg-header req HttpHeaderNames/ORIGIN)]
     (if o?
@@ -203,7 +203,7 @@
 (defn- reply-preflight
   "" [ctx req]
   (let [{:keys [cors-cfg]}
-        (nc/get-akey ctx nc/chcfg-key)
+        (nc/get-akey nc/chcfg-key ctx)
         rsp (nc/http-reply<+>)
         {:keys [is-keep-alive?]} req]
     (when (set-origin? ctx rsp cors-cfg)
@@ -217,20 +217,31 @@
                    ^ChannelHandlerContext ctx rsp) is-keep-alive? )))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn- mock-request<+>
+  ^FullHttpRequest [req]
+  (let [{:keys [headers uri2
+                version method]} req
+        rc (DefaultFullHttpRequest.
+              (HttpVersion/valueOf version)
+              (HttpMethod/valueOf method) uri2)]
+    (assert (c/is? HttpHeaders headers))
+    (.set (.headers rc) ^HttpHeaders headers) rc))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- toggle->websock
   "" [ctx this req]
-  (let [{:keys [wsock-path] :as cfg} (nc/get-akey ctx nc/chcfg-key)
+  (let [{:keys [wsock-path] :as cfg} (nc/get-akey nc/chcfg-key ctx)
         {:keys [uri] :as msg} req
         _ (l/debug "===> ch-config = %s." cfg)
         _ (l/debug "===> req-msg = %s." msg)
-        r2 (nc/mock-request<+> req)
-        pp (nc/cpipe ctx)
+        ^ChannelPipeline pp (nc/cpipe ctx)
+        r2 (mock-request<+> req)
         uri? (if (set? wsock-path)
                (c/in? wsock-path uri)
                (= wsock-path uri))]
     (if-not uri?
       (nc/reply-status ctx
-                       (nc/scode HttpResponseStatus/FORBIDDEN))
+                       (.code HttpResponseStatus/FORBIDDEN))
       (do
         (.addAfter pp
                    (nc/ctx-name pp this)
@@ -251,18 +262,30 @@
         (.fireChannelRead ^ChannelHandlerContext ctx r2)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn- is-websock?
+  [req]
+  (let [cn (->> HttpHeaderNames/CONNECTION
+                (cc/msg-header req) str s/lcase)
+        ws (->> HttpHeaderNames/UPGRADE
+                (cc/msg-header req) str s/lcase)]
+    ;(l/debug "checking if it's a websock request......")
+    (and (s/embeds? ws "websocket")
+         (s/embeds? cn "upgrade")
+         (= "GET" (:method req)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- process-request
   "" [^ChannelHandler this ctx req]
   (let
     [origin (cc/msg-header req HttpHeaderNames/ORIGIN)
      o? (cc/msg-header? req HttpHeaderNames/ORIGIN)
-     {:keys [cors-cfg]} (nc/get-akey ctx nc/chcfg-key)
+     {:keys [cors-cfg]} (nc/get-akey nc/chcfg-key ctx)
      ka? (:is-keep-alive? req)
      _ (l/debug "process-request: %s." req)
-     _ (nc/set-akey ctx nc/h1msg-key req)
+     _ (nc/set-akey nc/h1msg-key ctx req)
      rc
      (cond
-       (nc/is-websock? req)
+       (is-websock? req)
        (c/do#false
          (toggle->websock ctx this req)
          (l/debug "req %s, websocket!" (u/objid?? req)))
@@ -273,14 +296,14 @@
          (if (:enabled? cors-cfg)
            (reply-preflight ctx req)
            (nc/reply-status ctx
-                            (nc/scode HttpResponseStatus/METHOD_NOT_ALLOWED))))
+                            (.code HttpResponseStatus/METHOD_NOT_ALLOWED))))
 
        (and (:enabled? cors-cfg)
             (not (valid-origin? ctx cors-cfg)))
        (c/do#false
          (l/debug "req %s, cors-cfg enabled." (u/objid?? req))
          (nc/reply-status ctx
-                          (nc/scode HttpResponseStatus/FORBIDDEN)))
+                          (.code HttpResponseStatus/FORBIDDEN)))
 
        :else
        (c/do#true
@@ -292,7 +315,7 @@
 (defn- process-write
   "" [ctx msg _]
   (let [{:keys [cors-cfg]}
-        (nc/get-akey ctx nc/chcfg-key)]
+        (nc/get-akey nc/chcfg-key ctx)]
     (if (and (:enabled? cors-cfg)
              (c/is? HttpResponse msg))
       (when (set-origin? ctx msg cors-cfg)
