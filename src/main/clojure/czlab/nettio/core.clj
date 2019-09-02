@@ -118,6 +118,14 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;(set! *warn-on-reflection* true)
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defmacro hreq?
+  [m] `(instance? ~'HttpRequest ~m))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defmacro hrsp?
+  [m] `(instance? ~'HttpResponse ~m))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defprotocol ChannelXXXAPI
   ""
   (cpipe [_] "")
@@ -130,9 +138,9 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defprotocol AttributeKeyAPI
   ""
-  (set-akey [_ arg aval] "")
   (del-akey [_ arg] "")
-  (get-akey [_ arg] ""))
+  (get-akey [_ arg] "")
+  (set-akey [_ arg aval] ""))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defprotocol HeadersAPI
@@ -159,8 +167,6 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defprotocol OutboundAPI
   ""
-  (maybe-handle-100? [_ msg]
-                     [_ msg maxSize] "")
   (write-last-content [inv]
                       [inv flush?] "")
   (reply-status [inv]
@@ -477,23 +483,6 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (extend-protocol OutboundAPI
   ChannelOutboundInvoker
-  (maybe-handle-100?
-    ([_ msg]
-     (maybe-handle-100? _ msg -1))
-    ([inv msg maxSize]
-     (if (and (c/is? HttpRequest msg)
-              (HttpUtil/is100ContinueExpected ^HttpMessage msg))
-       (let [err? (and (HttpUtil/isContentLengthSet ^HttpMessage msg)
-                       (c/spos? maxSize)
-                       (> (HttpUtil/getContentLength ^HttpMessage msg) maxSize))
-             rsp (http-reply<+>
-                   (if err?
-                     (.code HttpResponseStatus/EXPECTATION_FAILED)
-                     (.code HttpResponseStatus/CONTINUE)))]
-         (-> (.writeAndFlush ^ChannelOutboundInvoker inv rsp)
-             (future-cb (if err? (cfop<z>))))
-         (not err?))
-       true)))
   (write-last-content
     ([inv]
      (write-last-content inv false))
