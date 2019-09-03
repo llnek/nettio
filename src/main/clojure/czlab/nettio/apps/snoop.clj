@@ -141,32 +141,30 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn snoop-httpd<>
   "Sample Snooper HTTPD." [& args]
-   (apply sv/netty-web-server<> :hh1
-                                 (proxy [InboundHandler][true]
-                                   (readMsg [ctx msg]
-                                     (handle-req ctx msg)
-                                     (handle-cnt ctx msg))) args))
+   (sv/tcp-server<> (merge {:hh1
+                            (proxy [InboundHandler][true]
+                              (readMsg [ctx msg]
+                                (handle-req ctx msg)
+                                (handle-cnt ctx msg)))}
+                           (c/kvs->map args))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn finz-server
-  "" []
-  (when @svr
-    (sv/stop-server! @svr) (reset! svr nil)))
+   [] (when @svr (sv/stop-server! @svr) (reset! svr nil)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn -main
-  "" [& args]
+  [& args]
   (cond
     (< (count args) 2)
     (println "usage: snoop host port")
     :else
-    (let [w (sv/start-web-server!
-              (snoop-httpd<>)
-              {:host (nth args 0)
-               :port (c/s->int (nth args 1) 8080)})]
+    (let [w (snoop-httpd<>)]
       (p/exit-hook #(sv/stop-server! w))
       (reset! svr w)
-      (u/block!))))
+      (sv/start-server! w {:host (nth args 0)
+                           :block? true
+                           :port (c/s->int (nth args 1) 8080)}))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF

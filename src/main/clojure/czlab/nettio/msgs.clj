@@ -397,8 +397,8 @@
          (not err?))
        true)))
   (h11x-msg [msg _c pipelining?]
-    (let [{:keys [max-in-memory
-                  max-content-size]}
+    (let [{:keys [max-msg-size
+                  max-in-memory]}
           (nc/get-akey nc/chcfg-key _c)
           ctx (c/cast? ChannelHandlerContext _c)]
       (l/debug "reading %s." (u/gczn msg))
@@ -407,7 +407,7 @@
               (nc/close-ch ctx)
               (nc/reply-status ctx
                                (.code HttpResponseStatus/BAD_REQUEST)))
-            (not (handle-100? msg ctx max-content-size))
+            (not (handle-100? msg ctx max-msg-size))
             nil
             :else
             (let [req (or (c/cast? HttpRequest msg)

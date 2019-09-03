@@ -50,46 +50,44 @@
 (defonce ^:private svr (atom nil))
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- reply-get-vfile
-  "" [^ChannelHandlerContext ctx req ^XData xdata]
-  (let [keep? (:is-keep-alive? req)
-        res (nc/http-reply<>)
-        ch (.channel ctx)
-        clen (.size xdata)]
-    (doto res
-      (nc/set-header "Content-Type" "application/octet-stream")
-      (nc/set-header "Connection" (if keep? "keep-alive" "close"))
-      (nc/set-header "Transfer-Encoding" "chunked")
-      (HttpHeaders/setContentLength clen))
+  [^ChannelHandlerContext ctx req ^XData xdata]
+  (let [{:keys [is-keep-alive?]} req
+        ^Channel ch (nc/ch?? ctx)
+        clen (.size xdata)
+        res (nc/http-reply<>)]
     (l/debug "flushing file of %s bytes to client." clen)
-    (.write ctx res)
-    (->
-      (->> (.fileRef xdata)
-           ChunkedFile.
-           HttpChunkedInput.
-           ;;test non chunk
-           ;;(.javaBytes xdata)
-           ;;(Unpooled/wrappedBuffer )
-           (.writeAndFlush ctx ))
-      (nc/close-cf keep?))))
+    (.write ctx
+            (doto res
+              (HttpHeaders/setContentLength clen)
+              (nc/set-header "Content-Type" "application/octet-stream")
+              (nc/set-header "Transfer-Encoding" "chunked")
+              (nc/set-header "Connection" (if is-keep-alive? "keep-alive" "close"))))
+    (nc/close-cf (->> xdata
+                      .fileRef
+                      ChunkedFile.
+                      HttpChunkedInput.
+                      ;;test non chunk
+                      ;;(.javaBytes xdata)
+                      ;;(Unpooled/wrappedBuffer )
+                      (.writeAndFlush ctx )) is-keep-alive?)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- fputter
-  "" [ctx req ^String fname udir]
+  [ctx req ^String fname udir]
   (l/debug "fPutter file= %s." (io/file udir fname))
   (let [vdir (io/file udir)
         ^XData body (:body req)]
     (if (.isFile body)
       (l/debug "fPutter orig= %s." (.fileRef body)))
-    (->> (u/try!!
-           (.code HttpResponseStatus/INTERNAL_SERVER_ERROR)
-           (do
-             (i/save-file vdir fname body)
-             (.code HttpResponseStatus/OK)))
-         (nc/reply-status ctx ))))
+    (nc/reply-status ctx
+                     (u/try!!
+                       (.code HttpResponseStatus/INTERNAL_SERVER_ERROR)
+                       (do (i/save-file vdir fname body)
+                           (.code HttpResponseStatus/OK))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- fgetter
-  "" [ctx req ^String fname udir]
+  [ctx req ^String fname udir]
   (l/debug "fGetter: file= %s." (io/file udir fname))
   (let [vdir (io/file udir)
         ^XData f (i/get-file vdir fname)]
@@ -100,25 +98,19 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- h1proxy
-  "" [udir]
+  [udir]
   (proxy [InboundHandler][true]
     (readMsg [ctx msg]
-      (let
-        [^String uri (:uri2 msg)
-         mtd (:method msg)
-         pos (cs/last-index-of uri \/)
-         p (if (nil? pos)
-             uri
-             (subs uri (inc pos)))
-         nm (s/stror p (str (u/jid<>) ".dat"))]
-        (l/debug "%s: uri= %s, file= %s." mtd uri nm)
+      (let [{:keys [^String uri2 method]} msg
+            pos (cs/last-index-of uri2 \/)
+            p (if (nil? pos)
+                uri2 (subs uri2 (+ 1 pos)))
+            nm (s/stror p (str (u/jid<>) ".dat"))]
         (l/debug "udir= %s." udir)
-        (cond
-          (= mtd "POST")
-          (fputter ctx msg nm udir)
-          (= mtd "GET")
-          (fgetter ctx msg nm udir)
-          :else
+        (l/debug "%s: uri= %s, file= %s." method uri2 nm)
+        (condp = method
+          "GET" (fgetter ctx msg nm udir)
+          "POST" (fputter ctx msg nm udir)
           (nc/reply-status ctx
                            (.code HttpResponseStatus/METHOD_NOT_ALLOWED)))))))
 
@@ -127,30 +119,28 @@
 (defn mem-file-server<>
   "A file server which can get/put files."
   [udir & args]
-  (apply sv/netty-web-server<> :udir udir :hh1 (h1proxy udir) args))
+  (sv/tcp-server<> (merge {:udir udir
+                           :hh1 (h1proxy udir)} (c/kvs->map args))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; filesvr host port vdir
 (defn finz-server
-  "" []
-  (when @svr
-    (sv/stop-server! @svr) (reset! svr nil)))
+  [] (when @svr (sv/stop-server! @svr) (reset! svr nil)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; filesvr host port vdir
 (defn -main
-  "" [& args]
+  [& args]
   (cond
     (< (count args) 3)
     (println "usage: filesvr host port <rootdir>")
     :else
-    (let [w (sv/start-web-server!
-              (mem-file-server<> (nth args 2))
-              {:host (nth args 0)
-               :port (c/s->int (nth args 1) 8080)})]
+    (let [w (mem-file-server<> (nth args 2))]
       (p/exit-hook #(sv/stop-server! w))
       (reset! svr w)
-      (u/block!))))
+      (sv/start-server! {:host (nth args 0)
+                         :block? true
+                         :port (c/s->int (nth args 1) 8080)}))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF

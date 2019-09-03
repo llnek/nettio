@@ -84,18 +84,17 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (c/deftest test-core
-
   (ensure?? "file-range"
             (let [des (i/tmpfile (u/jid<>))
                   _ (spit des _file-content_)
-                  w (sv/netty-web-server<> :hh1
-                                           (fn [ctx msg]
-                                             (let [ch (nc/ch?? ctx)
-                                                   res (cc/http-result msg)]
-                                               (cc/res-header-set res
-                                                                  "content-type" "text/plain")
-                                               (cc/reply-result (assoc res :body des)))))
-                  w (sv/start-web-server! w {:port 5555 :host nc/lhost-name})
+                  w (sv/tcp-server<> {:hh1
+                                      (fn [ctx msg]
+                                        (let [ch (nc/ch?? ctx)
+                                              res (cc/http-result msg)]
+                                          (cc/res-header-set res
+                                                             "content-type" "text/plain")
+                                          (cc/reply-result (assoc res :body des))))})
+                  _ (sv/start-server! w {:port 5555 :host nc/lhost-name})
                   po (cc/h1get (cl/netty-module<>)
                                (str "http://" nc/lhost-name ":5555/range")
                                {:headers {:range "bytes=0-"}})
@@ -109,13 +108,14 @@
   (ensure?? "file-range"
             (let [des (i/tmpfile (u/jid<>))
                   _ (spit des _file-content_)
-                  w (sv/netty-web-server<> :hh1
-                                           (fn [ctx msg]
-                                             (let [ch (nc/ch?? ctx)
-                                                   res (cc/http-result msg)]
-                                               (cc/res-header-set res "content-type" "text/plain")
-                                               (cc/reply-result (assoc res :body des)))))
-                  _ (sv/start-web-server! w {:port 5555 :host nc/lhost-name})
+                  w (sv/tcp-server<>
+                      {:hh1
+                       (fn [ctx msg]
+                         (let [ch (nc/ch?? ctx)
+                               res (cc/http-result msg)]
+                           (cc/res-header-set res "content-type" "text/plain")
+                           (cc/reply-result (assoc res :body des))))})
+                  _ (sv/start-server! w {:port 5555 :host nc/lhost-name})
                   po (cc/h1get (cl/netty-module<>)
                                (str "http://" nc/lhost-name ":5555/range")
                                {:headers {:range "bytes=0-18,8-20,21-"}})
@@ -128,15 +128,16 @@
                    (= 2 (s/count-str s nr/DEF-BD)))))
 
   (ensure?? "ssl/h2"
-            (let [w (sv/netty-web-server<> :server-key "*"
-                                           :passwd ""
-                                           :hh2 (fn [ctx msg]
-                                                  (let [^Channel ch (nc/ch?? ctx)
-                                                        rsp (nc/http-reply<+> 200
-                                                                              (i/x->bytes "hello")
-                                                                              (.alloc ch))]
-                                                    (.writeAndFlush ^ChannelHandlerContext ctx rsp))))
-                  _ (sv/start-web-server! w {:port 8443 :host nc/lhost-name})
+            (let [w (sv/tcp-server<>
+                      {:server-key "*"
+                       :passwd ""
+                       :hh2 (fn [ctx msg]
+                              (let [^Channel ch (nc/ch?? ctx)
+                                    rsp (nc/http-reply<+> 200
+                                                          (i/x->bytes "hello")
+                                                          (.alloc ch))]
+                                (.writeAndFlush ^ChannelHandlerContext ctx rsp)))})
+                  _ (sv/start-server! w {:port 8443 :host nc/lhost-name})
                   po (cc/h2get (cl/netty-module<>)
                                (str "https://" nc/lhost-name ":8443/form")
                                {:server-cert "*"})
@@ -149,15 +150,16 @@
               (= "hello" s)))
 
   (ensure?? "ssl/h1"
-            (let [w (sv/netty-web-server<> :server-key "*"
-                                           :passwd  ""
-                                           :hh1 (fn [ctx msg]
-                                                  (let [ch (nc/ch?? ctx)
-                                                        b (:body msg)
-                                                        res (cc/http-result msg)]
-                                                    (cc/reply-result
-                                                      (assoc res :body "hello joe")))))
-                  _ (sv/start-web-server! w {:port 8443 :host nc/lhost-name})
+            (let [w (sv/tcp-server<>
+                      {:server-key "*"
+                       :passwd  ""
+                       :hh1 (fn [ctx msg]
+                              (let [ch (nc/ch?? ctx)
+                                    b (:body msg)
+                                    res (cc/http-result msg)]
+                                (cc/reply-result
+                                  (assoc res :body "hello joe"))))})
+                  _ (sv/start-server! w {:port 8443 :host nc/lhost-name})
                   po (cc/h1get (cl/netty-module<>)
                                (str "https://" nc/lhost-name ":8443/form")
                                {:server-cert "*"})
@@ -167,11 +169,12 @@
               (and rc (= "hello joe" (.strit ^XData (:body rc))))))
 
   (ensure?? "websock/bad"
-            (let [w (sv/netty-web-server<> :wsock-path #{"/web/sock"}
-                                           :hh1 (fn [_ msg] (println "Oh no! msg = " msg)))
+            (let [w (sv/tcp-server<>
+                      {:wsock-path #{"/web/sock"}
+                       :hh1 (fn [_ msg] (println "Oh no! msg = " msg))})
                   host nc/lhost-name
                   port 5556
-                  _ (sv/start-web-server! w {:port port :host host})
+                  _ (sv/start-server! w {:port port :host host})
                   rcp (cc/ws-connect<> (cl/netty-module<>)
                                        host port "/websock" (fn [_ _]))
                   cc (cc/cc-sync-get-connect rcp)]
@@ -180,10 +183,11 @@
               (c/is? Throwable cc)))
 
   (ensure?? "websock/remote-port"
-            (let [w (sv/netty-web-server<> :wsock-path #{"/web/sock"}
-                                           :hh1 (fn [_ msg] (println "Why? msg = " msg)))
+            (let [w (sv/tcp-server<>
+                      {:wsock-path #{"/web/sock"}
+                       :hh1 (fn [_ msg] (println "Why? msg = " msg))})
                   port 5556
-                  _ (sv/start-web-server! w {:port port :host nc/lhost-name})
+                  _ (sv/start-server! w {:port port :host nc/lhost-name})
                   rcp (cc/ws-connect<> (cl/netty-module<>)
                                        nc/lhost-name port "/web/sock" (fn [_ _]))
                   cc (cc/cc-sync-get-connect rcp)]
@@ -193,10 +197,11 @@
               (and cc (= 5556 (cc/cc-remote-port cc)))))
 
   (ensure?? "websock/stop"
-            (let [w (sv/netty-web-server<> :wsock-path "/web/sock"
-                                           :hh1 (fn [_ msg] (println "msg = " msg)))
+            (let [w (sv/tcp-server<>
+                      {:wsock-path "/web/sock"
+                       :hh1 (fn [_ msg] (println "msg = " msg))})
                   port 5556
-                  _ (sv/start-web-server! w {:port port :host nc/lhost-name})
+                  _ (sv/start-server! w {:port port :host nc/lhost-name})
                   rcp (cc/ws-connect<> (cl/netty-module<>)
                                        nc/lhost-name
                                        port "/web/sock" (fn [_ _]))
@@ -208,15 +213,16 @@
                    (not (.isOpen ^Channel (cc/cc-channel cc))))))
 
   (ensure?? "websock/text"
-            (let [w (sv/netty-web-server<> :wsock-path "/web/sock"
-                                           :server-key "*"
-                                           :hh1 (fn [ctx msg]
-                                                  (let [^XData x (:body msg)
-                                                        m (TextWebSocketFrame. (.strit x))]
-                                                    (.writeAndFlush ^ChannelHandlerContext ctx m))))
+            (let [w (sv/tcp-server<>
+                      {:wsock-path "/web/sock"
+                       :server-key "*"
+                       :hh1 (fn [ctx msg]
+                              (let [^XData x (:body msg)
+                                    m (TextWebSocketFrame. (.strit x))]
+                                (.writeAndFlush ^ChannelHandlerContext ctx m)))})
                   port 8443
                   out (atom nil)
-                  _ (sv/start-web-server! w {:port port :host nc/lhost-name})
+                  _ (sv/start-server! w {:port port :host nc/lhost-name})
                   rcp (cc/ws-connect<> (cl/netty-module<>)
                                        nc/lhost-name
                                        port
@@ -235,15 +241,16 @@
               (= "hello" @out)))
 
   (ensure?? "websock/blob"
-            (let [w (sv/netty-web-server<> :wsock-path "/web/sock"
-                                           :hh1 (fn [ctx msg]
-                                                  (let [m (-> (nc/bbuf?? (:body msg)
-                                                                         (nc/ch?? ctx))
-                                                              BinaryWebSocketFrame. )]
-                                                    (.writeAndFlush ^ChannelHandlerContext ctx m))))
+            (let [w (sv/tcp-server<>
+                      {:wsock-path "/web/sock"
+                       :hh1 (fn [ctx msg]
+                              (let [m (-> (nc/bbuf?? (:body msg)
+                                                     (nc/ch?? ctx))
+                                          BinaryWebSocketFrame. )]
+                                (.writeAndFlush ^ChannelHandlerContext ctx m)))})
                   out (atom nil)
                   port 5556
-                  _ (sv/start-web-server! w {:port port :host nc/lhost-name})
+                  _ (sv/start-server! w {:port port :host nc/lhost-name})
                   rcp (cc/ws-connect<> (cl/netty-module<>)
                                        nc/lhost-name
                                        port
@@ -263,10 +270,11 @@
   (ensure?? "websock/ping"
             (let [pong (atom false)
                   out (atom nil)
-                  w (sv/netty-web-server<> :wsock-path #{"/web/sock"}
-                                           :hh1 (fn [ctx msg] (reset! out "bad")))
+                  w (sv/tcp-server<>
+                      {:wsock-path #{"/web/sock"}
+                       :hh1 (fn [ctx msg] (reset! out "bad"))})
                   port 5556
-                  _ (sv/start-web-server! w {:port port :host nc/lhost-name})
+                  _ (sv/start-server! w {:port port :host nc/lhost-name})
                   rcp (cc/ws-connect<> (cl/netty-module<>)
                                        nc/lhost-name port "/web/sock"
                                        (fn [cc msg]
@@ -343,7 +351,7 @@
 
   (ensure?? "snoop-httpd<>"
             (let [w (sn/snoop-httpd<>)
-                  _ (sv/start-web-server!
+                  _ (sv/start-server!
                       w {:port 5555 :host nc/lhost-name})
                   po (cc/h1get (cl/netty-module<>)
                                (str "http://" nc/lhost-name ":5555/test/snooper?a=1&b=john%27smith"))
@@ -355,7 +363,7 @@
 
   (ensure?? "discard-httpd<>"
             (let [w (dc/discard-httpd<> rand)
-                  _ (sv/start-web-server!
+                  _ (sv/start-server!
                       w {:port 5555 :host nc/lhost-name})
                   po (cc/h1get (cl/netty-module<>)
                                (str "http://" nc/lhost-name ":5555/test/discarder?a=1&b=john%27smith"))
@@ -370,7 +378,7 @@
                   tn (u/jid<>)
                   port 5555
                   _ (spit (i/tmpfile tn) s)
-                  _ (sv/start-web-server!
+                  _ (sv/start-server!
                       w {:port port :host nc/lhost-name})
                   po (cc/h1get (cl/netty-module<>)
                                (format "http://%s:%d/%s" nc/lhost-name port tn))
@@ -388,7 +396,7 @@
                   tn (u/jid<>)
                   port 5555
                   _ (spit src s)
-                  _ (sv/start-web-server!
+                  _ (sv/start-server!
                       w {:port port :host nc/lhost-name})
                   po (cc/h1post (cl/netty-module<>)
                                 (format "http://%s:%d/%s"
@@ -404,14 +412,15 @@
 
   (ensure?? "form-post"
             (let [out (atom nil)
-                  w (sv/netty-web-server<> :hh1 (fn [ctx msg]
-                                                  (let [ch (nc/ch?? ctx)
-                                                        b (:body msg)
-                                                        res (cc/http-result msg)]
-                                                    (reset! out (.content ^XData b))
-                                                    (cc/reply-result
-                                                      (assoc res :body "hello joe")))))
-                  _ (sv/start-web-server! w {:port 5555 :host nc/lhost-name})
+                  w (sv/tcp-server<>
+                      {:hh1 (fn [ctx msg]
+                              (let [ch (nc/ch?? ctx)
+                                    b (:body msg)
+                                    res (cc/http-result msg)]
+                                (reset! out (.content ^XData b))
+                                (cc/reply-result
+                                  (assoc res :body "hello joe"))))})
+                  _ (sv/start-server! w {:port 5555 :host nc/lhost-name})
                   po (cc/h1post (cl/netty-module<>)
                                 (str "http://" nc/lhost-name ":5555/form")
                                 "a=b&c=3%209&name=john%27smith"
@@ -437,13 +446,14 @@
 
   (ensure?? "form-port/multipart"
             (let [out (atom nil)
-                  w (sv/netty-web-server<> :hh1 (fn [ctx msg]
-                                                  (let [b (:body msg)]
-                                                    (reset! out (.content ^XData b))
-                                                    (nc/reply-status ctx 200))))
+                  w (sv/tcp-server<>
+                      {:hh1 (fn [ctx msg]
+                              (let [b (:body msg)]
+                                (reset! out (.content ^XData b))
+                                (nc/reply-status ctx 200)))})
                   ctype "multipart/form-data; boundary=---1234"
                   cbody cu/TEST-FORM-MULTIPART
-                  _ (sv/start-web-server!
+                  _ (sv/start-server!
                       w {:port 5555 :host nc/lhost-name})
                   po (cc/h1post (cl/netty-module<>)
                                 (str "http://" nc/lhost-name ":5555/form")
@@ -482,10 +492,11 @@
   (ensure?? "preflight-not-allowed"
             (let [o (str "http://" nc/lhost-name)
                   port 5555
-                  w (sv/netty-web-server<> :hh1 (fn [ctx msg]
-                                                  (let [b (:body msg)]
-                                                    (nc/reply-status ctx 200))))
-                  _ (sv/start-web-server! w {:port 5555 :host nc/lhost-name})
+                  w (sv/tcp-server<>
+                      {:hh1 (fn [ctx msg]
+                              (let [b (:body msg)]
+                                (nc/reply-status ctx 200)))})
+                  _ (sv/start-server! w {:port 5555 :host nc/lhost-name})
                   args {:headers {:origin o
                                   :Access-Control-Request-Method "PUT"
                                   :Access-Control-Request-Headers "X-Custom-Header"}}
@@ -500,14 +511,15 @@
   (ensure?? "preflight"
             (let [o (str "http://" nc/lhost-name)
                   port 5555
-                  w (sv/netty-web-server<> :cors-cfg {:enabled? true
-                                                      :any-origin? true
-                                                      :nullable? false
-                                                      :credentials? true}
-                                           :hh1 (fn [ctx msg]
-                                                  (let [b (:body msg)]
-                                                    (nc/reply-status ctx 200))))
-                  _ (sv/start-web-server! w {:port 5555 :host nc/lhost-name})
+                  w (sv/tcp-server<>
+                      {:cors-cfg {:enabled? true
+                                  :any-origin? true
+                                  :nullable? false
+                                  :credentials? true}
+                       :hh1 (fn [ctx msg]
+                              (let [b (:body msg)]
+                                (nc/reply-status ctx 200)))})
+                  _ (sv/start-server! w {:port 5555 :host nc/lhost-name})
                   args {:headers {:origin o
                                   :Access-Control-Request-Method "PUT"
                                   :Access-Control-Request-Headers "X-Custom-Header"}}

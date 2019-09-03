@@ -37,7 +37,7 @@
 (defonce ^:private svr (atom nil))
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- h1proxy
-  "" [cb]
+  [cb]
   (proxy [InboundHandler][true]
     (readMsg [ctx _]
       (nc/reply-status ctx) (c/try! (cb)))))
@@ -46,13 +46,11 @@
 (defn discard-httpd<>
   "Drops the req and returns OK"
   [cb & args]
-  (apply sv/netty-web-server<> :hh1 (h1proxy cb) args))
+  (sv/tcp-server<> (merge {:hh1 (h1proxy cb)} (c/kvs->map args))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn finz-server
-  "" []
-  (when @svr
-    (sv/stop-server! @svr) (reset! svr nil)))
+  [] (when @svr (sv/stop-server! @svr) (reset! svr nil)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn -main
@@ -63,12 +61,12 @@
     :else
     (let [s (discard-httpd<>
               #(println "hello, poked by discarder"))]
-      (sv/start-web-server! s
-                            {:host (nth args 0)
-                             :port (c/s->int (nth args 1) 8080)})
       (p/exit-hook #(sv/stop-server! s))
       (reset! svr s)
-      (u/block!))))
+      (sv/start-server! s
+                        {:host (nth args 0)
+                         :block? true
+                         :port (c/s->int (nth args 1) 8080)}))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF

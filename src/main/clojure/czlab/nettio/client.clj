@@ -358,7 +358,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- bootstrap!
-  [{:keys [max-content-size max-in-memory
+  [{:keys [max-msg-size max-in-memory
            version temp-dir
            server-cert scheme
            threads rcv-buf options]
@@ -366,7 +366,7 @@
     :or {max-in-memory i/*membuf-limit*
          rcv-buf (* 2 c/MegaBytes)
          threads 0
-         max-content-size Integer/MAX_VALUE}}]
+         max-msg-size Integer/MAX_VALUE}}]
   (let [ctx (maybe-ssl server-cert scheme (= version "2"))
         temp-dir (u/fpath (or temp-dir
                               i/*tempfile-repo*))
