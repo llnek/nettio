@@ -398,7 +398,7 @@
        true)))
   (h11x-msg [msg _c pipelining?]
     (let [{:keys [max-msg-size
-                  max-in-memory]}
+                  max-mem-size]}
           (nc/get-akey nc/chcfg-key _c)
           ctx (c/cast? ChannelHandlerContext _c)]
       (l/debug "reading %s." (u/gczn msg))

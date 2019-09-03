@@ -50,7 +50,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn finz-server
-  [] (when @svr (sv/stop-server! @svr) (reset! svr nil)))
+  [] (when @svr (sv/ns-stop! @svr) (reset! svr nil)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn -main
@@ -61,12 +61,12 @@
     :else
     (let [s (discard-httpd<>
               #(println "hello, poked by discarder"))]
-      (p/exit-hook #(sv/stop-server! s))
+      (p/exit-hook #(sv/ns-stop! s))
       (reset! svr s)
-      (sv/start-server! s
-                        {:host (nth args 0)
-                         :block? true
-                         :port (c/s->int (nth args 1) 8080)}))))
+      (sv/ns-start! s
+                    {:host (nth args 0)
+                     :block? true
+                     :port (c/s->int (nth args 1) 8080)}))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF

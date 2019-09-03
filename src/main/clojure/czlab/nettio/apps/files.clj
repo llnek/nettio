@@ -125,7 +125,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; filesvr host port vdir
 (defn finz-server
-  [] (when @svr (sv/stop-server! @svr) (reset! svr nil)))
+  [] (when @svr (sv/ns-stop! @svr) (reset! svr nil)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; filesvr host port vdir
@@ -136,11 +136,11 @@
     (println "usage: filesvr host port <rootdir>")
     :else
     (let [w (mem-file-server<> (nth args 2))]
-      (p/exit-hook #(sv/stop-server! w))
+      (p/exit-hook #(sv/ns-stop! w))
       (reset! svr w)
-      (sv/start-server! {:host (nth args 0)
-                         :block? true
-                         :port (c/s->int (nth args 1) 8080)}))))
+      (sv/ns-start! {:host (nth args 0)
+                     :block? true
+                     :port (c/s->int (nth args 1) 8080)}))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF

@@ -165,7 +165,7 @@
                     (c/vargs X509Certificate))] (.trustManager ctx cs)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- maybe-ssl
+(defn- maybe-ssl??
   ^SslContext [scert scheme h2?]
   (when (and (s/hgl? scert)
              (not= "http" scheme))
@@ -195,7 +195,7 @@
   ^Channel [^Bootstrap bs host port ctx]
   (let
     [port (if (neg? port) (if ctx 443 80) port)
-     _ (l/debug "connect to: %s@%s." host port)
+     _ (l/debug "connecting to: %s@%s." host port)
      sock (InetSocketAddress. (str host)
                               (int port))
      cf (some-> (.connect bs sock) .sync)]
@@ -358,16 +358,17 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- bootstrap!
-  [{:keys [max-msg-size max-in-memory
-           version temp-dir
-           server-cert scheme
-           threads rcv-buf options]
-    :as args
-    :or {max-in-memory i/*membuf-limit*
-         rcv-buf (* 2 c/MegaBytes)
-         threads 0
-         max-msg-size Integer/MAX_VALUE}}]
-  (let [ctx (maybe-ssl server-cert scheme (= version "2"))
+  [args]
+  (l/info "client bootstrap ctor().")
+  (let [{:as ARGS
+         :keys [max-msg-size max-mem-size
+                version temp-dir server-cert
+                scheme threads rcv-buf options]}
+        (merge {:max-mem-size i/*membuf-limit*
+                :rcv-buf (* 2 c/MegaBytes)
+                :threads 0
+                :max-msg-size Integer/MAX_VALUE} args)
+        ctx (maybe-ssl?? server-cert scheme (= version "2"))
         temp-dir (u/fpath (or temp-dir
                               i/*tempfile-repo*))
         [g z] (nc/g-and-c threads :tcpc)
@@ -377,19 +378,18 @@
                      [ChannelOption/SO_KEEPALIVE true]
                      [ChannelOption/TCP_NODELAY true]])]
     (nc/config-disk-files true temp-dir)
+    (l/info "setting client options.")
     (doseq [[k v] options] (.option bs k v))
     ;;assign generic attributes for all channels
-    (.attr bs nc/chcfg-key args)
+    (.attr bs nc/chcfg-key ARGS)
     (.attr bs
            nc/dfac-key
-           (H1DataFactory. (int max-in-memory)))
+           (H1DataFactory. (int max-mem-size)))
     (l/info "netty client bootstraped with [%s]."
             (if (Epoll/isAvailable) "EPoll" "Java/NIO"))
-    (l/info "netty client dfiles repo: %s." temp-dir)
-    (doto bs
-      (.channel z)
-      (.group ^EventLoopGroup g))
-    [bs ctx]))
+    [(doto bs
+       (.channel z)
+       (.group ^EventLoopGroup g)) ctx]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- h1c-finz [bs ch]
@@ -447,7 +447,6 @@
     (.handler ^Bootstrap bs pp)
     (h1c-finz bs (connect bs host port ctx))
     (ret-conn module bs host port rcp hint)))
-
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn http-req<>

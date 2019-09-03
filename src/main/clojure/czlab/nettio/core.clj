@@ -199,6 +199,18 @@
   (content-length-as-int [_] "")
   (detect-acceptable-charset [_] ""))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn pp->last
+  [p n h]
+  (l/debug "add-last %s/%s to ch-pipeline." n (u/gczn h))
+  (.addLast ^ChannelPipeline p ^String n ^ChannelHandler h))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn pp->after
+  [p a n h]
+  (l/debug "add-after %s %s/%s to ch-pipeline." a n (u/gczn h))
+  (.addAfter ^ChannelPipeline p ^String a ^String n ^ChannelHandler h))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn cfop<>
   "Create a ChannelFutureListener"
@@ -351,7 +363,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- to-hhs
-  "" ^HttpHeaders [obj]
+  ^HttpHeaders [obj]
   (condp instance? obj
     HttpHeaders obj
     HttpMessage (get-headers obj)
@@ -386,9 +398,9 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- x->bbuf
-  ^ByteBuf [ch arg encoding]
+  ^ByteBuf [^Channel ch arg encoding]
   (let [cs (u/charset?? encoding)
-        buf (some-> ^Channel ch .alloc .directBuffer)]
+        buf (some-> ch .alloc .directBuffer)]
     (cond
       (bytes? arg)
       (if buf
@@ -407,9 +419,8 @@
   ([arg ch encoding]
    (let [ct (if-some
               [c (c/cast? XData arg)] (.content c) arg)]
-     (cond
-       (bytes? ct) (x->bbuf ch ct encoding)
-       (string? ct) (x->bbuf ch ct encoding) :else ct))))
+     (if (or (bytes? ct)
+             (string? ct)) (x->bbuf ch ct encoding) ct))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn http-reply<>
@@ -470,9 +481,7 @@
             (nil? arg) nil
             :else
             (u/throw-IOE "Rogue object %s." (type arg)))]
-      (-> ^ChannelFuture
-          cf
-          (.addListener ^ChannelFutureListener ln))))
+      (.addListener cf ^ChannelFutureListener ln)))
   (close-cf
     ([cf]
      (close-cf cf false))
@@ -487,9 +496,9 @@
     ([inv]
      (write-last-content inv false))
     ([inv flush?]
-     (if flush?
-       (.writeAndFlush ^ChannelOutboundInvoker inv LastHttpContent/EMPTY_LAST_CONTENT)
-       (.write ^ChannelOutboundInvoker inv LastHttpContent/EMPTY_LAST_CONTENT))))
+     (if-not flush?
+       (.write inv LastHttpContent/EMPTY_LAST_CONTENT)
+       (.writeAndFlush inv LastHttpContent/EMPTY_LAST_CONTENT))))
   (reply-status
     ([inv status] (reply-status inv status false))
     ([inv] (reply-status inv 200))
@@ -502,7 +511,7 @@
        (l/debug "returning status [%s]." status)
        (HttpUtil/setKeepAlive rsp ka?)
        ;(HttpUtil/setContentLength rsp 0)
-       (close-cf (.writeAndFlush ^ChannelOutboundInvoker inv rsp) ka?))))
+       (close-cf (.writeAndFlush inv rsp) ka?))))
   (reply-redirect
     ([inv perm? location]
      (reply-redirect inv perm? location false))
@@ -516,25 +525,25 @@
        (set-header rsp
                    HttpHeaderNames/LOCATION location)
        (HttpUtil/setKeepAlive rsp ka?)
-       (close-cf (.writeAndFlush ^ChannelOutboundInvoker inv rsp) ka?))))
+       (close-cf (.writeAndFlush inv rsp) ka?))))
   (continue-100 [inv]
     (-> (->> (http-reply<+>
                (.code HttpResponseStatus/CONTINUE))
-             (.writeAndFlush ^ChannelOutboundInvoker inv ))
+             (.writeAndFlush inv ))
         (.addListener (cfop<e>)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (extend-protocol PipelineAPI
   ChannelPipeline
   (maybe-ssl? [pipe]
-    (some? (.get ^ChannelPipeline pipe SslHandler)))
+    (some? (.get pipe SslHandler)))
   (dbg-pipeline [pipe]
     (l/debug "pipeline= %s"
-             (cs/join "|" (.names ^ChannelPipeline pipe))))
+             (cs/join "|" (.names pipe))))
   (safe-remove-handler [pipe cz]
-    (c/try! (.remove ^ChannelPipeline pipe ^Class cz)))
+    (c/try! (.remove pipe ^Class cz)))
   (ctx-name [pipe h]
-    (some-> (.context ^ChannelPipeline pipe ^ChannelHandler h) .name)))
+    (some-> (.context pipe ^ChannelHandler h) .name)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn netty-cookie<>
@@ -543,8 +552,10 @@
   ;; screws up the Path attribute on the wire => it's quoted but
   ;; browser seems to not like it and mis-interpret it.
   ;; Netty's cookie defaults to 0, which is cool with me.
-  (l/debug "http->netty cookie: %s=[%s]." (.getName c) (.getValue c))
-  (doto (DefaultCookie. (.getName c) (.getValue c))
+  (l/debug "cookie->netty: %s=[%s]."
+           (.getName c) (.getValue c))
+  (doto (DefaultCookie. (.getName c)
+                        (.getValue c))
     ;;(.setComment (.getComment c))
     (.setDomain (.getDomain c))
     (.setMaxAge (.getMaxAge c))
@@ -574,7 +585,7 @@
             c (->> (s/split (str cs) "[,;\\s]+")
                    (some #(c/try! (Charset/forName ^String %))))]
         (or c (Charset/forName "utf-8")))))
-  (get-headers [msg] (.headers ^HttpMessage msg))
+  (get-headers [msg] (.headers msg))
   (get-method [msg]
     (if-some [req (c/cast? HttpRequest msg)]
       (s/ucase (s/stror (get-header req
@@ -582,12 +593,12 @@
                         (.. req getMethod name)))))
   (get-uri-path [msg]
     (if-some [req (c/cast? HttpRequest msg)]
-      (. (QueryStringDecoder. (.uri req)) path) ""))
+      (.path (QueryStringDecoder. (.uri req))) ""))
   (get-uri-params [msg]
     (if-some [req (c/cast? HttpRequest msg)]
       (-> (.uri req) QueryStringDecoder.  .parameters)))
   (get-msg-charset [msg]
-    (HttpUtil/getCharset ^HttpMessage msg (Charset/forName "utf-8")))
+    (HttpUtil/getCharset msg (Charset/forName "utf-8")))
   (crack-cookies [msg]
     (c/condp?? instance? msg
       HttpRequest
@@ -605,29 +616,29 @@
            (assoc! %1
                    (.name v) (http-cookie<> v)))
         (get-header-vals msg HttpHeaderNames/SET_COOKIE))))
-  (no-content? [m]
-    (or (not (HttpUtil/isContentLengthSet ^HttpMessage m))
-        (not (> (HttpUtil/getContentLength ^HttpMessage m -1) 0))))
-  (content-type [m]
-    (-> (.headers ^HttpMessage m)
+  (no-content? [msg]
+    (or (not (HttpUtil/isContentLengthSet msg))
+        (not (> (HttpUtil/getContentLength msg -1) 0))))
+  (content-type [msg]
+    (-> (.headers msg)
         (.get HttpHeaderNames/CONTENT_TYPE "")))
-  (content-length! [m len]
-    (HttpUtil/setContentLength ^HttpMessage m (long len)))
-  (content-length-as-int [m]
-    (HttpUtil/getContentLength ^HttpMessage m (int 0))))
+  (content-length! [msg len]
+    (HttpUtil/setContentLength msg (long len)))
+  (content-length-as-int [msg]
+    (HttpUtil/getContentLength msg (int 0))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (extend-protocol cc/WsockMsgReplyer
   Channel
-  (send-ws-string [c s]
-    (.writeAndFlush ^Channel c
+  (send-ws-string [ch s]
+    (.writeAndFlush ch
                     (TextWebSocketFrame. ^String s)))
-  (send-ws-bytes [c b]
-    (.writeAndFlush ^Channel c
-                    (BinaryWebSocketFrame. (x->bbuf c b)))))
+  (send-ws-bytes [ch b]
+    (.writeAndFlush ch
+                    (BinaryWebSocketFrame. (x->bbuf ch b)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- maybe-akey
+(defn- akey??
   [k] (let [s (s/sname k)]
         (if-not (AttributeKey/exists s)
           (AttributeKey/newInstance s) (AttributeKey/valueOf s))))
@@ -635,9 +646,9 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (extend-protocol cc/SocketAttrProvider
   Channel
-  (socket-attr-get [c k] (get-akey (maybe-akey k) c))
-  (socket-attr-del [c k] (del-akey (maybe-akey k) c))
-  (socket-attr-set [c k a] (set-akey (maybe-akey k) c a)))
+  (socket-attr-get [c k] (get-akey (akey?? k) c))
+  (socket-attr-del [c k] (del-akey (akey?? k) c))
+  (socket-attr-set [c k a] (set-akey (akey?? k) c a)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn dbg-ref-count
