@@ -126,6 +126,16 @@
   [m] `(instance? ~'HttpResponse ~m))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defmacro h1hdr*
+  [name]
+  `(identity  ~(symbol (str "HttpHeaderNames/"  (str name)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defmacro scode*
+  [status]
+  `(.code ~(symbol (str "HttpResponseStatus/"  (str status)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defprotocol ChannelXXXAPI
   ""
   (cpipe [_] "")
@@ -145,6 +155,10 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defprotocol HeadersAPI
   ""
+  (del-header [_ nm] "")
+  (clone-headers [_ headers] "")
+  (set-header* [_ nvs] "")
+  (add-header* [_ nvs] "")
   (add-header [_ nm value] "")
   (set-header [_ nm value] "")
   (get-header-vals [_ nm]  "")
@@ -365,14 +379,26 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- to-hhs
   ^HttpHeaders [obj]
-  (condp instance? obj
-    HttpHeaders obj
-    HttpMessage (get-headers obj)
-    (u/throw-BadArg "Expecting http-msg or http-headers.")))
+  (if (map? obj)
+    (:headers obj)
+    (condp instance? obj
+      HttpHeaders obj
+      HttpMessage (get-headers obj)
+      (u/throw-BadArg "Expecting http-msg or http-headers."))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (extend-protocol HeadersAPI
   Object
+  (del-header [obj nm]
+    (.remove (to-hhs obj) ^CharSequence nm))
+  (clone-headers [obj headers]
+    (.set (to-hhs obj) headers))
+  (set-header* [obj nvs]
+    (doseq [[k v] (partition 2 nvs)]
+      (set-header (to-hhs obj) k v)))
+  (add-header* [obj nvs]
+    (doseq [[k v] (partition 2 nvs)]
+      (add-header (to-hhs obj) k v)))
   (add-header [obj nm value]
     (.add (to-hhs obj) ^CharSequence nm ^String value))
   (set-header [obj nm value]

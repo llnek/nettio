@@ -60,17 +60,18 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;(set! *warn-on-reflection* false)
 (def ^:private conds-hds
-  [[:if-unmod-since HttpHeaderNames/IF_UNMODIFIED_SINCE]
-   [:if-mod-since HttpHeaderNames/IF_MODIFIED_SINCE]
-   [:if-none-match HttpHeaderNames/IF_NONE_MATCH]
-   [:if-match HttpHeaderNames/IF_MATCH]
-   [:if-range HttpHeaderNames/IF_RANGE]
-   [:range HttpHeaderNames/RANGE]])
+  [[:if-unmod-since (nc/h1hdr* IF_UNMODIFIED_SINCE)]
+   [:if-mod-since (nc/h1hdr* IF_MODIFIED_SINCE)]
+   [:if-none-match (nc/h1hdr* IF_NONE_MATCH)]
+   [:if-match (nc/h1hdr* IF_MATCH)]
+   [:if-range (nc/h1hdr* IF_RANGE)]
+   [:range (nc/h1hdr* RANGE)]])
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (def ^:private resp-hds
-   [[:last-mod HttpHeaderNames/LAST_MODIFIED]
-    [:etag HttpHeaderNames/ETAG]
-    [:ctype HttpHeaderNames/CONTENT_TYPE]])
+   [[:last-mod (nc/h1hdr* LAST_MODIFIED)]
+    [:etag (nc/h1hdr* ETAG)]
+    [:ctype (nc/h1hdr* CONTENT_TYPE)]])
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (extend-protocol cc/HttpMsgGist
@@ -89,16 +90,15 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- result<>
-  "" [theReq status]
+  [theReq status]
   {:pre [(or (nil? status)
              (number? status))]}
   (c/object<> HttpResultMsg
-              :ver (.text HttpVersion/HTTP_1_1)
               :headers (DefaultHttpHeaders.)
               :request theReq
               :cookies {}
-              :framework :netty
-              :status (or status (.code HttpResponseStatus/OK))))
+              :ver (.text HttpVersion/HTTP_1_1)
+              :status (or status (nc/scode* OK))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (extend-protocol cc/HttpResultMsgCreator
@@ -117,15 +117,14 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (extend-protocol cc/HttpResultMsgModifier
   HttpResultMsg
-  (res-header-del [res name]
-    (c/do-with [res res]
-      (.remove ^HttpHeaders (:headers res) ^CharSequence name)))
   (res-header-add [res name value]
-    (c/do-with [res res]
-      (nc/add-header (:headers res) name value)))
+    (c/do-with [res]
+      (nc/add-header res name value)))
   (res-header-set [res name value]
-    (c/do-with [res res]
-      (nc/set-header (:headers res) name value))))
+    (c/do-with [res]
+      (nc/set-header res name value)))
+  (res-header-del [res name]
+    (c/do-with [res] (nc/del-header res name))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn etag-file
@@ -140,8 +139,8 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defmacro ^:private cond-err-code
   [m] `(if (s/eq-any? ~m ["GET" "HEAD"])
-         (.code HttpResponseStatus/NOT_MODIFIED)
-         (.code HttpResponseStatus/PRECONDITION_FAILED)))
+         (nc/scode* ~'NOT_MODIFIED)
+         (nc/scode* ~'PRECONDITION_FAILED)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- if-none-match?
@@ -151,15 +150,10 @@
   (let [{:keys [value has?]} (:if-none-match conds)
         value (s/strim value)
         ec (cond-err-code method)]
-    [(cond (or (not has?)
-                (s/nichts? value))
-            code
-            (s/eq-any? value ["*" "\"*\""])
-            (if (s/hgl? eTag) ec code)
+    [(cond (or (not has?) (s/nichts? value)) code
+            (s/eq-any? value ["*" "\"*\""]) (if (s/hgl? eTag) ec code)
             (s/eq-any? eTag (map #(s/strim %)
-                                 (s/split value ",")))
-            ec
-            :else code) body]))
+                                 (s/split value ","))) ec :else code) body]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- if-match?
@@ -169,16 +163,11 @@
   (let [{:keys [value has?]} (:if-match conds)
         value (s/strim value)
         ec (cond-err-code method)]
-    [(cond (or (not has?)
-               (s/nichts? value))
-           code
-           (s/eq-any? value ["*" "\"*\""])
-           (if (s/hgl? eTag) code ec)
+    [(cond (or (not has?) (s/nichts? value)) code
+           (s/eq-any? value ["*" "\"*\""]) (if (s/hgl? eTag) code ec)
            (not (s/eq-any? eTag
                            (map #(s/strim %)
-                                (s/split value ","))))
-           ec
-           :else code) body]))
+                                (s/split value ",")))) ec :else code) body]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- if-unmod-since?
@@ -211,50 +200,30 @@
   "Sort out the range if any, then apply
   the if-range condition."
   [eTag lastMod code cType body conds]
-  (let [ec (.code HttpResponseStatus/REQUESTED_RANGE_NOT_SATISFIABLE)
-        pc (.code HttpResponseStatus/PARTIAL_CONTENT)
+  (let [ec (nc/scode* REQUESTED_RANGE_NOT_SATISFIABLE)
+        pc (nc/scode* PARTIAL_CONTENT)
         ^String hd (get-in conds [:if-range :value])
         {:keys [value has?]} (:range conds)
         value (s/strim value)
-        g (nr/eval-ranges (if has? value nil) cType body)]
+        g (nr/http-ranges<> (if has? value nil) cType body)]
     (cond (or (not has?)
-              (s/nichts? value))
-          [code body]
-
-          (nil? g)
-          [ec nil]
-
-          (s/nichts? hd)
-          [pc g]
-
+              (s/nichts? value)) [code body]
+          (nil? g) [ec nil]
+          (s/nichts? hd) [pc g]
           (and (cs/ends-with? hd "GMT")
                (cs/index-of hd \,)
-               (cs/index-of hd \:))
-          (let [t (DateUtil/parseHttpDate hd -1)]
-            (if (and (c/spos? lastMod)
-                     (c/spos? t)
-                     (> lastMod t))
-              [code body] [pc g]))
-
-          (not= hd eTag)
-          [code body]
-
-          :else [pc g])))
+               (cs/index-of hd \:)) (let [t (DateUtil/parseHttpDate hd -1)]
+                                      (if (and (c/spos? lastMod)
+                                               (c/spos? t)
+                                               (> lastMod t)) [code body] [pc g]))
+          (not= hd eTag) [code body] :else [pc g])))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- converge
   [body cs]
-  (cond (bytes? body)
-        body
-
-        (string? body)
-        (i/x->bytes body cs)
-
-        (c/is? XData body)
-
-        (converge (.content ^XData body) cs)
-
-        :else body))
+  (cond (bytes? body) body
+        (string? body) (i/x->bytes body cs)
+        (c/is? XData body) (converge (.content ^XData body) cs) :else body))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- zmap-headers
@@ -263,11 +232,6 @@
           (map #(let [[k v] %1]
                   {:has? (cc/msg-header? msg v)
                    :value (cc/msg-header msg v)}) headers)))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- write-headers
-  ^HttpHeaders
-  [^HttpResponse rsp headers] (.set (.headers rsp) headers))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- encode-cookies
@@ -342,7 +306,7 @@
                          [(nc/http-reply<+> status) nil]
                          :else
                          [(nc/http-reply<> status) body])
-        hds (write-headers rsp headers)]
+        ^HttpHeaders hds (nc/clone-headers rsp headers)]
     (cond (= status 416)
           (nr/fmt-error hds body0)
           rangeRef

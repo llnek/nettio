@@ -17,7 +17,8 @@
             [clojure.string :as cs]
             [czlab.basal.str :as s]
             [czlab.basal.io :as i]
-            [czlab.basal.core :as c])
+            [czlab.nettio.core :as nc]
+            [czlab.basal.core :as c :refer [n# is?]])
 
   (:import [io.netty.channel ChannelHandlerContext]
            [io.netty.handler.stream ChunkedInput]
@@ -55,6 +56,11 @@
   `(condp instance? ~x RandomAccessFile true File true false))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn- comp-long
+  [^long a ^long b]
+  (.compareTo (Long/valueOf a) b))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- xfiles?? [src]
   (let [f (c/cast? File src)
         rf (c/cast? RandomAccessFile src)]
@@ -82,7 +88,7 @@
   (has-next? [_] "")
   (finz! [_] "")
   (merge-ranges [_ r1 r2] "")
-  (calc-total-bytes [_] "")
+  (total-bytes [_] "")
   (range-init [_ s] "")
   (sanitize-ranges [_ chunks] "")
   (maybe-intersect? [_ r1 r2] ""))
@@ -97,14 +103,13 @@
     (.readChunk me (.alloc ctx)))
   (readChunk [me ^ByteBufAllocator allocator]
     (let [buff (byte-array (* 2 c/FourK))
-          mlen (count buff)
-          {:keys [^List ranges
-                  bytes-read current]} me
+          mlen (n# buff)
+          {:keys [ranges bytes-read current]} me
           cnt (c/int-var* 0)
           cur (c/int-var* (c/int-var current))]
       (while (and (< (c/int-var cnt) mlen)
-                  (< (c/int-var cur) (.size ranges)))
-        (when-some [rg (.get ranges (c/int-var cur))]
+                  (< (c/int-var cur) (c/n# ranges)))
+        (when-some [rg (nth ranges (c/int-var cur))]
           (l/debug "reading-chunk: range=%s - %s." (c/int-var cur) rg)
           (if (c/spos? (ck-readable-bytes rg))
             (do (c/int-var cnt
@@ -134,7 +139,7 @@
   (ck-size [_]
     (let [{:keys [start end]} _] (+ (- end start) 1)))
   (ck-total-size [_]
-    (+ (ck-size _) (count (:preamble _))))
+    (+ (ck-size _) (n# (:preamble _))))
   (ck-readable-bytes [_]
     (- (ck-size _) (c/int-var (:range-pos _))))
   (ck-read [_ out pos len]
@@ -150,8 +155,8 @@
   (ck-pack [me out offset]
     (let [{:keys [preamble preamble-pos]} me
           pos (c/int-var* offset)
-          plen (count preamble)
-          bfsz (count out)
+          plen (n# preamble)
+          bfsz (n# out)
           cnt (c/int-var* 0)
           ppos (c/int-var* (c/int-var preamble-pos))]
       (while (and (< (c/int-var pos) bfsz)
@@ -179,8 +184,8 @@
       (c/int-var cnt))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- byte-range-chunk<>
-  [src ctype start end]
+(defn- brange-chunk<>
+  [src cType start end]
   (let [[s ln] (cond (xfile? src) (xfiles?? src)
                      (bytes? src) [(doto (i/istream src)
                                      (.mark 0)) (c/n# src)]
@@ -191,14 +196,14 @@
                 :preamble (byte-array 0)
                 :range-pos (c/int-var* 0)
                 :preamble-pos (c/int-var* 0)
-                :start start :end end :ctype ctype)))
+                :start start :end end :ctype cType)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- multi-byte-range-chunk<>
+(defn- brange-chunk<+>
   [src ctype start end]
   (let [{:as C
          :keys [ctype start end length]}
-        (byte-range-chunk<> src ctype start end)]
+        (brange-chunk<> src ctype start end)]
     (assoc C
            :preamble
            (i/x->bytes (s/sbf+ (s/sbf<>)
@@ -210,137 +215,120 @@
                                "Content-Range: bytes "
                                start "-" end "/" length "\r\n\r\n")))))
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- is-valid?
-  "" [rangeStr]
-  (and (s/hgl? rangeStr)
-       (.matches ^String rangeStr "^\\s*bytes=[0-9,-]+")))
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (extend-protocol RangeObjAPI
   HttpRangesObj
+  ;toggle for finalize to work
   (finz! [_] (assoc _ :finz? true))
   (has-next? [rgObj]
-    (let [{:keys [^List ranges current]} rgObj]
-      (and (< (c/int-var current) (.size ranges))
+    (let [{:keys [ranges current]} rgObj
+          cur (c/int-var current)]
+      (and (< cur (n# ranges))
            (pos? (ck-readable-bytes
-                   (.get ranges (c/int-var current)))))))
-  (maybe-intersect? [rgObj r1 r2]
-    (or (and (>= (:start r1) (:start r2))
-             (<= (:start r1) (:end r2)))
-        (and (>= (:end r1) (:start r2))
-             (<= (:start r1) (:end r2)))))
-  (merge-ranges [rgObj r1 r2]
-    (num-range<>
-      (if (< (:start r1) (:start r2)) (:start r1) (:start r2))
-      (if (> (:end r1) (:end r2)) (:end r1) (:end r2))))
-  (calc-total-bytes [rgObj]
-    (let [z (c/long-var* 0)
-          {:keys [^List ranges]} rgObj]
-      (doseq [r ranges]
+                   (nth ranges cur))))))
+  (maybe-intersect? [_ r1 r2]
+    (let [{s1 :start e1 :end} r1
+          {s2 :start e2 :end} r2]
+      (or (and (>= s1 s2) (<= s1 e2))
+          (and (>= e1 s2) (<= s1 e2)))))
+  (merge-ranges [_ r1 r2]
+    (let [{s1 :start e1 :end} r1
+          {s2 :start e2 :end} r2]
+      (num-range<> (if (< s1 s2) s1 s2)
+                   (if (> e1 e2) e1 e2))))
+  (total-bytes [rgObj]
+    (let [z (c/long-var* 0)]
+      (doseq [r (:ranges rgObj)]
         (c/long-var z + (ck-total-size r))) (c/long-var z)))
   (sanitize-ranges [rgObj chunks]
-    (let [sorted
-          (u/sortby :start
-                    #(.compareTo (Long/valueOf
-                                   ^long %1) ^long %2) chunks)
+    (let [chunks (u/sortby :start comp-long chunks)
           rc (ArrayList.)
-          slen (count sorted)]
-      (.add rc (first sorted))
+          len (n# chunks)]
+      (if (pos? len)
+        (.add rc (c/_1 chunks)))
       (loop [n 1]
-        (if (>= n slen)
-          rc
-          (let [r1 (.get rc (- (.size rc) 1))
-                c1 (nth sorted n)]
-            (if (maybe-intersect? rgObj c1 r1)
-              (.set rc (- (.size rc) 1) (merge-ranges rgObj c1 r1))
-              (.add rc c1))
+        (if (>= n len)
+          (into [] rc)
+          (let [E (- (.size rc) 1)
+                r1 (.get rc E)
+                c1 (nth chunks n)]
+            (if-not (maybe-intersect? rgObj c1 r1)
+              (.add rc c1)
+              (.set rc E (merge-ranges rgObj c1 r1)))
             (recur (+ 1 n)))))))
   (range-init [rgObj rangeStr]
     (l/debug "range-string= %s\nrange-object= %s." rangeStr (i/fmt->edn rgObj))
-    (let [rvs (-> (.replaceFirst ^String rangeStr
-                                 "^\\s*bytes=", "") s/strim (s/split ","))
-          {:keys [^List ranges flen]} rgObj
+    (let [{:keys [flen]} rgObj
           last (- flen 1)
-          chunks (ArrayList.)]
-      (doseq [r rvs :let [rs (s/strim r)]]
-        (let [[start end]
-              (if (cs/starts-with? rs "-")
-                [(- last (tol (subs rs 1))) last]
-                (let [rg (s/split rs "-")]
-                  [(tol (first rg))
-                   (if (> (count rg) 1)
-                     (tol (nth rg 1)) last)]))
-              end (if (> end last) last end)]
-          (if (<= start end)
-            (.add chunks (num-range<> start end)))))
-      (.clear ranges)
-      (when-not (.isEmpty chunks)
-        (let [^List cs (sanitize-ranges rgObj chunks)
+          chunks
+          (c/preduce<vec> #(let [rs (s/strim %2)
+                                 [start end]
+                                 (let [rg (s/split rs "-")]
+                                   (if (cs/starts-with? rs "-")
+                                     [(- last (tol (subs rs 1))) last]
+                                     [(tol (c/_1 rg)) (if (c/one+? rg) (tol (nth rg 1)) last)]))
+                                 end (if (> end last) last end)]
+                             (if (<= start end)
+                               (conj! %1 (num-range<> start end)) %1))
+                          (-> (.replaceFirst ^String rangeStr
+                                             "^\\s*bytes=", "") s/strim (s/split ",")))]
+      (when-not (empty? chunks)
+        (let [cs (sanitize-ranges rgObj chunks)
+              many? (c/one+? cs)
               {:keys [source ctype]} rgObj
-              many? (> (.size cs) 1)]
-          (doseq [r cs
-                  :let [{:keys [start end]} r]]
-            (.add ranges
-              (if many?
-                (multi-byte-range-chunk<> source ctype start end)
-                (byte-range-chunk<> source ctype start end))))))
-      (if (.isEmpty ranges)
-        (u/throw-BadData "Invalid byte ranges"))
-      (assoc rgObj :total-bytes (c/int-var* (calc-total-bytes rgObj))))))
+              R (mapv #(let [{:keys [start end]} %]
+                         (if-not many?
+                           (brange-chunk<> source ctype start end)
+                           (brange-chunk<+> source ctype start end))) cs)]
+          (if (empty? R) (u/throw-BadData "Invalid byte ranges"))
+          (assoc rgObj
+                 :ranges R
+                 :total-bytes (c/int-var* (total-bytes rgObj))))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (extend-protocol HttpHeadersAPI
   HttpHeaders
   (fmt-error [hds body]
-    (let [sz (cond (c/is? File body) (i/fsize body)
-                   (bytes? body) (count body) :else 0)
+    (let [sz (cond (bytes? body) (n# body)
+                   (i/file? body) (i/fsize body) :else 0)
           last (if (pos? sz) (- sz 1) 0)]
-      (.set hds
-            HttpHeaderNames/ACCEPT_RANGES HttpHeaderValues/BYTES)
-      (.set hds
-            HttpHeaderNames/CONTENT_RANGE (str "bytes 0-" last "/" sz))))
+      (nc/set-header* hds
+                      [HttpHeaderNames/ACCEPT_RANGES HttpHeaderValues/BYTES
+                       HttpHeaderNames/CONTENT_RANGE (str "bytes 0-" last "/" sz)])))
   (fmt-success [hds rgObj]
-    (let [{:keys [^List ranges]} rgObj]
-      (.set hds
-            HttpHeaderNames/ACCEPT_RANGES HttpHeaderValues/BYTES)
-      (if (= 1 (.size ranges))
-        (let [{:keys [start end]} (.get ranges 0)]
-          (.set hds
-                HttpHeaderNames/CONTENT_RANGE
-                (str HttpHeaderValues/BYTES
-                     " " start "-" end "/" (:flen rgObj))))
-        (.set hds
-              HttpHeaderNames/CONTENT_TYPE
-              (str "multipart/byteranges; boundary="  DEF-BD))))))
-
+    (let [{:keys [ranges flen]} rgObj]
+      (nc/set-header hds
+                     HttpHeaderNames/ACCEPT_RANGES HttpHeaderValues/BYTES)
+      (if (c/one? ranges)
+        (let [{:keys [start end]} (c/_1 ranges)]
+          (nc/set-header* hds
+                          [HttpHeaderNames/CONTENT_RANGE
+                           (str HttpHeaderValues/BYTES
+                                " " start "-" end "/" flen)
+                           HttpHeaderNames/CONTENT_TYPE
+                           (str "multipart/byteranges; boundary="  DEF-BD)]))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- http-ranges<>
-  [ctype source]
-  (let [[s ln] (cond (xfile? source) (xfiles?? source)
-                     (bytes? source) [source (count source)]
-                     :else (u/throw-BadArg "bad source"))]
-    (l/debug "file-range-object: len = %s, source = %s." ln s)
-    (c/object<> HttpRangesObj
-                :total-bytes (c/int-var)
-                :bytes-read (c/int-var)
-                :current (c/int-var)
-                :ranges (ArrayList.)
-                :finz? false
-                :flen ln :source s :ctype ctype)))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn eval-ranges
-  ""
+(defn http-ranges<>
+  "Maybe handle http byte ranges."
+  ([rangeStr source]
+   (http-ranges<> rangeStr "application/octet-stream" source))
   ([rangeStr cType source]
    (l/debug "rangeStr = %s, type=%s, source=%s." rangeStr cType source)
-   (when (is-valid? rangeStr)
-     (try (-> (http-ranges<> cType source)
-              (range-init rangeStr))
-          (catch Throwable _ (l/exception _) nil))))
-  ([rangeStr source]
-   (eval-ranges rangeStr "application/octet-stream" source)))
+   (when (s/matches? rangeStr "^\\s*bytes=[0-9,-]+")
+     (u/try!!!
+       (let [[s ln] (cond (xfile? source) (xfiles?? source)
+                          (bytes? source) [source (n# source)]
+                          :else (u/throw-BadArg "bad source"))]
+         (l/debug "file-range-object: len = %s, source = %s." ln s)
+         (-> (c/object<> HttpRangesObj
+                         :total-bytes (c/int-var)
+                         :bytes-read (c/int-var)
+                         :current (c/int-var)
+                         :ranges nil
+                         :flen ln :source s
+                         :finz? false :ctype cType)
+             (range-init rangeStr)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF
