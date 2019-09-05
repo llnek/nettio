@@ -133,6 +133,7 @@
   (gist-h1-msg [_ msg] "")
   (agg-h1-read [_ msg pipelining?] "")
   (dequeue-req [_ msg pipeline?] "")
+  (fire-msg [_ msg] "")
   (finito [_ sid] "")
   (read-h2-frame [_ sid] "")
   (read-h2-frameEx [_ sid data end?] ""))
@@ -435,6 +436,8 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (extend-protocol CtxAPI
   ChannelHandlerContext
+  (fire-msg [_ msg]
+    (if msg (.fireChannelRead _ msg)))
   (set-akey* [ctx kvs]
     (doseq [[k v]
             (partition 2 kvs)]

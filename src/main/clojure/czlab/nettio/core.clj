@@ -182,7 +182,8 @@
   (maybe-ssl? [_] "")
   (dbg-pipeline [_] "")
   (ctx-name [_ h] "")
-  (safe-remove-handler [_ cz] ""))
+  (safe-remove-handler [_ cz] "")
+  (safe-remove-handler* [_ args] ""))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defprotocol HttpMessageAPI
@@ -540,8 +541,14 @@
   (dbg-pipeline [pipe]
     (l/debug "pipeline= %s"
              (cs/join "|" (.names pipe))))
-  (safe-remove-handler [pipe cz]
-    (c/try! (.remove pipe ^Class cz)))
+  (safe-remove-handler* [pipe args]
+    (doseq [a args]
+      (safe-remove-handler pipe a)))
+  (safe-remove-handler [pipe h]
+    (c/try! (c/condp?? instance? h
+              String (.remove pipe ^String h)
+              Class  (.remove pipe ^Class h)
+              ChannelHandler (.remove pipe ^ChannelHandler h))))
   (ctx-name [pipe h]
     (some-> (.context pipe ^ChannelHandler h) .name)))
 
