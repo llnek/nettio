@@ -17,7 +17,6 @@
             [czlab.basal.log :as l]
             [clojure.java.io :as io]
             [clojure.string :as cs]
-            [czlab.basal.str :as s]
             [czlab.basal.io :as i]
             [czlab.basal.core :as c]
             [czlab.niou.core :as cc])
@@ -129,6 +128,11 @@
 (defmacro h1hdr*
   [name]
   `(identity  ~(symbol (str "HttpHeaderNames/"  (str name)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defmacro h1hdv*
+  [name]
+  `(identity  ~(symbol (str "HttpHeaderValues/"  (str name)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defmacro scode*
@@ -454,7 +458,7 @@
   "Create an incomplete response"
   {:tag HttpResponse}
   ([]
-   (http-reply<> (.code HttpResponseStatus/OK)))
+   (http-reply<> (scode* OK)))
   ([code]
    {:pre [(number? code)]}
    (DefaultHttpResponse. HttpVersion/HTTP_1_1
@@ -495,7 +499,7 @@
 
   ([code] (http-reply<+> code nil nil))
 
-  ([] (http-reply<+> (.code HttpResponseStatus/OK))))
+  ([] (http-reply<+> (scode* OK))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (extend-protocol ChannelFutureAPI
@@ -545,17 +549,17 @@
     ([inv perm? location keepAlive?]
      (let [rsp (http-reply<+>
                  (if perm?
-                   (.code HttpResponseStatus/MOVED_PERMANENTLY)
-                   (.code HttpResponseStatus/TEMPORARY_REDIRECT)))
+                   (scode* MOVED_PERMANENTLY)
+                   (scode* TEMPORARY_REDIRECT)))
            ka? false]
        (l/debug "redirecting to -> %s." location)
        (set-header rsp
-                   HttpHeaderNames/LOCATION location)
+                   (h1hdr* LOCATION) location)
        (HttpUtil/setKeepAlive rsp ka?)
        (close-cf (.writeAndFlush inv rsp) ka?))))
   (continue-100 [inv]
     (-> (->> (http-reply<+>
-               (.code HttpResponseStatus/CONTINUE))
+               (scode* CONTINUE))
              (.writeAndFlush inv ))
         (.addListener (cfop<e>)))))
 
@@ -614,14 +618,14 @@
   HttpMessage
   (detect-acceptable-charset [msg]
     (if-some [req (c/cast? HttpRequest msg)]
-      (let [cs (get-header req HttpHeaderNames/ACCEPT_CHARSET)
-            c (->> (s/split (str cs) "[,;\\s]+")
+      (let [cs (get-header req (h1hdr* ACCEPT_CHARSET))
+            c (->> (c/split (str cs) "[,;\\s]+")
                    (some #(c/try! (Charset/forName ^String %))))]
         (or c (Charset/forName "utf-8")))))
   (get-headers [msg] (.headers msg))
   (get-method [msg]
     (if-some [req (c/cast? HttpRequest msg)]
-      (s/ucase (s/stror (get-header req
+      (c/ucase (c/stror (get-header req
                                     "X-HTTP-Method-Override")
                         (.. req getMethod name)))))
   (get-uri-path [msg]
@@ -637,7 +641,7 @@
       HttpRequest
       (c/if-some+
         [v (get-header msg
-                       HttpHeaderNames/COOKIE)]
+                       (h1hdr* COOKIE))]
         (c/preduce<map>
           #(assoc! %1
                    (.name ^Cookie %2)
@@ -648,13 +652,13 @@
         #(let [v (.decode ClientCookieDecoder/STRICT %2)]
            (assoc! %1
                    (.name v) (http-cookie<> v)))
-        (get-header-vals msg HttpHeaderNames/SET_COOKIE))))
+        (get-header-vals msg (h1hdr* SET_COOKIE)))))
   (no-content? [msg]
     (or (not (HttpUtil/isContentLengthSet msg))
         (not (> (HttpUtil/getContentLength msg -1) 0))))
   (content-type [msg]
     (-> (.headers msg)
-        (.get HttpHeaderNames/CONTENT_TYPE "")))
+        (.get (h1hdr* CONTENT_TYPE) "")))
   (content-length! [msg len]
     (HttpUtil/setContentLength msg (long len)))
   (content-length-as-int [msg]
@@ -672,7 +676,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- akey??
-  [k] (let [s (s/sname k)]
+  [k] (let [s (c/sname k)]
         (if-not (AttributeKey/exists s)
           (AttributeKey/newInstance s) (AttributeKey/valueOf s))))
 

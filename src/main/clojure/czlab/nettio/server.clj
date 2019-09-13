@@ -18,7 +18,6 @@
             [clojure.string :as cs]
             [czlab.basal.core :as c]
             [czlab.basal.util :as u]
-            [czlab.basal.str :as s]
             [czlab.basal.io :as i]
             [czlab.nettio.msgs :as mg]
             [czlab.nettio.core :as nc])
@@ -96,8 +95,8 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;(set! *warn-on-reflection* true)
-(defonce ^:private ^ChannelHandler obj-agg (mg/h1req-aggregator<>))
-(defonce ^:private ^ChannelHandler req-hdr (h1/h1req-handler<>))
+(c/defonce- ^ChannelHandler obj-agg (mg/h1req-aggregator<>))
+(c/defonce- ^ChannelHandler req-hdr (h1/h1req-handler<>))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defprotocol ServerAPI
@@ -117,9 +116,9 @@
 (defrecord NettyServer [])
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defmacro ^:private tmfda
+(c/defmacro- tmfda
   [] `(TrustManagerFactory/getDefaultAlgorithm))
-(defmacro ^:private kmfda
+(c/defmacro- kmfda
   [] `(KeyManagerFactory/getDefaultAlgorithm))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -130,7 +129,7 @@
         (let [c (SelfSignedCertificate.)]
           (SslContextBuilder/forServer (.certificate c)
                                        (.privateKey c)))
-        (s/hgl? key)
+        (c/hgl? key)
         (let [t (TrustManagerFactory/getInstance (tmfda))
               k (KeyManagerFactory/getInstance (kmfda))
               cpwd (some-> pwd i/x->chars)
@@ -253,7 +252,7 @@
         ^H1DataFactory
         dfac (some-> bs' .config
                      .childAttrs (.get nc/dfac-key))
-        ip (if (s/nichts? host)
+        ip (if (c/nichts? host)
              (InetAddress/getLocalHost)
              (InetAddress/getByName host))]
     (c/do-with [ch (.. bs (bind ip (int port)) sync channel)]

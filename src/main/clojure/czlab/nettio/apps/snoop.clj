@@ -18,7 +18,6 @@
             [clojure.string :as cs]
             [czlab.basal.core :as c]
             [czlab.basal.util :as u]
-            [czlab.basal.str :as s]
             [czlab.niou.core :as cc]
             [czlab.nettio.core :as nc]
             [czlab.nettio.server :as sv])
@@ -53,10 +52,11 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;(set! *warn-on-reflection* true)
-(def ^:private keep-alive (nc/akey<> :keepalive))
-(def ^:private cookie-buf (nc/akey<> :cookies))
-(def ^:private msg-buf (nc/akey<> :msg))
-(defonce ^:private svr (atom nil))
+(c/def- keep-alive (nc/akey<> :keepalive))
+(c/def- cookie-buf (nc/akey<> :cookies))
+(c/def- msg-buf (nc/akey<> :msg))
+(c/defonce- svr (atom nil))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- write-reply
   "Reply back a string"
@@ -64,7 +64,7 @@
   (let [cookies (:cookies curObj)
         buf (nc/get-akey msg-buf ctx)
         res (nc/http-reply<+>
-              (.code HttpResponseStatus/OK) (str buf) (.alloc ctx))
+              (nc/scode* OK) (str buf) (.alloc ctx))
         hds (.headers res)
         ce ServerCookieEncoder/STRICT
         clen (-> (.content res) .readableBytes)]
@@ -92,10 +92,10 @@
   [^ChannelHandlerContext ctx req]
   (let [^HttpHeaders headers (:headers req)
         ka? (:is-keep-alive? req)
-        buf (s/sbf<>)]
+        buf (c/sbf<>)]
     (nc/set-akey keep-alive ctx ka?)
     (nc/set-akey msg-buf ctx buf)
-    (s/sbf+ buf
+    (c/sbf+ buf
             "WELCOME TO THE TEST WEB SERVER\r\n"
             "==============================\r\n"
             "VERSION: "
@@ -107,8 +107,8 @@
             "REQUEST_URI: "
             (:uri2 req)
             "\r\n\r\n"
-            (s/sreduce<>
-              #(s/sbf+ %1
+            (c/sreduce<>
+              #(c/sbf+ %1
                        "HEADER: "
                        %2
                        " = "
@@ -116,9 +116,9 @@
                        "\r\n")
               (.names headers))
             "\r\n"
-            (s/sreduce<>
+            (c/sreduce<>
               (fn [b ^Map$Entry en]
-                (s/sbf+ b
+                (c/sbf+ b
                         "PARAM: "
                         (.getKey en)
                         " = "
@@ -134,8 +134,8 @@
   (let [^XData ct (:body msg)
         buf (nc/get-akey msg-buf ctx)]
     (if (.hasContent ct)
-      (s/sbf+ buf "CONTENT: " (.strit ct) "\r\n"))
-    (s/sbf+ buf "END OF CONTENT\r\n")
+      (c/sbf+ buf "CONTENT: " (.strit ct) "\r\n"))
+    (c/sbf+ buf "END OF CONTENT\r\n")
     (write-reply ctx msg)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

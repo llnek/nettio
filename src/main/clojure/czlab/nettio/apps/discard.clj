@@ -17,7 +17,6 @@
             [czlab.basal.log :as l]
             [czlab.basal.core :as c]
             [czlab.basal.util :as u]
-            [czlab.basal.str :as s]
             [czlab.nettio.core :as nc]
             [czlab.nettio.server :as sv])
 
@@ -34,7 +33,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;(set! *warn-on-reflection* false)
-(defonce ^:private svr (atom nil))
+(c/defonce- svr (atom nil))
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- h1proxy
   [cb]

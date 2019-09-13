@@ -17,7 +17,6 @@
             [czlab.basal.log :as l]
             [clojure.java.io :as io]
             [clojure.string :as cs]
-            [czlab.basal.str :as s]
             [czlab.basal.io :as i]
             [czlab.basal.util :as u]
             [czlab.basal.core :as c]
@@ -94,14 +93,14 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;(set! *warn-on-reflection* true)
-(defonce ^:private ^AttributeKey wsockRkey (nc/akey<> :wsock-res))
-(defonce ^:private ^AttributeKey h1pipeQkey (nc/akey<> :h1pipe-q))
-(defonce ^:private ^AttributeKey h1pipeCkey (nc/akey<> :h1pipe-c))
-(defonce ^:private ^AttributeKey h1pipeMkey (nc/akey<> :h1pipe-m))
-(defonce ^:private ^AttributeKey h1pipeDkey (nc/akey<> :h1pipe-d))
-(defonce ^:private ^AttributeKey h2msgHkey (nc/akey<> :h2msg-h))
-(defonce ^:private ^AttributeKey h2msgDkey (nc/akey<> :h2msg-d))
-(def ^:private ^String body-id "--body--")
+(c/defonce- ^AttributeKey wsockRkey (nc/akey<> :wsock-res))
+(c/defonce- ^AttributeKey h1pipeQkey (nc/akey<> :h1pipe-q))
+(c/defonce- ^AttributeKey h1pipeCkey (nc/akey<> :h1pipe-c))
+(c/defonce- ^AttributeKey h1pipeMkey (nc/akey<> :h1pipe-m))
+(c/defonce- ^AttributeKey h1pipeDkey (nc/akey<> :h1pipe-d))
+(c/defonce- ^AttributeKey h2msgHkey (nc/akey<> :h2msg-h))
+(c/defonce- ^AttributeKey h2msgDkey (nc/akey<> :h2msg-d))
+(c/defonce- ^String body-id "--body--")
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defprotocol DecoderAPI
@@ -233,7 +232,7 @@
       (try (if-not (nc/decoder-success? part)
              (if (c/is? HttpResponse msg)
                (nc/close-ch ctx)
-               (->> (.code HttpResponseStatus/BAD_REQUEST)
+               (->> (nc/scode* BAD_REQUEST)
                     (nc/reply-status ctx)))
              (take-part part ctx last?))
            (finally (nc/ref-del part)))
@@ -390,9 +389,9 @@
                        (HttpUtil/isContentLengthSet msg)
                        (> (HttpUtil/getContentLength msg) maxSize))
              rsp (nc/http-reply<+>
-                   (if err?
-                     (.code HttpResponseStatus/EXPECTATION_FAILED)
-                     (.code HttpResponseStatus/CONTINUE)))]
+                   (if-not err?
+                     (nc/scode* CONTINUE)
+                     (nc/scode* EXPECTATION_FAILED)))]
          (-> (.writeAndFlush ^ChannelHandlerContext ctx rsp)
              (nc/future-cb (if err? (nc/cfop<z>))))
          (not err?))
@@ -407,7 +406,7 @@
             (if-not (nc/hreq? msg)
               (nc/close-ch ctx)
               (nc/reply-status ctx
-                               (.code HttpResponseStatus/BAD_REQUEST)))
+                               (nc/scode* BAD_REQUEST)))
             (not (handle-100? msg ctx max-msg-size))
             nil
             :else
@@ -423,12 +422,12 @@
   (chk-form-post [msg]
     (when (nc/hreq? msg)
       (let [method (nc/get-method msg)
-            ct (->> HttpHeaderNames/CONTENT_TYPE
-                    (nc/get-header msg) str (s/lcase))
-            ok? (cond (s/embeds? ct "application/x-www-form-urlencoded")
-                      (if (s/eq-any? method ["POST" "PUT"]) :post :url)
-                      (and (s/embeds? ct "multipart/form-data")
-                           (s/eq-any? method ["POST" "PUT"])) :multipart)]
+            ct (->> (nc/h1hdr* CONTENT_TYPE)
+                    (nc/get-header msg) str (c/lcase))
+            ok? (cond (c/embeds? ct "application/x-www-form-urlencoded")
+                      (if (c/eq-any? method ["POST" "PUT"]) :post :url)
+                      (and (c/embeds? ct "multipart/form-data")
+                           (c/eq-any? method ["POST" "PUT"])) :multipart)]
         (if ok?
           (l/debug "got a form post: %s" ct)) ok?))))
 

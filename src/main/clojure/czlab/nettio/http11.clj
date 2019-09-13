@@ -17,7 +17,6 @@
             [czlab.nettio.msgs :as mg]
             [czlab.nettio.core :as nc]
             [czlab.niou.core :as cc]
-            [czlab.basal.str :as s]
             [czlab.basal.io :as i]
             [czlab.basal.util :as u]
             [czlab.basal.core :as c])
@@ -92,14 +91,14 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;(set! *warn-on-reflection* true)
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defmacro ^:private set-origin
+(c/defmacro- set-origin
   [rsp origin]
   `(nc/set-header ~rsp
-                  HttpHeaderNames/ACCESS_CONTROL_ALLOW_ORIGIN ~origin))
+                  (nc/h1hdr* ~'ACCESS_CONTROL_ALLOW_ORIGIN) ~origin))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defmacro ^:private vary-header
-  [rsp] `(nc/set-header ~rsp HttpHeaderNames/VARY HttpHeaderNames/ORIGIN))
+(c/defmacro- vary-header
+  [rsp] `(nc/set-header ~rsp (nc/h1hdr* ~'VARY) (nc/h1hdr* ~'ORIGIN)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defprotocol RspObjAPI
@@ -118,29 +117,29 @@
     (if (and (:credentials? corsCfg)
              (not= "*"
                    (nc/get-header rspObj
-                                  HttpHeaderNames/ACCESS_CONTROL_ALLOW_ORIGIN)))
+                                  (nc/h1hdr* ACCESS_CONTROL_ALLOW_ORIGIN))))
       (nc/set-header rspObj
-                     HttpHeaderNames/ACCESS_CONTROL_ALLOW_CREDENTIALS "true")))
+                     (nc/h1hdr* ACCESS_CONTROL_ALLOW_CREDENTIALS) "true")))
   (allow-methods [rspObj corsCfg]
     (c/when-some+ [m (:allowed-methods corsCfg)]
       (nc/set-header rspObj
-                     HttpHeaderNames/ACCESS_CONTROL_ALLOW_METHODS m)))
+                     (nc/h1hdr* ACCESS_CONTROL_ALLOW_METHODS) m)))
   (allow-headers [rspObj corsCfg]
     (c/when-some+ [h (:allowed-headers corsCfg)]
       (nc/set-header rspObj
-                     HttpHeaderNames/ACCESS_CONTROL_ALLOW_HEADERS h)))
+                     (nc/h1hdr* ACCESS_CONTROL_ALLOW_HEADERS) h)))
   (max-age [rspObj corsCfg]
     (if (number? (:max-age corsCfg))
       (nc/set-header rspObj
-                     HttpHeaderNames/ACCESS_CONTROL_MAX_AGE (:max-age corsCfg))))
+                     (nc/h1hdr* ACCESS_CONTROL_MAX_AGE) (:max-age corsCfg))))
   (expose-hdrs [rspObj corsCfg]
     (c/when-some+ [h (:exposed-headers corsCfg)]
       (nc/set-header rspObj
-                     HttpHeaderNames/ACCESS_CONTROL_EXPOSE_HEADERS h)))
+                     (nc/h1hdr* ACCESS_CONTROL_EXPOSE_HEADERS) h)))
   (set-origin? [rspObj ctx corsCfg]
     (let [req (nc/get-akey nc/h1msg-key ctx)
-          origin (cc/msg-header req HttpHeaderNames/ORIGIN)]
-      (when (cc/msg-header? req HttpHeaderNames/ORIGIN)
+          origin (cc/msg-header req (nc/h1hdr* ORIGIN))]
+      (when (cc/msg-header? req (nc/h1hdr* ORIGIN))
         (cond (and (= "null" origin)
                    (:nullable? corsCfg))
               (c/do#true (set-origin rspObj "null"))
@@ -149,7 +148,7 @@
                            (do (vary-header rspObj)
                                (set-origin rspObj origin))
                            (set-origin rspObj "*")))
-              (s/eq-any? origin (:origins corsCfg))
+              (c/eq-any? origin (:origins corsCfg))
               (c/do#true (vary-header rspObj)
                          (set-origin rspObj origin))
               :else
@@ -171,19 +170,19 @@
   (cors-preflight? [req]
     (and (= (:method req)
             (.name HttpMethod/OPTIONS))
-         (cc/msg-header? req HttpHeaderNames/ORIGIN)
-         (cc/msg-header? req HttpHeaderNames/ACCESS_CONTROL_REQUEST_METHOD)))
+         (cc/msg-header? req (nc/h1hdr* ORIGIN))
+         (cc/msg-header? req (nc/h1hdr* ACCESS_CONTROL_REQUEST_METHOD))))
   (valid-origin? [req ctx corsCfg]
     (let [allowed (:origins corsCfg)
-          origin (cc/msg-header req HttpHeaderNames/ORIGIN)]
+          origin (cc/msg-header req (nc/h1hdr* ORIGIN))]
       (cond (or (:any-origin? corsCfg)
-                (not (cc/msg-header? req HttpHeaderNames/ORIGIN)))
+                (not (cc/msg-header? req (nc/h1hdr* ORIGIN))))
             true
             (and (= "null" origin)
                  (:nullable? corsCfg))
             true
             (nil? allowed) true
-            :else (s/eq-any? origin allowed))))
+            :else (c/eq-any? origin allowed))))
   (reply-preflight [req c]
     (let [{:keys [cors-cfg]} (nc/get-akey nc/chcfg-key c)
           ctx (c/cast? ChannelHandlerContext c)
@@ -210,7 +209,7 @@
       (if-not (if-not (set? wsock-path)
                 (= wsock-path uri) (c/in? wsock-path uri))
         (nc/reply-status ctx
-                         (.code HttpResponseStatus/FORBIDDEN))
+                         (nc/scode* FORBIDDEN))
         (do (nc/pp->after pp
                           (nc/ctx-name pp this) "WSSCH"
                           (WebSocketServerCompressionHandler.))
@@ -227,18 +226,18 @@
             (nc/dbg-pipeline pp)
             (mg/fire-msg ctx (mock-request<+> req))))))
   (is-websock? [req]
-    (and (s/embeds? (->> HttpHeaderNames/CONNECTION
-                          (cc/msg-header req) str s/lcase) "upgrade")
+    (and (c/embeds? (->> (nc/h1hdr* CONNECTION)
+                         (cc/msg-header req) str c/lcase) "upgrade")
          (= "GET" (:method req))
-         (s/embeds? (->> HttpHeaderNames/UPGRADE
-                          (cc/msg-header req) str s/lcase) "websocket"))))
+         (c/embeds? (->> (nc/h1hdr* UPGRADE)
+                         (cc/msg-header req) str c/lcase) "websocket"))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- process-request
   [^ChannelHandlerContext ctx this req]
   (let
-    [origin (cc/msg-header req HttpHeaderNames/ORIGIN)
-     o? (cc/msg-header? req HttpHeaderNames/ORIGIN)
+    [origin (cc/msg-header req (nc/h1hdr* ORIGIN))
+     o? (cc/msg-header? req (nc/h1hdr* ORIGIN))
      {:keys [cors-cfg]} (nc/get-akey nc/chcfg-key ctx)]
     (l/debug "processing request: %s." req)
     (nc/set-akey nc/h1msg-key ctx req)
@@ -250,12 +249,11 @@
               (if (:enabled? cors-cfg)
                 (reply-preflight req ctx)
                 (nc/reply-status ctx
-                                 (.code HttpResponseStatus/METHOD_NOT_ALLOWED))))
+                                 (nc/scode* METHOD_NOT_ALLOWED))))
           (and (:enabled? cors-cfg)
                (not (valid-origin? req ctx cors-cfg)))
           (do (l/debug "req %s, cors-cfg enabled." (u/objid?? req))
-              (nc/reply-status ctx
-                               (.code HttpResponseStatus/FORBIDDEN)))
+              (nc/reply-status ctx (nc/scode* FORBIDDEN)))
           :else
           (try (mg/fire-msg ctx req)
                (finally (nc/ref-del req))))))

@@ -15,7 +15,6 @@
             [czlab.basal.log :as l]
             [clojure.java.io :as io]
             [clojure.string :as cs]
-            [czlab.basal.str :as s]
             [czlab.basal.io :as i]
             [czlab.nettio.core :as nc]
             [czlab.basal.core :as c :refer [n# is?]])
@@ -50,9 +49,9 @@
 (def ^String DEF-BD "21458390-ebd6-11e4-b80c-0800200c9a66")
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defmacro ^:private num-range<> [s e] `(hash-map :start ~s :end ~e))
-(defmacro ^:private tol [obj] `(Long/valueOf (s/strim ~obj)))
-(defmacro ^:private xfile? [x]
+(c/defmacro- num-range<> [s e] `(hash-map :start ~s :end ~e))
+(c/defmacro- tol [obj] `(Long/valueOf (c/strim ~obj)))
+(c/defmacro- xfile? [x]
   `(condp instance? ~x RandomAccessFile true File true false))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -61,7 +60,8 @@
   (.compareTo (Long/valueOf a) b))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- xfiles?? [src]
+(defn- xfiles??
+  [src]
   (let [f (c/cast? File src)
         rf (c/cast? RandomAccessFile src)]
     [(or rf (RandomAccessFile. f "r"))
@@ -206,7 +206,7 @@
         (brange-chunk<> src ctype start end)]
     (assoc C
            :preamble
-           (i/x->bytes (s/sbf+ (s/sbf<>)
+           (i/x->bytes (c/sbf+ (c/sbf<>)
                                "--"
                                DEF-BD
                                "\r\n"
@@ -261,9 +261,9 @@
     (let [{:keys [flen]} rgObj
           last (- flen 1)
           chunks
-          (c/preduce<vec> #(let [rs (s/strim %2)
+          (c/preduce<vec> #(let [rs (c/strim %2)
                                  [start end]
-                                 (let [rg (s/split rs "-")]
+                                 (let [rg (c/split rs "-")]
                                    (if (cs/starts-with? rs "-")
                                      [(- last (tol (subs rs 1))) last]
                                      [(tol (c/_1 rg)) (if (c/one+? rg) (tol (nth rg 1)) last)]))
@@ -271,7 +271,7 @@
                              (if (<= start end)
                                (conj! %1 (num-range<> start end)) %1))
                           (-> (.replaceFirst ^String rangeStr
-                                             "^\\s*bytes=", "") s/strim (s/split ",")))]
+                                             "^\\s*bytes=", "") c/strim (c/split ",")))]
       (when-not (empty? chunks)
         (let [cs (sanitize-ranges rgObj chunks)
               many? (c/one+? cs)
@@ -315,7 +315,7 @@
    (http-ranges<> rangeStr "application/octet-stream" source))
   ([rangeStr cType source]
    (l/debug "rangeStr = %s, type=%s, source=%s." rangeStr cType source)
-   (when (s/matches? rangeStr "^\\s*bytes=[0-9,-]+")
+   (when (c/matches? rangeStr "^\\s*bytes=[0-9,-]+")
      (u/try!!!
        (let [[s ln] (cond (xfile? source) (xfiles?? source)
                           (bytes? source) [source (n# source)]

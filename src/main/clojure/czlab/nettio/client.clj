@@ -18,7 +18,6 @@
             [czlab.basal.log :as l]
             [clojure.java.io :as io]
             [clojure.string :as cs]
-            [czlab.basal.str :as s]
             [czlab.basal.io :as i]
             [czlab.basal.core :as c]
             [czlab.basal.util :as u])
@@ -111,14 +110,14 @@
 ;;(set! *warn-on-reflection* false)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(def ^:private ^AttributeKey h2s-key  (nc/akey<> :h2settings-promise))
-(def ^:private ^AttributeKey rsp-key  (nc/akey<> :rsp-result))
-(def ^:private ^AttributeKey cf-key  (nc/akey<> :wsock-future))
-(def ^:private ^AttributeKey cc-key  (nc/akey<> :wsock-client))
+(c/def- ^AttributeKey h2s-key  (nc/akey<> :h2settings-promise))
+(c/def- ^AttributeKey rsp-key  (nc/akey<> :rsp-result))
+(c/def- ^AttributeKey cf-key  (nc/akey<> :wsock-future))
+(c/def- ^AttributeKey cc-key  (nc/akey<> :wsock-client))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;Aggregates all chunks into a full message.
-(def ^{:private true :tag ChannelHandler}
+(c/def- ^{:tag ChannelHandler}
   msg-agg
   (proxy [DuplexHandler][false]
     (readMsg [ctx msg] (mg/agg-h1-read ctx msg false))))
@@ -149,10 +148,10 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- conv-certs
   "Convert Certs" [arg]
-  (let [[del? inp] (i/input-stream?? arg)]
+  (let [[d? inp] (i/input-stream?? arg)]
     (try (-> (CertificateFactory/getInstance "X.509")
              (.generateCertificates ^InputStream inp) vec)
-         (finally (if del? (i/klose inp))))))
+         (finally (if d? (i/klose inp))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- build-ctx
@@ -167,7 +166,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- maybe-ssl??
   ^SslContext [scert scheme h2?]
-  (when (and (s/hgl? scert)
+  (when (and (c/hgl? scert)
              (not= "http" scheme))
     (let [ctx (build-ctx scert)]
       (if-not h2?
@@ -207,8 +206,7 @@
       (l/debug "connected: %s@%s." host port))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(def ^{:private true
-       :tag ChannelHandler}
+(c/def- ^{:tag ChannelHandler}
   user-hdlr
   (proxy [InboundHandler][true]
     (readMsg [ctx msg]
@@ -483,7 +481,7 @@
     cc/HttpClientModule
 
     (hc-send-http [_ conn op uri data args]
-      (let [mt (HttpMethod/valueOf (s/ucase (name op)))
+      (let [mt (HttpMethod/valueOf (c/ucase (name op)))
             {:keys [encoding headers
                     is-keep-alive?
                     version override]} args
@@ -492,7 +490,7 @@
             ^URI uri uri
             path (.getPath uri)
             qy (.getQuery uri)
-            uriStr (if (s/hgl? qy)
+            uriStr (if (c/hgl? qy)
                      (str path "?" qy) path)
             req (if-not (or (nil? body)
                             (c/is? ByteBuf body))
@@ -509,17 +507,17 @@
             (doseq [vv (seq v)]
               (nc/add-header req kw vv))
             (nc/set-header req kw v)))
-        (nc/set-header req HttpHeaderNames/HOST (:host args))
+        (nc/set-header req (nc/h1hdr* HOST) (:host args))
         (if (= version "2")
           (nc/set-header req
                          (.text HttpConversionUtil$ExtensionHeaderNames/SCHEME)
                          (.getScheme uri))
           (nc/set-header req
-                         HttpHeaderNames/CONNECTION
+                         (nc/h1hdr* CONNECTION)
                          (if-not is-keep-alive?
-                           HttpHeaderValues/CLOSE
-                           HttpHeaderValues/KEEP_ALIVE)))
-        (c/if-some+ [mo (s/stror override "")]
+                           (nc/h1hdv* CLOSE)
+                           (nc/h1hdv* KEEP_ALIVE))))
+        (c/if-some+ [mo (c/stror override "")]
           (nc/set-header req "X-HTTP-Method-Override" mo))
         (if (zero? clen)
           (HttpUtil/setContentLength req 0)
@@ -527,7 +525,7 @@
                 (HttpUtil/setTransferEncodingChunked req true))
               (if-not (nc/has-header? req "content-type")
                 (nc/set-header req
-                               HttpHeaderNames/CONTENT_TYPE
+                               (nc/h1hdr* CONTENT_TYPE)
                                "application/octet-stream"))
               (if (c/spos? clen)
                 (HttpUtil/setContentLength req clen))))

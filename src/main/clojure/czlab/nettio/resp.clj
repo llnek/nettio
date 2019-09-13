@@ -19,7 +19,6 @@
             [clojure.string :as cs]
             [czlab.basal.dates :as d]
             [czlab.basal.util :as u]
-            [czlab.basal.str :as s]
             [czlab.basal.io :as i]
             [czlab.basal.core :as c]
             [czlab.niou.webss :as ss]
@@ -59,7 +58,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;(set! *warn-on-reflection* false)
-(def ^:private conds-hds
+(c/def- conds-hds
   [[:if-unmod-since (nc/h1hdr* IF_UNMODIFIED_SINCE)]
    [:if-mod-since (nc/h1hdr* IF_MODIFIED_SINCE)]
    [:if-none-match (nc/h1hdr* IF_NONE_MATCH)]
@@ -68,7 +67,7 @@
    [:range (nc/h1hdr* RANGE)]])
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(def ^:private resp-hds
+(c/def- resp-hds
    [[:last-mod (nc/h1hdr* LAST_MODIFIED)]
     [:etag (nc/h1hdr* ETAG)]
     [:ctype (nc/h1hdr* CONTENT_TYPE)]])
@@ -133,12 +132,12 @@
     (format "\"%s-%s\"" (.lastModified f) (.hashCode f))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defmacro ^:private code-ok?
+(c/defmacro- code-ok?
   [c] `(let [c# ~c] (and (>= c# 200)(< c# 300))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defmacro ^:private cond-err-code
-  [m] `(if (s/eq-any? ~m ["GET" "HEAD"])
+(c/defmacro- cond-err-code
+  [m] `(if (c/eq-any? ~m ["GET" "HEAD"])
          (nc/scode* ~'NOT_MODIFIED)
          (nc/scode* ~'PRECONDITION_FAILED)))
 
@@ -148,12 +147,12 @@
   matches, or if filter is a wildcard."
   [method eTag code body conds]
   (let [{:keys [value has?]} (:if-none-match conds)
-        value (s/strim value)
+        value (c/strim value)
         ec (cond-err-code method)]
-    [(cond (or (not has?) (s/nichts? value)) code
-            (s/eq-any? value ["*" "\"*\""]) (if (s/hgl? eTag) ec code)
-            (s/eq-any? eTag (map #(s/strim %)
-                                 (s/split value ","))) ec :else code) body]))
+    [(cond (or (not has?) (c/nichts? value)) code
+            (c/eq-any? value ["*" "\"*\""]) (if (c/hgl? eTag) ec code)
+            (c/eq-any? eTag (map #(c/strim %)
+                                 (c/split value ","))) ec :else code) body]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- if-match?
@@ -161,13 +160,13 @@
   match, or if filter is wildcard and no eTag."
   [method eTag code body conds]
   (let [{:keys [value has?]} (:if-match conds)
-        value (s/strim value)
+        value (c/strim value)
         ec (cond-err-code method)]
-    [(cond (or (not has?) (s/nichts? value)) code
-           (s/eq-any? value ["*" "\"*\""]) (if (s/hgl? eTag) code ec)
-           (not (s/eq-any? eTag
-                           (map #(s/strim %)
-                                (s/split value ",")))) ec :else code) body]))
+    [(cond (or (not has?) (c/nichts? value)) code
+           (c/eq-any? value ["*" "\"*\""]) (if (c/hgl? eTag) code ec)
+           (not (c/eq-any? eTag
+                           (map #(c/strim %)
+                                (c/split value ",")))) ec :else code) body]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- if-unmod-since?
@@ -175,7 +174,7 @@
   timestamp is greater than the given date."
   [method lastMod code body conds]
   (let [{:keys [value has?]} (:if-unmod-since conds)
-        value (s/strim value)
+        value (c/strim value)
         rc (cond-err-code method)
         t (DateUtil/parseHttpDate value -1)]
     [(if (and (c/spos? t)
@@ -188,7 +187,7 @@
   time-stamp is less than the given date."
   [method lastMod code body conds]
   (let [{:keys [value has?]} (:if-mod-since conds)
-        value (s/strim value)
+        value (c/strim value)
         rc (cond-err-code method)
         t (DateUtil/parseHttpDate value -1)]
     [(if (and (c/spos? t)
@@ -204,12 +203,12 @@
         pc (nc/scode* PARTIAL_CONTENT)
         ^String hd (get-in conds [:if-range :value])
         {:keys [value has?]} (:range conds)
-        value (s/strim value)
+        value (c/strim value)
         g (nr/http-ranges<> (if has? value nil) cType body)]
     (cond (or (not has?)
-              (s/nichts? value)) [code body]
+              (c/nichts? value)) [code body]
           (nil? g) [ec nil]
-          (s/nichts? hd) [pc g]
+          (c/nichts? hd) [pc g]
           (and (cs/ends-with? hd "GMT")
                (cs/index-of hd \,)
                (cs/index-of hd \:)) (let [t (DateUtil/parseHttpDate hd -1)]
@@ -332,7 +331,7 @@
       (.set hds
             HttpHeaderNames/LAST_MODIFIED
             (DateUtil/formatHttpDate ^long last-mod)))
-    (if (and (s/hgl? etag)
+    (if (and (c/hgl? etag)
              (not (get-in rhds [:etag :has?])))
       (.set hds HttpHeaderNames/ETAG etag))
     (let [c? (HttpUtil/isKeepAlive rsp)

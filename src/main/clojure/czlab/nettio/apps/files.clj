@@ -20,7 +20,6 @@
             [czlab.basal.proc :as p]
             [czlab.basal.core :as c]
             [czlab.basal.util :as u]
-            [czlab.basal.str :as s]
             [czlab.basal.io :as i]
             [czlab.nettio.core :as nc])
 
@@ -47,7 +46,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;(set! *warn-on-reflection* false)
-(defonce ^:private svr (atom nil))
+(c/defonce- svr (atom nil))
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- reply-get-vfile
   [^ChannelHandlerContext ctx req ^XData xdata]
@@ -81,9 +80,8 @@
       (l/debug "fPutter orig= %s." (.fileRef body)))
     (nc/reply-status ctx
                      (u/try!!
-                       (.code HttpResponseStatus/INTERNAL_SERVER_ERROR)
-                       (do (i/save-file vdir fname body)
-                           (.code HttpResponseStatus/OK))))))
+                       (nc/scode* INTERNAL_SERVER_ERROR)
+                       (do (i/save-file vdir fname body) (nc/scode* OK))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- fgetter
@@ -93,8 +91,7 @@
         ^XData f (i/get-file vdir fname)]
     (if (.hasContent f)
       (reply-get-vfile ctx req f)
-      (nc/reply-status ctx
-                       (.code HttpResponseStatus/NO_CONTENT)))))
+      (nc/reply-status ctx (nc/scode* NO_CONTENT)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- h1proxy
@@ -105,14 +102,13 @@
             pos (cs/last-index-of uri2 \/)
             p (if (nil? pos)
                 uri2 (subs uri2 (+ 1 pos)))
-            nm (s/stror p (str (u/jid<>) ".dat"))]
+            nm (c/stror p (str (u/jid<>) ".dat"))]
         (l/debug "udir= %s." udir)
         (l/debug "%s: uri= %s, file= %s." method uri2 nm)
         (condp = method
           "GET" (fgetter ctx msg nm udir)
           "POST" (fputter ctx msg nm udir)
-          (nc/reply-status ctx
-                           (.code HttpResponseStatus/METHOD_NOT_ALLOWED)))))))
+          (nc/reply-status ctx (nc/scode* METHOD_NOT_ALLOWED)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; make a In memory File Server

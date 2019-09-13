@@ -13,7 +13,7 @@
                  [io.netty/netty-all "4.1.39.Final"]
                  [io.czlab/niou "1.1.0"]]
 
-  :plugins [[cider/cider-nrepl "0.21.1"]
+  :plugins [[cider/cider-nrepl "0.22.2"]
             [lein-javadoc "0.3.0"]
             [lein-cprint "1.3.1"]
             [lein-codox "0.10.7"]]
@@ -39,7 +39,7 @@
   :test-paths ["src/test/clojure"]
 
   :jvm-opts ["-Dlog4j.configurationFile=file:attic/log4j2.xml"]
-  :javac-options ["-source" "8"
+  :javac-options [;"-source" "8"
                   "-Xlint:unchecked" "-Xlint:-options" "-Xlint:deprecation"])
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

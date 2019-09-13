@@ -30,7 +30,6 @@
             [czlab.basal.util :as u]
             [czlab.basal.log :as l]
             [czlab.basal.io :as i]
-            [czlab.basal.str :as s]
             [clojure.test :as ct]
             [czlab.basal.core
              :refer [ensure?? ensure-thrown??] :as c])
@@ -63,7 +62,7 @@
            [io.netty.channel.embedded EmbeddedChannel]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(def ^:private
+(c/def-
   _file-content_ (str "hello how are you, "
                       "are you doing ok? " "very cool!"))
 
@@ -104,7 +103,7 @@
                   s (if b (.strit ^XData b))]
               (sv/ns-stop! w)
               (u/pause 1000)
-              (and (s/hgl? s) (= 0 (s/count-str s nr/DEF-BD)))))
+              (and (c/hgl? s) (= 0 (c/count-str s nr/DEF-BD)))))
 
   (ensure?? "file-range"
             (let [des (i/tmpfile (u/jid<>))
@@ -125,8 +124,8 @@
                   s (if b (.strit ^XData b))]
               (sv/ns-stop! w)
               (u/pause 1000)
-              (and (s/hgl? s)
-                   (= 2 (s/count-str s nr/DEF-BD)))))
+              (and (c/hgl? s)
+                   (= 2 (c/count-str s nr/DEF-BD)))))
 
   (ensure?? "ssl/h2"
             (let [w (sv/tcp-server<>
@@ -360,7 +359,7 @@
                   rc (if body (.strit ^XData body))]
               (sv/ns-stop! w)
               (u/pause 1000)
-              (s/hgl? rc)))
+              (c/hgl? rc)))
 
   (ensure?? "discard-httpd<>"
             (let [w (dc/discard-httpd<> rand)
