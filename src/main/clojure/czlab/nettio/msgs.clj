@@ -164,11 +164,15 @@
 (defn- get-http-data
   ([d] (get-http-data d nil))
   ([^HttpData d wrap?]
-   (let [x (when d
+   (let [f? (c/is? FileUpload d)
+         x (when d
              (if (.isInMemory d)
                (.get d)
                (c/doto->> (.getFile d)
-                          (.renameTo d))))] (if wrap? (XData. x) x))))
+                          (.renameTo d))))
+         r (if (and f? (bytes? x))
+             (i/spit-file (i/temp-file) x true) x)]
+     (if wrap? (XData. r) r))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- gattr

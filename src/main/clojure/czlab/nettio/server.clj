@@ -19,6 +19,7 @@
             [czlab.basal.core :as c]
             [czlab.basal.util :as u]
             [czlab.basal.io :as i]
+            [czlab.basal.xpis :as po]
             [czlab.nettio.msgs :as mg]
             [czlab.nettio.core :as nc])
 
@@ -99,21 +100,11 @@
 (c/defonce- ^ChannelHandler req-hdr (h1/h1req-handler<>))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defprotocol ServerAPI
-  ""
-  (ns-stop! [_] "")
-  (ns-start! [_]
-             [_ options] ""))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defprotocol CfgChannelAPI
   "*internal*"
   (cfgh2 [_ h2 args] "")
   (cfgh1 [_ h1 args] "")
   (onssl [_ ctx h1 h2 args] ""))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defrecord NettyServer [])
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (c/defmacro- tmfda
@@ -265,19 +256,18 @@
                             (l/debug "info: server bootstrap@ip %s stopped." ip))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(extend-protocol ServerAPI
-  NettyServer
-  (ns-start!
-    ([_] (ns-start! _ nil))
-    ([_ options]
+(defrecord NettyServer []
+  po/Startable
+  (start [_] (.start _ nil))
+  (start [_ options]
      (let [{:keys [host port block?]} options
            {:keys [bootstrap channel]} _
            p (if (c/is? ServerBootstrap bootstrap) 80 4444)]
        (->> (c/num?? port p)
             (ssvr bootstrap host)
             (aset #^"[Ljava.lang.Object;" channel 0))
-       (if block? (u/block!)))))
-  (ns-stop! [_]
+       (if block? (u/block!))))
+  (stop [_]
     (let [{:keys [channel]} _
           ^Channel ch (c/_1 channel)]
       (l/debug "stopping channel: %s." ch)

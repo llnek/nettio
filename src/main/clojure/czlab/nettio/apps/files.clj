@@ -21,6 +21,7 @@
             [czlab.basal.core :as c]
             [czlab.basal.util :as u]
             [czlab.basal.io :as i]
+            [czlab.basal.xpis :as po]
             [czlab.nettio.core :as nc])
 
   (:import [io.netty.handler.stream ChunkedFile ChunkedStream]
@@ -121,7 +122,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; filesvr host port vdir
 (defn finz-server
-  [] (when @svr (sv/ns-stop! @svr) (reset! svr nil)))
+  [] (when @svr (po/stop @svr) (reset! svr nil)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; filesvr host port vdir
@@ -132,11 +133,11 @@
     (println "usage: filesvr host port <rootdir>")
     :else
     (let [w (mem-file-server<> (nth args 2))]
-      (p/exit-hook #(sv/ns-stop! w))
+      (p/exit-hook #(po/stop w))
       (reset! svr w)
-      (sv/ns-start! {:host (nth args 0)
-                     :block? true
-                     :port (c/s->int (nth args 1) 8080)}))))
+      (po/start {:host (nth args 0)
+                 :block? true
+                 :port (c/s->int (nth args 1) 8080)}))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF

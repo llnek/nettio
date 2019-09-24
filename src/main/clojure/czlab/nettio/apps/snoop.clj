@@ -20,6 +20,7 @@
             [czlab.basal.util :as u]
             [czlab.niou.core :as cc]
             [czlab.nettio.core :as nc]
+            [czlab.basal.xpis :as po]
             [czlab.nettio.server :as sv])
 
   (:import [io.netty.util Attribute AttributeKey CharsetUtil]
@@ -150,7 +151,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn finz-server
-   [] (when @svr (sv/ns-stop! @svr) (reset! svr nil)))
+   [] (when @svr (po/stop @svr) (reset! svr nil)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn -main
@@ -160,11 +161,11 @@
     (println "usage: snoop host port")
     :else
     (let [w (snoop-httpd<>)]
-      (p/exit-hook #(sv/ns-stop! w))
+      (p/exit-hook #(po/stop w))
       (reset! svr w)
-      (sv/ns-start! w {:host (nth args 0)
-                       :block? true
-                       :port (c/s->int (nth args 1) 8080)}))))
+      (po/start w {:host (nth args 0)
+                   :block? true
+                   :port (c/s->int (nth args 1) 8080)}))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF

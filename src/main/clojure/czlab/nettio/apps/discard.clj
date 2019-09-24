@@ -17,6 +17,7 @@
             [czlab.basal.log :as l]
             [czlab.basal.core :as c]
             [czlab.basal.util :as u]
+            [czlab.basal.xpis :as po]
             [czlab.nettio.core :as nc]
             [czlab.nettio.server :as sv])
 
@@ -49,7 +50,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn finz-server
-  [] (when @svr (sv/ns-stop! @svr) (reset! svr nil)))
+  [] (when @svr (po/stop @svr) (reset! svr nil)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn -main
@@ -60,12 +61,12 @@
     :else
     (let [s (discard-httpd<>
               #(println "hello, poked by discarder"))]
-      (p/exit-hook #(sv/ns-stop! s))
+      (p/exit-hook #(po/stop s))
       (reset! svr s)
-      (sv/ns-start! s
-                    {:host (nth args 0)
-                     :block? true
-                     :port (c/s->int (nth args 1) 8080)}))))
+      (po/start s
+                {:host (nth args 0)
+                 :block? true
+                 :port (c/s->int (nth args 1) 8080)}))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF
