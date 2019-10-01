@@ -6,21 +6,25 @@
 ;; the terms of this license.
 ;; You must not remove this notice, or any other, from this software.
 
-(ns ^{:doc "Http client using netty."
-      :author "Kenneth Leung"}
+(ns
+  ^{:doc "Http client using netty."
+    :author "Kenneth Leung"}
 
   czlab.nettio.client
 
-  (:require [czlab.nettio.msgs :as mg]
-            [czlab.nettio.core :as nc]
-            [czlab.niou.util :as ct]
-            [czlab.niou.core :as cc]
-            [czlab.basal.log :as l]
-            [clojure.java.io :as io]
+  (:require [clojure.java.io :as io]
             [clojure.string :as cs]
-            [czlab.basal.io :as i]
-            [czlab.basal.core :as c]
-            [czlab.basal.util :as u])
+            [czlab.nettio
+             [msgs :as mg]
+             [core :as nc]]
+            [czlab.niou
+             [util :as ct]
+             [core :as cc]]
+            [czlab.basal
+             [log :as l]
+             [io :as i]
+             [core :as c]
+             [util :as u]])
 
   (:import [io.netty.handler.codec.http.websocketx.extensions.compression
             WebSocketClientCompressionHandler]

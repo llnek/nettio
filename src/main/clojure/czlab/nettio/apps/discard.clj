@@ -6,20 +6,23 @@
 ;; the terms of this license.
 ;; You must not remove this notice, or any other, from this software.
 
-(ns ^{:doc "Sample netty app - accepts and discards the request."
-      :author "Kenneth Leung"}
+(ns
+  ^{:doc "Sample netty app - accepts and discards the request."
+    :author "Kenneth Leung"}
 
   czlab.nettio.apps.discard
 
   (:gen-class)
 
-  (:require [czlab.basal.proc :as p]
-            [czlab.basal.log :as l]
-            [czlab.basal.core :as c]
-            [czlab.basal.util :as u]
-            [czlab.basal.xpis :as po]
-            [czlab.nettio.core :as nc]
-            [czlab.nettio.server :as sv])
+  (:require [czlab.basal
+             [proc :as p]
+             [log :as l]
+             [core :as c]
+             [util :as u]
+             [xpis :as po]]
+            [czlab.nettio
+             [core :as nc]
+             [server :as sv]])
 
   (:import [io.netty.handler.codec.http HttpResponseStatus]
            [io.netty.handler.codec.http LastHttpContent]

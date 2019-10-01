@@ -6,22 +6,25 @@
 ;; the terms of this license.
 ;; You must not remove this notice, or any other, from this software.
 
-(ns ^{:doc "Sample netty app - snoops on the request."
-      :author "Kenneth Leung"}
+(ns
+  ^{:doc "Sample netty app - snoops on the request."
+    :author "Kenneth Leung"}
 
   czlab.nettio.apps.snoop
 
   (:gen-class)
 
-  (:require [czlab.basal.proc :as p]
-            [czlab.basal.log :as l]
-            [clojure.string :as cs]
-            [czlab.basal.core :as c]
-            [czlab.basal.util :as u]
-            [czlab.niou.core :as cc]
-            [czlab.nettio.core :as nc]
-            [czlab.basal.xpis :as po]
-            [czlab.nettio.server :as sv])
+  (:require [clojure.string :as cs]
+            [czlab.basal
+             [core :as c]
+             [util :as u]
+             [log :as l]
+             [proc :as p]
+             [xpis :as po]]
+            [czlab.nettio
+             [core :as nc]
+             [server :as sv]]
+            [czlab.niou.core :as cc])
 
   (:import [io.netty.util Attribute AttributeKey CharsetUtil]
            [czlab.nettio InboundHandler]

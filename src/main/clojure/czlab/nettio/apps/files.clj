@@ -6,23 +6,26 @@
 ;; the terms of this license.
 ;; You must not remove this notice, or any other, from this software.
 
-(ns ^{:doc "Sample netty file server."
-      :author "Kenneth Leung"}
+(ns
+  ^{:doc "Sample netty file server."
+    :author "Kenneth Leung"}
 
   czlab.nettio.apps.files
 
   (:gen-class)
 
-  (:require [czlab.basal.log :as l]
-            [clojure.java.io :as io]
+  (:require [clojure.java.io :as io]
             [clojure.string :as cs]
-            [czlab.nettio.server :as sv]
-            [czlab.basal.proc :as p]
-            [czlab.basal.core :as c]
-            [czlab.basal.util :as u]
-            [czlab.basal.io :as i]
-            [czlab.basal.xpis :as po]
-            [czlab.nettio.core :as nc])
+            [czlab.basal
+             [proc :as p]
+             [log :as l]
+             [core :as c]
+             [util :as u]
+             [io :as i]
+             [xpis :as po]]
+            [czlab.nettio
+             [core :as nc]
+             [server :as sv]])
 
   (:import [io.netty.handler.stream ChunkedFile ChunkedStream]
            [io.netty.bootstrap ServerBootstrap]

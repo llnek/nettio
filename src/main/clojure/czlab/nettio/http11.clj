@@ -6,20 +6,23 @@
 ;; the terms of this license.
 ;; You must not remove this notice, or any other, from this software.
 
-(ns ^{:doc ""
-      :author "Kenneth Leung"}
+(ns
+  ^{:doc ""
+    :author "Kenneth Leung"}
 
   czlab.nettio.http11
 
-  (:require [czlab.basal.log :as l]
-            [clojure.java.io :as io]
+  (:require [clojure.java.io :as io]
             [clojure.string :as cs]
-            [czlab.nettio.msgs :as mg]
-            [czlab.nettio.core :as nc]
-            [czlab.niou.core :as cc]
-            [czlab.basal.io :as i]
-            [czlab.basal.util :as u]
-            [czlab.basal.core :as c])
+            [czlab.nettio
+             [msgs :as mg]
+             [core :as nc]]
+            [czlab.basal
+             [log :as l]
+             [io :as i]
+             [util :as u]
+             [core :as c]]
+            [czlab.niou.core :as cc])
 
   (:import [io.netty.handler.codec.http.websocketx.extensions.compression WebSocketServerCompressionHandler]
            [io.netty.handler.codec.http.websocketx WebSocketServerProtocolHandler]

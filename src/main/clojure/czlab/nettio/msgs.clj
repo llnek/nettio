@@ -6,21 +6,24 @@
 ;; the terms of this license.
 ;; You must not remove this notice, or any other, from this software.
 
-(ns ^{:doc ""
-      :author "Kenneth Leung"}
+(ns
+  ^{:doc ""
+    :author "Kenneth Leung"}
 
   czlab.nettio.msgs
 
-  (:require [czlab.niou.upload :as cu]
-            [czlab.niou.core :as cc]
-            [czlab.nettio.core :as nc]
-            [czlab.basal.log :as l]
-            [clojure.java.io :as io]
+  (:require [clojure.java.io :as io]
             [clojure.string :as cs]
-            [czlab.basal.io :as i]
-            [czlab.basal.util :as u]
-            [czlab.basal.core :as c]
-            [czlab.niou.routes :as cr])
+            [czlab.niou
+             [upload :as cu]
+             [core :as cc]
+             [routes :as cr]]
+            [czlab.basal
+             [log :as l]
+             [io :as i]
+             [util :as u]
+             [core :as c]]
+            [czlab.nettio.core :as nc])
 
   (:import [io.netty.util AttributeKey ReferenceCountUtil]
            [czlab.nettio DuplexHandler H1DataFactory]

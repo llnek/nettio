@@ -6,34 +6,39 @@
 ;; the terms of this license.
 ;; You must not remove this notice, or any other, from this software.
 
-(ns ^{:doc ""
-      :author "Kenneth Leung"}
+(ns
+  ^{:doc ""
+    :author "Kenneth Leung"}
 
   czlab.test.nettio.core
 
-  (:require [czlab.nettio.apps.discard :as dc]
-            [czlab.nettio.apps.snoop :as sn]
-            [czlab.nettio.apps.files :as fs]
-            [clojure.string :as cs]
-            [clojure.java.io :as io]
-            [czlab.nettio.msgs :as mg]
-            [czlab.niou.routes :as cr]
-            [czlab.nettio.http11 :as h1]
-            [czlab.nettio.ranges :as nr]
-            [czlab.nettio.core :as nc]
-            [czlab.nettio.resp :as rs]
-            [czlab.nettio.server :as sv]
-            [czlab.nettio.client :as cl]
-            [czlab.niou.core :as cc]
-            [czlab.niou.upload :as cu]
-            [czlab.basal.proc :as p]
-            [czlab.basal.util :as u]
-            [czlab.basal.log :as l]
-            [czlab.basal.io :as i]
-            [czlab.basal.xpis :as po]
-            [clojure.test :as ct]
-            [czlab.basal.core
-             :refer [ensure?? ensure-thrown??] :as c])
+  (:require [clojure.java.io :as io]
+            [clojure
+             [test :as ct]
+             [string :as cs]]
+            [czlab.nettio.apps
+             [snoop :as sn]
+             [files :as fs]
+             [discard :as dc]]
+            [czlab.nettio
+             [http11 :as h1]
+             [ranges :as nr]
+             [core :as nc]
+             [msgs :as mg]
+             [resp :as rs]
+             [server :as sv]
+             [client :as cl]]
+            [czlab.niou
+             [core :as cc]
+             [upload :as cu]
+             [routes :as cr]]
+            [czlab.basal
+             [proc :as p]
+             [util :as u]
+             [log :as l]
+             [io :as i]
+             [xpis :as po]
+             [core :as c :refer [ensure?? ensure-thrown??]]])
 
   (:import [io.netty.buffer Unpooled ByteBuf ByteBufHolder]
            [org.apache.commons.fileupload FileItem]

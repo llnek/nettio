@@ -6,23 +6,27 @@
 ;; the terms of this license.
 ;; You must not remove this notice, or any other, from this software.
 
-(ns ^{:doc ""
-      :author "Kenneth Leung"}
+(ns
+  ^{:doc ""
+    :author "Kenneth Leung"}
 
   czlab.nettio.resp
 
-  (:require [czlab.niou.mime :as mm]
-            [czlab.niou.core :as cc]
-            [czlab.nettio.core :as nc]
-            [czlab.basal.log :as l]
-            [clojure.java.io :as io]
+  (:require [clojure.java.io :as io]
             [clojure.string :as cs]
-            [czlab.basal.dates :as d]
-            [czlab.basal.util :as u]
-            [czlab.basal.io :as i]
-            [czlab.basal.core :as c]
-            [czlab.niou.webss :as ss]
-            [czlab.nettio.ranges :as nr])
+            [czlab.nettio
+             [core :as nc]
+             [ranges :as nr]]
+            [czlab.niou
+             [mime :as mm]
+             [core :as cc]
+             [webss :as ss]]
+            [czlab.basal
+             [log :as l]
+             [util :as u]
+             [io :as i]
+             [core :as c]
+             [dates :as d]])
 
   (:import [io.netty.channel ChannelFuture Channel ChannelHandlerContext]
            [io.netty.buffer Unpooled ByteBuf ByteBufAllocator]

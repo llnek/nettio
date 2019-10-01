@@ -6,22 +6,25 @@
 ;; the terms of this license.
 ;; You must not remove this notice, or any other, from this software.
 
-(ns ^{:doc "Netty servers."
-      :author "Kenneth Leung"}
+(ns
+  ^{:doc "Netty servers."
+    :author "Kenneth Leung"}
 
   czlab.nettio.server
 
-  (:require [czlab.nettio.http11 :as h1]
-            [czlab.niou.routes :as cr]
-            [czlab.basal.log :as l]
-            [clojure.java.io :as io]
+  (:require [clojure.java.io :as io]
             [clojure.string :as cs]
-            [czlab.basal.core :as c]
-            [czlab.basal.util :as u]
-            [czlab.basal.io :as i]
-            [czlab.basal.xpis :as po]
-            [czlab.nettio.msgs :as mg]
-            [czlab.nettio.core :as nc])
+            [czlab.basal
+             [core :as c]
+             [log :as l]
+             [util :as u]
+             [io :as i]
+             [xpis :as po]]
+            [czlab.nettio
+             [msgs :as mg]
+             [core :as nc]
+             [http11 :as h1]]
+            [czlab.niou.routes :as cr])
 
   (:import [javax.net.ssl KeyManagerFactory TrustManagerFactory]
            [io.netty.handler.logging LogLevel LoggingHandler]

@@ -1,5 +1,4 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
 (defproject io.czlab/nettio "1.2.0"
 
   :license {:name "Eclipse Public License"
@@ -8,9 +7,9 @@
   :description "Http client and server library using netty."
   :url "https://github.com/llnek/nettio"
 
-  :dependencies [[io.netty/netty-tcnative-boringssl-static "2.0.25.Final"]
+  :dependencies [[io.netty/netty-tcnative-boringssl-static "2.0.26.Final"]
                  [org.javassist/javassist "3.25.0-GA"]
-                 [io.netty/netty-all "4.1.39.Final"]
+                 [io.netty/netty-all "4.1.42.Final"]
                  [io.czlab/niou "1.1.0"]]
 
   :plugins [[cider/cider-nrepl "0.22.2"]
