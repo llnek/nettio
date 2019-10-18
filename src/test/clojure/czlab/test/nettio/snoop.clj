@@ -10,7 +10,7 @@
   ^{:doc "Sample netty app - snoops on the request."
     :author "Kenneth Leung"}
 
-  czlab.nettio.apps.snoop
+  czlab.test.nettio.snoop
 
   (:gen-class)
 
@@ -56,9 +56,9 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;(set! *warn-on-reflection* true)
-(c/def- keep-alive (nc/akey<> :keepalive))
-(c/def- cookie-buf (nc/akey<> :cookies))
-(c/def- msg-buf (nc/akey<> :msg))
+(c/defonce- keep-alive (nc/akey<> :keepalive))
+(c/defonce- cookie-buf (nc/akey<> :cookies))
+(c/defonce- msg-buf (nc/akey<> :msg))
 (c/defonce- svr (atom nil))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

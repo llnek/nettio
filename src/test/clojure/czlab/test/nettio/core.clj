@@ -16,7 +16,7 @@
             [clojure
              [test :as ct]
              [string :as cs]]
-            [czlab.nettio.apps
+            [czlab.test.nettio
              [snoop :as sn]
              [files :as fs]
              [discard :as dc]]

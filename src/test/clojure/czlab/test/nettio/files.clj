@@ -10,7 +10,7 @@
   ^{:doc "Sample netty file server."
     :author "Kenneth Leung"}
 
-  czlab.nettio.apps.files
+  czlab.test.nettio.files
 
   (:gen-class)
 
