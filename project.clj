@@ -8,16 +8,21 @@
   :url "https://github.com/llnek/nettio"
 
   :dependencies [[io.netty/netty-tcnative-boringssl-static "2.0.26.Final"]
-                 [org.javassist/javassist "3.25.0-GA"]
+                 [commons-fileupload/commons-fileupload "1.4"]
+                 [net.sourceforge.jregex/jregex "1.2_01"]
+                 [javax.servlet/javax.servlet-api "4.0.1"]
+                 [org.javassist/javassist "3.26.0-GA"]
                  [io.netty/netty-all "4.1.42.Final"]
-                 [io.czlab/niou "1.1.0"]]
+                 [io.czlab/basal "1.1.0"]
+                 [io.czlab/twisty "1.1.0"]]
 
-  :plugins [[cider/cider-nrepl "0.22.2"]
+  :plugins [[cider/cider-nrepl "0.22.4"]
             [lein-javadoc "0.3.0"]
             [lein-cprint "1.3.1"]
             [lein-codox "0.10.7"]]
 
-  :test-selectors {:core :test-core}
+  :test-selectors {:niou :test-niou
+                   :nettio :test-nettio}
 
   :profiles {:provided {:dependencies
                         [[org.clojure/clojure "1.10.1" :scope "provided"]]}
@@ -36,6 +41,7 @@
   :java-source-paths ["src/main/java" "src/test/java"]
   :source-paths ["src/main/clojure"]
   :test-paths ["src/test/clojure"]
+  :resource-paths ["src/main/resources"]
 
   :jvm-opts ["-Dlog4j.configurationFile=file:attic/log4j2.xml"]
   :javac-options [;"-source" "8"

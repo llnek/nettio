@@ -1,0 +1,36 @@
+Return-Path: <joeblogg@gmail.com>
+Received: from [192.168.1.1] (c-26-7-108-89.hsd1.ca.comcast.net. [26.7.108.89])
+        by mx.google.com with ESMTPSA id qe10sm9975857pbb.2.2013.06.28.15.37.14
+        for <joeblogg@gmail.com>
+        (version=TLSv1 cipher=ECDHE-RSA-RC4-SHA bits=128/128);
+        Fri, 28 Jun 2013 15:37:15 -0700 (PDT)
+From: Joe Blogg <joeblogg@gmail.com>
+Content-Type: multipart/mixed; boundary="Apple-Mail=_2FCADE70-6325-41B3-9947-745C52BD62A9"
+Subject: Test Message
+Message-Id: <09E3A990-7581-48A1-A083-D8F12C7083D6@gmail.com>
+Date: Fri, 28 Jun 2013 15:37:13 -0700
+To: "joeblogg@gmail.com" <joeblogg@gmail.com>
+Mime-Version: 1.0 (Mac OS X Mail 6.5 \(1508\))
+X-Mailer: Apple Mail (2.1508)
+
+
+--Apple-Mail=_2FCADE70-6325-41B3-9947-745C52BD62A9
+Content-Transfer-Encoding: 7bit
+Content-Type: text/plain;
+	charset=us-ascii
+
+Hello , you have a message.
+
+
+--Apple-Mail=_2FCADE70-6325-41B3-9947-745C52BD62A9
+Content-Disposition: attachment;
+	filename=test.txt
+Content-Type: text/plain;
+	x-unix-mode=0644;
+	name="test.txt"
+Content-Transfer-Encoding: 7bit
+
+hello, how are things?
+
+
+--Apple-Mail=_2FCADE70-6325-41B3-9947-745C52BD62A9--
