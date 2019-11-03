@@ -10,7 +10,8 @@
 package czlab.nettio;
 
 import io.netty.channel.ChannelHandlerContext;
-
+import io.netty.channel.Channel;
+import io.netty.channel.ChannelPipeline;
 /**
  * @author Kenneth Leung
  */
@@ -19,7 +20,12 @@ public abstract class ChannelInizer extends io.netty.channel.ChannelInitializer 
   /*
    */
   protected ChannelInizer() {
-    super();
+    //super();
+  }
+
+  @Override
+  protected void initChannel(Channel ch) throws Exception {
+    onInitChannel(ch, ch.pipeline());
   }
 
   @Override
@@ -34,8 +40,10 @@ public abstract class ChannelInizer extends io.netty.channel.ChannelInitializer 
     try { onHandlerAdded(ctx); } catch (Throwable t) {}
   }
 
-  protected abstract void onError(ChannelHandlerContext ctx, Throwable cause);
-  protected abstract void onHandlerAdded(ChannelHandlerContext ctx);
+  protected void onError(ChannelHandlerContext ctx, Throwable cause) {}
+  protected void onHandlerAdded(ChannelHandlerContext ctx) {}
+
+  protected abstract void onInitChannel(Channel c, ChannelPipeline p);
 
 }
 
