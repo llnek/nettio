@@ -49,10 +49,12 @@
             BinaryWebSocketFrame]
            [io.netty.handler.codec.http.multipart
             HttpDataFactory
+            MixedAttribute
             HttpData
             FileUpload
             DiskAttribute
-            DiskFileUpload]
+            DiskFileUpload
+            InterfaceHttpPostRequestDecoder]
            [io.netty.handler.ssl
             OpenSsl
             SslHandler
@@ -151,6 +153,52 @@
   :SINGLE_EVENTEXECUTOR_PER_GROUP})
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(def ct-form-url "application/x-www-form-urlencoded")
+(def ct-form-mpart "multipart/form-data")
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defmacro ihprd?
+  "Isa InterfaceHttpPostRequestDecoder?"
+  [impl]
+  `(instance? io.netty.handler.codec.http.multipart.InterfaceHttpPostRequestDecoder ~impl))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defmacro offer!
+  "InterfaceHttpPostRequestDecoder.offer."
+  [impl part]
+  `(.offer
+     ~(with-meta
+        impl {:tag 'io.netty.handler.codec.http.multipart.InterfaceHttpPostRequestDecoder}) ~part))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defmacro mp-attr?
+  "Isa Attribute?"
+  [impl]
+  `(instance? io.netty.handler.codec.http.multipart.Attribute ~impl))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defmacro add->mp-attr!
+  "Add content to Attribute."
+  [impl part last?]
+  `(.addContent ~(with-meta impl
+                            {:tag 'io.netty.handler.codec.http.multipart.Attribute})
+                (czlab.nettio.core/retain! ~part) ~last?))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defmacro set-akey*
+  "Clear a set of attribute keys."
+  [ctx & args]
+  `(do ~@(map (fn [[k v]]
+                `(czlab.nettio.core/akey+ ~ctx ~k ~v)) args)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defmacro del-akey*
+  "Clear a set of attribute keys."
+  [ctx & args]
+  `(do ~@(map (fn [k]
+                `(czlab.nettio.core/akey- ~ctx ~k)) args)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defmacro chopt*
   [opt] `(ChannelOption/valueOf (str ~opt)))
 
@@ -176,9 +224,9 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defprotocol AttributeKeyAPI
-  (del-akey [_ k] "")
-  (get-akey [_ k] "")
-  (set-akey [_ k v] ""))
+  (akey- [_ k] "")
+  (akey?? [_ k] "")
+  (akey+ [_ k v] ""))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defprotocol ByteBufAPI
@@ -213,7 +261,7 @@
 (defprotocol HttpMessageAPI
   (get-uri-path [_] "")
   (get-uri-params [_] "")
-  (get-msg-charset [_] "")
+  (get-charset [_] "")
   (get-method [_] "")
   (add-header [_ h v] "")
   (set-header [_ h v] "")
@@ -347,6 +395,11 @@
         ApplicationProtocolConfig$SelectedListenerFailureBehavior/ACCEPT ps))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn data-attr<>
+  ""
+  [size] (MixedAttribute. body-id size))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn put-post?
   "Http PUT or POST?"
   [x] (or (= x :post)(= x :put)))
@@ -472,18 +525,18 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (extend-protocol AttributeKeyAPI
   ChannelHandlerContext
-  (del-akey [_ key]
-    (del-akey (.channel _) key))
-  (get-akey [_ key]
-    (get-akey (.channel _) key))
-  (set-akey [_ key val]
-    (set-akey (.channel _) key val))
+  (akey- [_ key]
+    (akey- (.channel _) key))
+  (akey?? [_ key]
+    (akey?? (.channel _) key))
+  (akey+ [_ key val]
+    (akey+ (.channel _) key val))
   Channel
-  (del-akey [_ key]
-    (set-akey _ key nil))
-  (get-akey [_ key]
+  (akey- [_ key]
+    (akey+ _ key nil))
+  (akey?? [_ key]
     (some-> (.attr _ ^AttributeKey key) .get))
-  (set-akey [_ key val]
+  (akey+ [_ key val]
     (some-> (.attr _ ^AttributeKey key) (.set val)) val))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -510,7 +563,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn dfac??
-  ^HttpDataFactory [ctx] (get-akey ctx dfac-key))
+  ^HttpDataFactory [ctx] (akey?? ctx dfac-key))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn retain!
@@ -534,6 +587,11 @@
      (if wrap? (XData. r) r))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn get-mp-attr
+  [a]
+  (c/do-with [r (get-http-data a)] (ref-del a)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn config-disk-files
   "Configure temp-files repo."
   [delExit? fDir]
@@ -544,13 +602,24 @@
   (l/info "netty temp-file-repo: %s." fDir))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defmacro last-part?
+  [p]
+  `(instance? io.netty.handler.codec.http.LastHttpContent ~p))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn decoder-result
   ^DecoderResult [msg]
   (some-> (c/cast? DecoderResultProvider msg) .decoderResult))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn decoder-success?
-  [msg] (if-some [r (decoder-result msg)] (.isSuccess r) true))
+(defmacro decoder-err?
+  [m] `(not (decoder-ok? ~m)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defmacro decoder-ok?
+  [m]
+  `(if-some
+     [~'r (czlab.nettio.core/decoder-result ~m)] (.isSuccess ~'r) true))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn get-ssl??
@@ -563,7 +632,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn match-one-route??
   [ctx msg]
-  (let [c (get-akey ctx routes-key)
+  (let [c (akey?? ctx routes-key)
         {u :uri u2 :uri2 m :request-method} msg]
     (l/debug "match route for path: %s." u2)
     (or (if (and c
@@ -806,7 +875,7 @@
                               (.get (h1hdr* ACCEPT_CHARSET)))]
       (or (->> (c/split cs "[,;\\s]+")
                (some #(c/try! (u/charset?? %)))) (u/charset??))))
-  (get-msg-charset [msg]
+  (get-charset [msg]
     (HttpUtil/getCharset msg (Charset/forName "utf-8")))
   (get-header [msg h] (.get (.headers msg) ^String h))
   (has-header? [msg h] (.contains (.headers msg) ^String h))
@@ -861,7 +930,7 @@
     (write-msg inv (BinaryWebSocketFrame. (x->bbuf inv b)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- akey??
+(defn- akey*
   [k] (let [s (c/sname k)]
         (if-not (AttributeKey/exists s)
           (AttributeKey/newInstance s) (AttributeKey/valueOf s))))
@@ -869,9 +938,9 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (extend-protocol cc/SocketAttrProvider
   Channel
-  (socket-attr-get [c k] (get-akey c (akey?? k)))
-  (socket-attr-del [c k] (del-akey c (akey?? k)))
-  (socket-attr-set [c k a] (set-akey c (akey?? k) a)))
+  (socket-attr-get [c k] (akey?? c (akey* k)))
+  (socket-attr-del [c k] (akey- c (akey* k)))
+  (socket-attr-set [c k a] (akey+ c (akey* k) a)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn dbg-ref-count

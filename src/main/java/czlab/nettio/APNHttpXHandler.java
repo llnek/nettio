@@ -12,6 +12,7 @@ package czlab.nettio;
 import io.netty.handler.ssl.ApplicationProtocolNegotiationHandler;
 import io.netty.handler.ssl.ApplicationProtocolNames;
 import io.netty.channel.Channel;
+import io.netty.channel.ChannelPipeline;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 
@@ -30,16 +31,16 @@ public abstract class APNHttpXHandler
   protected void configurePipeline(ChannelHandlerContext ctx, String protocol)
   throws Exception {
     if (ApplicationProtocolNames.HTTP_2.equals(protocol)) {
-      cfgH2(ctx);
+      cfgH2(ctx.pipeline());
     } else if (ApplicationProtocolNames.HTTP_1_1.equals(protocol)) {
-      cfgH1(ctx);
+      cfgH1(ctx.pipeline());
     } else {
       throw new IllegalStateException("unknown protocol: " + protocol);
     }
   }
 
-  protected abstract void cfgH2(ChannelHandlerContext ctx) throws Exception;
-  protected abstract void cfgH1(ChannelHandlerContext ctx) throws Exception;
+  protected abstract void cfgH2(ChannelPipeline p) throws Exception;
+  protected abstract void cfgH1(ChannelPipeline p) throws Exception;
 
 }
 

@@ -180,7 +180,7 @@
                                     (CloseWebSocketFrame.)))))
            (n/nobs! bs ch))))
      (h1c-finz [bs ^Channel ch]
-       (let [f (n/get-akey ch n/dfac-key)]
+       (let [f (n/akey?? ch n/dfac-key)]
          (n/cf-cb (.closeFuture ch)
                   (c/fn_1 (.cleanAllHttpData ^H1DataFactory f)
                           (n/nobs! bs nil)
@@ -195,7 +195,7 @@
                    r
                    (c/is? H2Inizor hint)
                    (try (let [^ChannelPromise
-                              pm (n/get-akey r h2s-key)]
+                              pm (n/akey?? r h2s-key)]
                           (l/debug "client waits %s[ms] for h2-settings." ms)
                           (u/assert-ISE
                             (.awaitUninterruptibly pm
@@ -208,7 +208,7 @@
                    :else
                    (let [x (cconn<> bs r)]
                      (if (c/is? WSInizor hint)
-                       (n/set-akey r n/cc-key x)) x))))))]
+                       (n/akey+ r n/cc-key x)) x))))))]
     (let [[^Bootstrap bs args]
           (bootstrap! (assoc args
                              :protocol
@@ -318,7 +318,7 @@
               (HttpUtil/setContentLength req clen))))
       (l/debug (str "about to flush out req (headers), "
                     "isKeepAlive= %s, content-length= %s") keep-alive? clen)
-      (c/do-with [out (n/set-akey ch rsp-key (promise))]
+      (c/do-with [out (n/akey+ ch rsp-key (promise))]
         (let [cf (.write ch req)
               cf (condp instance? body
                    File

@@ -41,105 +41,22 @@
 ;;(set! *warn-on-reflection* true)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- start-server
-  [server options]
-  (letfn
-    [(ssvr [bs host port]
-       (let [bs (c/cast? AbstractBootstrap bs)
-             bs' (c/cast? ServerBootstrap bs)
-             ^H1DataFactory
-             dfac (some-> bs'
-                          .config
-                          .childAttrs (.get n/dfac-key))
-             ip (if (c/nichts? host)
-                  (InetAddress/getLocalHost)
-                  (InetAddress/getByName host))]
-         (c/do-with [ch (.. bs
-                            (bind ip (int port)) sync channel)]
-           (l/info "netty-server starting on %s:%s." ip port)
-           (n/cf-cb (.closeFuture ch)
-                    (c/fn_1 (c/try! (some-> dfac .cleanAllHttpData))
-                            (c/try! (some-> bs'
-                                            .config
-                                            .childGroup .shutdownGracefully))
-                            (c/try! (.. bs config group shutdownGracefully))
-                            (l/debug "server bootstrap@ip %s stopped." ip))))))]
-    (let [{:keys [host port block?]} options
-          {:keys [bootstrap channel]} server
-          p (if (c/is? ServerBootstrap bootstrap) 80 4444)]
-      (->> (c/num?? port p)
-           (ssvr bootstrap host)
-           (aset #^"[Ljava.lang.Object;" channel 0))
-      (if block? (u/block!)))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- stop-server
-  [server]
-  (let [{:keys [channel]} server
-        ^Channel ch (c/_1 channel)]
-    (l/debug "stopping channel: %s." ch)
-    (aset #^"[Ljava.lang.Object;" channel 0 nil)
-    (c/try! (if (and ch (.isOpen ch)) (.close ch)))))
+  [{:keys [channel] :as server}]
+  (let [^Channel ch (nth channel 0)]
+    (when (some-> ch .isOpen)
+      (c/try! (.close ch)
+              (l/debug "stopped channel: %s." ch)))
+    (-> (dissoc server :host :port)
+        (assoc :impl nil :channel nil :started? false))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defrecord NettyServer []
-  po/Startable
-  (stop [_] (stop-server _))
-  (start [_] (.start _ nil))
-  (start [_ options] (start-server _ options)))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn udp-server<>
-
-  "A UDP Server using netty."
-  [args]
-  {:pre [(map? args)]}
-
-  (l/info "inside udp-server ctor().")
+(defn- build<tcp>
+  [server]
+  (l/debug "about to build a web-server...")
   (let [{:as args'
-         :keys [inizor threads rcv-buf options]}
-        (merge {:threads 0
-                :rcv-buf (* 2 c/MegaBytes)} args)
-        bs (Bootstrap.)
-        [g z] (n/group+channel threads :udps)]
-    (l/info "setting server options...")
-    (doseq [[k v] (partition 2 (or options
-                                   [:TCP_NODELAY true
-                                    :SO_BROADCAST true
-                                    :SO_RCVBUF (int rcv-buf)]))]
-      (.option bs (n/chopt* k) v))
-
-    (if (pos? threads)
-      (l/info "threads=%s." threads)
-      (l/info "threads=0, netty default to 2*num_of_processors"))
-
-    (doto bs
-       (.channel z)
-       (.group g)
-       (.handler ^ChannelHandler
-                 (if (fn? inizor)
-                   (inizor args)
-                   (iz/udp-inizor<> args))))
-
-     (l/info "netty-udp-server created - ok.")
-     (c/object<> NettyServer
-                 :bootstrap bs
-                 :channel (object-array 1))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn web-server<>
-
-  "A Web Server using netty."
-
-  [args]
-  {:pre [(map? args)]}
-
-  (l/info "inside web-server ctor().")
-  (let [{:as args'
-         :keys [boss workers routes rcv-buf
-                options temp-dir inizor
-                server-key passwd
-                backlog max-msg-size max-mem-size]}
+         :keys [boss workers routes rcv-buf options temp-dir inizor
+                server-key passwd backlog max-msg-size max-mem-size]}
         (merge {:max-msg-size Integer/MAX_VALUE
                 :temp-dir i/*tempfile-repo*
                 :backlog c/KiloBytes
@@ -147,63 +64,163 @@
                 :boss 1
                 :routes nil
                 :rcv-buf (* 2 c/MegaBytes)
-                :max-mem-size i/*membuf-limit*} args)
+                :max-mem-size i/*membuf-limit*} (:args server))
+         args' (dissoc args' :routes :options)
          bs (ServerBootstrap.)
-         args' (dissoc args'
-                       :routes :options)
          [^EventLoopGroup g
           ^ChannelHandler z] (n/group+channel boss :tcps)
-         [^EventLoopGroup g' _] (n/group+channel workers :tcps)]
+         [^EventLoopGroup g' _] (n/group+channel workers :tcps)
+         hdlr (if (fn? inizor)
+                (inizor args')
+                (if (c/nichts? server-key)
+                  (iz/web-inizor<> args')
+                  (iz/web-ssl-inizor<> server-key passwd args')))]
+    (n/config-disk-files true (u/fpath temp-dir))
+    (if (pos? workers)
+      (l/info "threads=%s." workers)
+      (l/info "threads= 2*num_of_processors."))
+    (l/debug "setting child options...")
+    (doseq [[k v] (partition 2 (or (:child options)
+                                   [:TCP_NODELAY true
+                                    :SO_RCVBUF (int rcv-buf)]))]
+      (.childOption bs (n/chopt* k) v))
+    (l/debug "setting server options...")
+    (doseq [[k v] (partition 2 (or (:server options)
+                                   [:SO_REUSEADDR true
+                                    :SO_BACKLOG (int backlog)]))]
+      (.option bs (n/chopt* k) v))
 
-     (l/info "setting child options...")
-     (doseq [[k v]
-             (partition 2
-                        (or (:child options)
-                            [:TCP_NODELAY true
-                             :SO_RCVBUF (int rcv-buf)]))]
-       (.childOption bs (n/chopt* k) v))
+    (.group bs g g')
+    (.channel bs z)
+    (.childHandler bs ^ChannelHandler hdlr)
+    (.handler bs (LoggingHandler. LogLevel/INFO))
 
-     (l/info "setting server options...")
-     (doseq [[k v]
-             (partition 2
-                        (or (:server options)
-                            [:SO_REUSEADDR true
-                             :SO_BACKLOG (int backlog)]))]
-       (.option bs (n/chopt* k) v))
+    (l/debug "set generic attributes for all channels...")
+    (.childAttr bs n/chcfg-key args')
+    (.childAttr bs
+                n/dfac-key
+                (H1DataFactory. (int max-mem-size)))
 
-     (if (pos? workers)
-       (l/info "threads=%s." workers)
-       (l/info "threads=0, netty default to 2*num_of_processors."))
+    (l/debug "routes provided: %s." (not-empty routes))
+    (when-not (empty? routes)
+      (l/debug "creating routes cracker...")
+      (->> (cr/route-cracker<> routes)
+           (.childAttr bs n/routes-key)))
 
-     (doto bs
-       (.channel z)
-       (.group g g')
-       (.handler (LoggingHandler. LogLevel/INFO))
-       (.childHandler ^ChannelHandler
-                      (if (fn? inizor)
-                        (inizor args)
-                        (if (c/nichts? server-key)
-                          (iz/web-inizor<> args)
-                          (iz/web-ssl-inizor<> server-key passwd args)))))
+    (try (assoc server
+                :impl bs
+                :channel (object-array 1))
+         (finally
+           (l/debug "web-server implemented - ok.")))))
 
-     (l/info "assigning generic attributes for all channels...")
-     (doto bs
-       (.childAttr n/chcfg-key args')
-       (.childAttr n/dfac-key
-                   (H1DataFactory. (int max-mem-size))))
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn- start<tcp>
+  [server options]
+  (letfn
+    [(ssvr [bs host port]
+       (let [bs' (c/cast? ServerBootstrap bs)
+             ^H1DataFactory
+             dfac (some-> bs' .config .childAttrs (.get n/dfac-key))
+             ip (if (c/nichts? host)
+                  (InetAddress/getLocalHost)
+                  (InetAddress/getByName host))
+             quit
+             (c/fn_1 (c/try! (some-> dfac .cleanAllHttpData))
+                     (c/try! (some-> bs' .config .childGroup .shutdownGracefully))
+                     (c/try! (.. bs' config group shutdownGracefully))
+                     (l/debug "server @ip %s stopped." ip))]
+         (c/do-with [ch (.. bs' (bind ip (int port)) sync channel)]
+           (l/info "web-server starting on %s:%s." ip port)
+           (n/cf-cb (.closeFuture ch) quit))))]
+    (u/assert-ISE (not (:started? server)) "server running!")
+    (let [server (build<tcp> server)
+          {:keys [host port]} options
+          {:keys [impl channel]} server
+          port (c/num?? port 80)
+          host (c/stror host n/lhost-name)]
+      (->> (ssvr impl host port)
+           (aset #^"[Ljava.lang.Object;" channel 0))
+      (assoc server :started? true :host host :port port))))
 
-     (l/info "routes provided: %s." (not-empty routes))
-     (when-not (empty? routes)
-       (l/info "creating routes cracker...")
-       (->> (cr/route-cracker<> routes)
-            (.childAttr bs n/routes-key)))
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn- build<udp>
+  [server]
+  (let [{:as args'
+         :keys [inizor threads options]}
+        (merge {:threads 0
+                :rcv-buf (* 2 c/MegaBytes)} (:args server))
+        bs (Bootstrap.)
+        [^EventLoopGroup g ^ChannelHandler z] (n/group+channel threads :udps)]
 
-     ;(l/debug "args = %s" (i/fmt->edn args'))
+    (if (pos? threads)
+      (l/info "threads=%s." threads)
+      (l/info "threads= 2*num_of_processors"))
 
-     (n/config-disk-files true (u/fpath temp-dir))
-     (l/info "netty-tcp-server created - ok.")
-     (c/object<> NettyServer
-                 :bootstrap bs :channel (object-array 1))))
+    (l/debug "setting server options...")
+    (doseq [[k v] (partition 2 (or options
+                                   [:SO_BROADCAST true]))]
+      (.option bs (n/chopt* k) v))
+
+    (.channel bs z)
+    (.group bs g)
+    (.handler bs
+              ^ChannelHandler
+              (if (fn? inizor)
+                (inizor args')
+                (iz/udp-inizor<> args')))
+
+    (try (assoc server :impl bs :channel (object-array 1))
+         (finally (l/debug "udp-server implemented - ok.")))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn- start<udp>
+  [server options]
+  (letfn
+    [(ssvr [bs host port]
+       (let [bs (c/cast? Bootstrap bs)
+             ip (if (c/nichts? host)
+                  (InetAddress/getLocalHost)
+                  (InetAddress/getByName host))
+             quit (c/fn_1 (c/try! (.. bs config group shutdownGracefully))
+                          (l/debug "server @ip %s stopped." ip))]
+         (c/do-with [ch (.. bs (bind ip (int port)) sync channel)]
+           (l/info "udp-server starting on %s:%s." ip port)
+           (n/cf-cb (.closeFuture ch) quit))))]
+    (u/assert-ISE (not (:started? server)) "server running!")
+    (let [server (build<udp> server)
+          {:keys [host port]} options
+          {:keys [impl channel]} server
+          port (c/num?? port 4444)
+          host (c/stror host n/lhost-name)]
+      (->> (ssvr impl host port)
+           (aset #^"[Ljava.lang.Object;" channel 0))
+      (assoc server :started? true :host host :port port))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defrecord NettyTcpServer []
+  po/Startable
+  (stop [_] (stop-server _))
+  (start [_] (.start _ nil))
+  (start [_ options] (start<tcp> _ options)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defrecord NettyUdpServer []
+  po/Startable
+  (stop [_] (stop-server _))
+  (start [_] (.start _ nil))
+  (start [_ options] (start<udp> _ options)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn udp-server<>
+  "A UDP Server using netty."
+  [args]
+  (c/object<> NettyUdpServer :args args))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn web-server<>
+  "A Web Server using netty."
+  [args]
+  (c/object<> NettyTcpServer :args args))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF

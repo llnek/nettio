@@ -75,8 +75,8 @@
   ([^ChannelPromise pm]
    (letfn
      [(finito [ctx ^String sid]
-        (let [^Map hh (n/get-akey ctx h2msgHkey)
-              ^Map dd (n/get-akey ctx h2msgDkey)
+        (let [^Map hh (n/akey?? ctx h2msgHkey)
+              ^Map dd (n/akey?? ctx h2msgDkey)
               [^HttpRequest fake ^Attribute attr]
               (some-> dd (.get sid))
               hds (some-> hh (.get sid))]
@@ -90,8 +90,8 @@
                                        :headers (netty-headers->ring hds)))
                (finally (some-> attr .release)))))
       (read-frame [ctx ^String sid]
-        (let [^Map m (or (n/get-akey ctx h2msgDkey)
-                         (n/set-akey ctx h2msgDkey (HashMap.)))
+        (let [^Map m (or (n/akey?? ctx h2msgDkey)
+                         (n/akey+ ctx h2msgDkey (HashMap.)))
               [fake _] (.get m sid)]
           (if (nil? fake)
             (let [r (n/fake-req<>)]
@@ -99,7 +99,7 @@
                     sid
                     [r (.createAttribute (n/dfac?? ctx) r n/body-id)])))))
       (read-frame-ex [ctx ^String sid data end?]
-        (let [^Map m (n/get-akey ctx h2msgDkey)
+        (let [^Map m (n/akey?? ctx h2msgDkey)
               ^Attribute attr (c/_2 (.get m sid))]
           (.addContent attr
                        (.retain ^ByteBuf data) (boolean end?))
@@ -117,18 +117,17 @@
                  (read-frame-ex ctx sid data end?)))
              (onHeadersRead [ctx sid hds pad end?]
                (l/debug "rec'ved h2-headers: sid#%s, end?=%s." sid end?)
-               (let [m (or (n/get-akey h2msgHkey ctx)
-                           (n/set-akey h2msgHkey ctx (HashMap.)))]
+               (let [m (or (n/akey?? h2msgHkey ctx)
+                           (n/akey+ h2msgHkey ctx (HashMap.)))]
                  (.put ^Map m sid hds)
                  (if end? (finito ctx sid)))))))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn hx-pipeline
-  [ch args]
+  [p args]
   (let [{:keys [user-handler user-cb
                 cors-cfg max-msg-size]} args
         conn (DefaultHttp2Connection. true)
-        p (n/cpipe?? ch)
         listener (-> (InboundHttp2ToHttpAdapterBuilder. conn)
                      (.maxContentLength (int max-msg-size))
                      (.validateHttpHeaders false)
@@ -149,9 +148,8 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn h2-pipeline
-  [ch args]
-  (let [p (n/cpipe?? ch)
-        {:keys [user-handler user-cb]} args]
+  [p args]
+  (let [{:keys [user-handler user-cb]} args]
     (n/pp->last p "codec" (h2-aggregator<>))
     (n/pp->last p "user-func" (n/app-handler user-handler user-cb))))
 
