@@ -132,7 +132,7 @@
         (if-not (.equals "2" protocol)
           (do
             (n/pp->last pp "codec" (HttpClientCodec.))
-            (n/pp->last pp "aggregator" (h1/http-adder args))
+            ;(n/pp->last pp "aggregator" (h1/http-adder args))
             (n/pp->last pp "chunker" (ChunkedWriteHandler.))
             (n/pp->last pp "user-cb" client-hdlr))
           (do
@@ -153,7 +153,7 @@
       (deliver rcp e))
     (onInitChannel [ch pp]
       (n/pp->last pp "codec" (HttpClientCodec.))
-      (n/pp->last pp "aggregator" (h1/http-adder args))
+      ;(n/pp->last pp "aggregator" (h1/http-adder args))
       (n/pp->last pp "chunker" (ChunkedWriteHandler.))
       (n/pp->last pp "user-cb" client-hdlr))))
 
@@ -221,7 +221,7 @@
                     (wsh<>
                       (WebSocketClientHandshakerFactory/newHandshaker
                         uri WebSocketVersion/V13 nil true (DefaultHttpHeaders.))))
-        (n/pp->last pp "ws-agg" h1/websock-adder)
+        ;(n/pp->last pp "ws-agg" h1/websock-adder)
         (n/pp->last pp "ws-user" (wsock-hdlr))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

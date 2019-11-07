@@ -24,13 +24,15 @@
             [czlab.niou.routes :as cr])
 
   (:import [io.netty.handler.stream ChunkedWriteHandler]
+           [java.util ArrayList HashMap Map List]
            [io.netty.handler.codec.http.cors
             CorsConfig
             CorsHandler]
            [java.net URL InetSocketAddress]
-           [java.util ArrayList Map List]
-           [czlab.nettio DuplexHandler]
-           [czlab.basal XData]
+           [czlab.nettio
+            DuplexHandler
+            InboundHandler]
+           [czlab.basal FailFast XData]
            [io.netty.util AttributeKey]
            [io.netty.handler.codec.http
             LastHttpContent
@@ -58,9 +60,12 @@
             ChannelHandlerContext]
            [io.netty.handler.codec.http.websocketx
             WebSocketFrame
+            PingWebSocketFrame
             PongWebSocketFrame
             TextWebSocketFrame
+            CloseWebSocketFrame
             BinaryWebSocketFrame
+            WebSocketFrameAggregator
             ContinuationWebSocketFrame
             WebSocketServerProtocolHandler]
            [io.netty.handler.codec.http.multipart
@@ -75,16 +80,14 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;(set! *warn-on-reflection* true)
 
+(c/def- ct-form-url "application/x-www-form-urlencoded")
+(c/def- ct-form-mpart "multipart/form-data")
+(c/def- hd-upgrade "upgrade")
+(c/def- hd-websocket "websocket")
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defprotocol Netty->RingMap
   (netty->ring [_ ctx body] ""))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(c/defonce- ^AttributeKey wsock-rkey (n/akey<> :wsock-res))
-(c/defonce- ^AttributeKey h1p-qkey (n/akey<> :h1pipe-q))
-(c/defonce- ^AttributeKey h1p-ckey (n/akey<> :h1pipe-c))
-(c/defonce- ^AttributeKey h1p-mkey (n/akey<> :h1pipe-m))
-(c/defonce- ^AttributeKey h1p-dkey (n/akey<> :h1pipe-d))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;reusables
@@ -100,12 +103,6 @@
      (czlab.nettio.core/dfac?? ~ctx)
      ~(with-meta msg {:tag 'HttpRequest})
      (czlab.nettio.core/get-charset ~msg)))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(c/defmacro- has-next?
-  [deco]
-  `(try (.hasNext ~deco)
-        (catch HttpPostRequestDecoder$EndOfDataDecoderException ~'_ false)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- headers->map
@@ -124,17 +121,6 @@
       (assoc acc
              n
              (mapv #(str %) (.get params n)))) (.keySet params)))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(c/defmacro- finz-decoder
-  [impl]
-  `(some-> (c/cast? InterfaceHttpPostRequestDecoder ~impl) .destroy))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(c/defmacro- not-cont-100?
-  [msg]
-  `(not= HttpResponseStatus/CONTINUE
-         (some-> (c/cast? FullHttpResponse ~msg) .status)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (extend-protocol Netty->RingMap
@@ -208,281 +194,315 @@
                   (assoc m :route {:status? true})))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn continue-expected??
+(c/def- ws-monolith<>
   ^ChannelHandler
-  [{:keys [max-msg-size] :as args}]
-  (proxy [DuplexHandler][]
-    (readMsg [ctx msg]
-      (when (n/hreq? msg)
-        (n/akey+ ctx n/req-key msg)
-        (if (HttpUtil/is100ContinueExpected msg)
-          (let [err? (and (pos? max-msg-size)
-                          (HttpUtil/isContentLengthSet msg)
-                          (> (HttpUtil/getContentLength msg) max-msg-size))]
-            (-> (->> (if-not err?
-                       expected-ok expected-failed)
-                     (n/write-msg ctx))
-                (n/cf-cb (if err? (n/cfop<z>)))))))
-      (n/fire-msg ctx msg))))
+  (proxy [InboundHandler][true]
+    (on_read [ctx msg]
+      (when-some [bb (cond
+                       (c/is? PingWebSocketFrame msg)
+                       (c/do#nil
+                         (n/write-msg ctx (PongWebSocketFrame.)))
+                       (c/is? CloseWebSocketFrame msg)
+                       (c/do#nil (n/close! ctx))
+                       (or (c/is? TextWebSocketFrame msg)
+                           (c/is? BinaryWebSocketFrame msg))
+                       (.content ^WebSocketFrame msg))]
+        (->> (wsmsg<> {:body (XData. (n/bbuf->bytes bb))
+                       :is-text? (c/is? TextWebSocketFrame msg)})
+             (n/fire-msg ctx))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn http-adder
-  "A handler which aggregates chunks into a full request.  For http-header-expect,
-  returns 100-continue if the payload size is below limit.  Also optionally handle
-  http 1.1 pipelining by default."
-  ^ChannelHandler
-  [{:keys [h1-pipelining?
-           max-mem-size max-msg-size] :as args}]
+(defn- cfg-websock
+  [^ChannelHandlerContext ctx ^HttpRequest req]
+  (let [cc (n/cache?? ctx)
+        path (.path (QueryStringDecoder. (.uri req)))
+        {:keys [wsock-path max-frame-size]} (n/chcfg?? ctx)]
+    (when-not (.equals path wsock-path)
+      (c/mdel! cc :mode)
+      (n/reply-status ctx (n/scode* FORBIDDEN))
+      (u/throw-FFE "mismatch websock path in config."))
+    (let [cn (.name ctx)
+          pp (n/cpipe?? ctx)
+          q (c/mget cc :queue)
+          mock (DefaultFullHttpRequest.
+                 (.protocolVersion req)
+                 (.method req) (.uri req))]
+      ;websock, so no pipeline!
+      (.clear ^List q)
+      ;fake the headers
+      (.add (.headers mock)
+            (.headers req))
+      ;alter pipeline
+      (n/pp->next pp cn
+                  "WSSCH" (WebSocketServerCompressionHandler.))
+      (n/pp->next pp "WSSCH"
+                  "WSSPH" (WebSocketServerProtocolHandler. path nil true))
+      (n/pp->next pp "WSSPH"
+                  "WSACC" (WebSocketFrameAggregator. max-frame-size))
+      (n/pp->next pp "WSACC" "wsock" ws-monolith<>)
+
+      (n/safe-remove-handler* pp
+                              [HttpContentDecompressor
+                               HttpContentCompressor
+                               CorsHandler
+                               ChunkedWriteHandler "h1" cn])
+      (n/dbg-pipeline pp)
+      (n/fire-msg ctx mock))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn- clear-adder!
+  [ctx]
+  (let [impl (c/mdel! (n/cache?? ctx) :adder)]
+    (c/try!
+      (some-> (c/cast? Attribute impl) .release))
+    (c/try!
+      (some-> (c/cast? InterfaceHttpPostRequestDecoder impl) .destroy))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn- assert-decoded-ok!
+  "Make sure message is structurally ok."
+  [ctx msg]
+  (when (n/decoder-err? msg)
+    (->> (n/scode* BAD_REQUEST)
+         (n/reply-status ctx))
+    (u/throw-FFE "bad request.")))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn- do-read-part
+  [ctx ^HttpContent part]
+  (let [end? (n/last-part? part)
+        cc (n/cache?? ctx)
+        impl (c/mget cc :adder)]
+    (l/debug "received%schunk: %s."
+             (if end? " last " " ") part)
+    (cond (n/ihprd? impl)
+          (n/offer! impl part)
+          (n/mp-attr? impl)
+          (n/add->mp-attr! impl part end?))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn- do-last-part
+  [ctx ^LastHttpContent part]
+  (let [cc (n/cache?? ctx)
+        ^HttpMessage
+        msg (c/mget cc :msg)
+        impl (c/mget cc :adder)
+        body (if-not (n/ihprd? impl)
+               (n/get-mp-attr impl)
+               (n/parse-form-multipart impl))
+        gist (do (.add (.headers msg)
+                       (.trailingHeaders part))
+                 (netty->ring msg ctx body))]
+    (c/mdel! cc :msg)
+    (clear-adder! ctx)
+    gist))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn- on-content
+  [ctx part]
+  (try
+
+    (assert-decoded-ok! ctx part)
+    (do-read-part ctx part)
+
+    (catch Throwable e
+      (if (c/!is? FailFast e) (throw e)))
+    (finally
+      (n/ref-del part))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn- do-100-cont
+  [ctx req]
   (letfn
-    [(form?? [msg]
-       (if (n/hreq? msg)
-         (let [post? (n/put-post? (n/get-method msg))
-               ct (c/lcase (n/get-header msg (n/h1hdr* CONTENT_TYPE)))]
-           (cond (c/embeds? ct n/ct-form-url)
+    [(cont-100? []
+       (let [{:keys [max-msg-size]}
+             (n/chcfg?? ctx)
+             err? (and (pos? max-msg-size)
+                       (HttpUtil/isContentLengthSet req)
+                       (> (HttpUtil/getContentLength req) max-msg-size))]
+         (-> (->> (if-not err?
+                    expected-ok expected-failed)
+                  (n/write-msg ctx))
+             (n/cf-cb (if err? (n/cfop<z>))))
+         (not err?)))]
+    (if (and (HttpUtil/is100ContinueExpected req)
+             (not (cont-100?)))
+      (u/throw-FFE "failed 100 continue."))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn- do-cache-req
+  [ctx req]
+  (let [m (n/get-method req)
+        post? (n/put-post? m)
+        ct (->> (n/h1hdr* CONTENT_TYPE)
+                (n/get-header req) c/lcase)
+        ws? (and (= :get m)
+                 (-> (->> (n/h1hdr* UPGRADE)
+                          (n/get-header req) c/lcase)
+                     (c/embeds? hd-websocket))
+                 (-> (->> (n/h1hdr* CONNECTION)
+                          (n/get-header req) c/lcase)
+                     (c/embeds? hd-upgrade)))
+        rc (cond (c/embeds? ct ct-form-url)
                  (if post? :post :url)
                  (and post?
-                      (c/embeds? ct n/ct-form-mpart)) :multipart))))
-     (parse-post [^InterfaceHttpPostRequestDecoder deco]
-       (l/debug "about to parse a form-post, decoder: %s." deco)
-       (loop [out (cu/form-items<>)]
-         (if-not (has-next? deco)
-           (try (XData. out)
-                (finally (.destroy deco)))
-           (let [n (.next deco)
-                 nm (.getName n)
-                 b (n/get-http-data n true)]
-             (->> (or (if-some
-                        [u (c/cast? FileUpload n)]
-                        (cu/file-item<>
-                          false
-                          (.getContentType u)
-                          nil
-                          nm
-                          (.getFilename u) b))
-                      (if-some
-                        [a (c/cast? Attribute n)]
-                        (cu/file-item<> true "" nil nm "" b))
-                      (u/throw-IOE "Bad http data."))
-                  (cu/add-item out) recur)))))
-     (add?? [impl part last?]
-       (cond (n/ihprd? impl)
-             (n/offer! impl part)
-             (n/mp-attr? impl)
-             (n/add->mp-attr! impl part last?)))
-     (err?? [msg ctx]
-       (if-not (n/hreq? msg)
-         (n/close! ctx)
-         (n/reply-status ctx (n/scode* BAD_REQUEST))))
-     (h1pipe [gist ctx]
-       (let [cur (n/akey?? ctx h1p-ckey)
-             pipeQ (n/akey?? ctx h1p-qkey)]
-         (if (some? cur)
-           (.add ^List pipeQ gist) ;hold it
-           (do (n/akey+ ctx h1p-ckey gist)
-               (n/fire-msg ctx gist)))))
-     (last-part [ctx]
-       (let [impl (n/akey?? ctx h1p-dkey)
-             msg (n/akey?? ctx h1p-mkey)
-             gist (->> (if (n/ihprd? impl)
-                         (parse-post impl)
-                         (n/get-mp-attr impl))
-                       (netty->ring msg ctx))]
-         (n/del-akey* ctx h1p-mkey h1p-dkey)
-         (if h1-pipelining?
-           (h1pipe gist ctx)
-           (n/fire-msg ctx gist))))
-     (read-part [ctx part]
-       (let [end? (n/last-part? part)
-             impl (n/akey?? ctx h1p-dkey)]
-         (l/debug "received%schunk: %s."
-                  (if end? " last " " ") part)
-         (try (if (n/decoder-err? part)
-                (err?? impl ctx)
-                (do (add?? impl part end?)
-                    (if end? (last-part ctx))))
-              (finally (n/ref-del part)))))]
-    (proxy [DuplexHandler][]
-      (onInactive [ctx]
-        (n/del-akey* ctx h1p-qkey h1p-mkey h1p-ckey))
-      (onActive [ctx]
-        (n/set-akey* ctx
-                     [h1p-mkey nil]
-                     [h1p-ckey nil]
-                     [h1p-qkey (ArrayList.)]))
-      (onWrite [ctx msg _]
-        (if (and h1-pipelining?
-                 (not-cont-100? msg)
-                 (c/or?? [msg instance?]
-                         LastHttpContent
-                         FullHttpResponse))
-          (let [cur (n/akey?? ctx h1p-ckey)
-               ^List q (n/akey?? ctx h1p-qkey)]
-           (u/assert-ISE (some? cur) "h1pipeline corrupt!")
-           (c/doto->> (if-not
-                        (.isEmpty q) (.remove q 0))
-             (n/akey+ ctx h1p-ckey)
-             (n/fire-msg ctx)))))
-      (readMsg [ctx msg]
-        ;(l/debug "reading msg: %s." (u/gczn msg))
-        (condp instance? msg
-          HttpMessage
-          (if (n/decoder-err? msg)
-            (if-not (n/hreq? msg)
-              (n/close! ctx)
-              (n/reply-status ctx (n/scode* BAD_REQUEST)))
-            (do (n/akey+ ctx h1p-mkey msg) ;save the msg
-                (n/akey+ ctx
-                         h1p-dkey
-                         (if (c/or??
-                               [(form?? msg) =] :post :multipart)
-                           (decoder<> ctx msg)
-                           (n/data-attr<> max-mem-size)))
-                (if (c/is? HttpContent msg) (read-part ctx msg))))
-          HttpContent
-          (read-part ctx msg)
-          ;else
-          (n/fire-msg ctx msg))))))
+                      (c/embeds? ct ct-form-mpart)) :multipart)
+        {:keys [max-mem-size]}
+        (n/chcfg?? ctx)
+        cc (n/cache?? ctx)]
+    (if ws?
+      (c/mput! cc :mode :wsock))
+    (c/mput! cc :msg req)
+    (c/mput! cc :adder (if (c/or?? [rc =] :post :multipart)
+                         (decoder<> ctx req)
+                         (n/data-attr<> max-mem-size)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(def ^ChannelHandler websock-adder
-  (letfn
-    [(read-ws-ex [ctx ^WebSocketFrame msg]
-       (let [last? (.isFinalFragment msg)
-             rc (n/akey?? ctx wsock-rkey)
-             attr (c/_1 (n/akey?? ctx h1p-dkey))]
-         (n/add->mp-attr! attr msg last?)
-         (n/ref-del msg)
-         (when last?
-           (try (n/fire-msg ctx
-                            (wsmsg<> (assoc rc :body (n/gattr attr))))
-                (finally (n/ref-del attr))))))
-     (read-ws [ctx ^WebSocketFrame msg]
-       (let [rc {:charset (u/charset?? "utf-8")
-                 :is-text? (c/is? TextWebSocketFrame msg)}]
-         (cond (c/is? PongWebSocketFrame msg)
-               (n/fire-msg ctx (wsmsg<> (assoc rc :pong? true)))
-               (.isFinalFragment msg)
-               (n/fire-msg ctx (wsmsg<> (->> (.content msg)
-                                             (n/bbuf->bytes)
-                                             XData.
-                                             (assoc rc :body))))
-               :else
-               (let [{:keys [max-mem-size]}
-                     (n/akey?? ctx n/chcfg-key)
-                     a (n/data-attr<> max-mem-size)]
-                 (n/add->mp-attr! a msg false)
-                 (n/akey+ ctx wsock-rkey rc)
-                 (n/akey+ ctx h1p-dkey [a nil])))
-         (n/ref-del msg)))]
-    (proxy [DuplexHandler][]
-      (readMsg [ctx msg]
-        (cond (c/is? ContinuationWebSocketFrame msg)
-              (read-ws-ex ctx msg)
-              (or (c/is? TextWebSocketFrame msg)
-                  (c/is? PongWebSocketFrame msg)
-                  (c/is? BinaryWebSocketFrame msg))
-              (read-ws ctx msg)
-              :else
-              (n/fire-msg ctx msg))))))
+(defn- do-cache-rsp
+  [ctx msg]
+  (let [{:keys [max-mem-size]}
+        (n/chcfg?? ctx)
+        cc (n/cache?? ctx)]
+    (c/mput! cc :msg msg)
+    (c/mput! cc :adder (n/data-attr<> max-mem-size))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(c/defonce- ^ChannelHandler websock??
+(defn- do-read-msg
+  [ctx msg]
+  (if (c/is? HttpContent msg) (on-content ctx msg)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn- on-response
+  [ctx rsp]
+  (try
+
+    (assert-decoded-ok! ctx rsp)
+    (do-cache-rsp ctx rsp)
+    (do-read-msg ctx rsp)
+
+    (catch Throwable e
+      (n/ref-del rsp)
+      (c/mdel! (n/cache?? ctx) :msg)
+      (if (c/!is? FailFast e) (throw e)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn- on-request
+  [ctx req]
+  (try
+
+    (assert-decoded-ok! ctx req)
+    (do-100-cont ctx req)
+    (do-cache-req ctx req)
+    (do-read-msg ctx req)
+
+    (catch Throwable e
+      (n/ref-del req)
+      (c/mdel! (n/cache?? ctx) :msg)
+      (if (c/!is? FailFast e) (throw e)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn- read-complete
+  [ctx part]
+  (let [cc (n/cache?? ctx)
+        msg (c/mget cc :msg)
+        mode (c/mget cc :mode)
+        gist (do-last-part ctx part)]
+    (if (= :wsock mode)
+      (cfg-websock ctx msg)
+      (n/fire-msg ctx gist))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn- on-read
+  [ctx msg]
+  (c/condp?? instance? msg
+    HttpResponse (on-response ctx msg)
+    HttpRequest (on-request ctx msg)
+    HttpContent (on-content ctx msg))
+  (if (n/last-part? msg) (read-complete ctx msg)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(c/defmacro- !cont-100?
+  [msg]
+  `(not= HttpResponseStatus/CONTINUE
+         (some-> (c/cast? FullHttpResponse ~msg) .status)))
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn- on-write
+  [ctx msg]
   (letfn
-    [(mock [ctx req]
-       (let [{:keys [headers uri2
-                     protocol request-method]} req
-             req' (n/akey?? ctx n/req-key)]
-         (n/akey- ctx n/req-key)
-         (assert (c/is? HttpRequest req'))
-         (c/do-with [rc (DefaultFullHttpRequest.
-                          (HttpVersion/valueOf protocol)
-                          (HttpMethod/valueOf
-                            (c/ucase (str request-method))) uri2)]
-           (n/set-headers rc
-                          (.headers ^HttpRequest req')))))]
-    (proxy [DuplexHandler][]
-      (readMsg [ctx req]
-        (if (and (= :get (:request-method req))
-                 (c/embeds? (c/lcase (->> (n/h1hdr* CONNECTION)
-                                          (cc/msg-header req))) "upgrade")
-                 (c/embeds? (c/lcase (->> (n/h1hdr* UPGRADE)
-                                          (cc/msg-header req))) "websocket"))
-          (let [pp (n/cpipe?? ctx)
-                ^String uri (:uri req)
-                {:keys [wsock-path]}
-                (n/akey?? ctx n/chcfg-key)]
-            (if-not (if-not (set? wsock-path)
-                      (.equals uri wsock-path) (c/in? wsock-path uri))
-              (n/reply-status ctx (n/scode* FORBIDDEN))
-              (do (n/pp->next pp
-                              (n/ctx-name pp this)
-                              "WSSCH"
-                              (WebSocketServerCompressionHandler.))
-                  (n/pp->next pp
-                              "WSSCH"
-                              "WSSPH"
-                              (WebSocketServerProtocolHandler. uri nil true))
-                  (n/pp->next pp
-                              "WSSPH"
-                              "websock-adder" websock-adder)
-                  (n/safe-remove-handler*
-                    pp
-                    [HttpContentDecompressor
-                     HttpContentCompressor
-                     ChunkedWriteHandler
-                     "http-adder"
-                     "continue-expected??" this])
-                  (n/dbg-pipeline pp)
-                  (n/fire-msg ctx (mock ctx req))))))))))
+    [(delhead [^List q] (if-not
+                          (.isEmpty q)
+                          (.remove q 0)))]
+    (when (and (!cont-100? msg)
+               (n/h1end? msg))
+      ;just replied so can process queued requests
+      (let [c (n/cache?? ctx)
+            out (ArrayList.)
+            q (c/mget c :queue)]
+        ;clear flag
+        (c/mput! c :cur nil)
+        ;grab next request & its parts
+        (loop [m (delhead q)]
+          (cond (n/last-part? m) (.add out m)
+                (nil? m) (.clear out)
+                :else (do (.add out m)
+                          (recur (delhead q)))))
+        ;process the request & its parts
+        (loop [m (delhead out)]
+          (when m
+            (on-read ctx m)
+            (recur (delhead out))))))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(c/def- h1-simple<>
+  ^ChannelHandler
+  (proxy [DuplexHandler][]
+    (onInactive [ctx]
+      (n/akey- ctx n/cache-key))
+    (onActive [ctx]
+      (n/akey+ ctx n/cache-key (HashMap.)))
+    (onRead [ctx msg]
+      (if (n/h1msg? msg)
+        (on-read ctx msg) (n/fire-msg ctx msg)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(c/def- h1-complex<>
+  ^ChannelHandler
+  (proxy [DuplexHandler][]
+    (onRead [ctx msg]
+      (let [cc (n/cache?? ctx)
+            cur (c/mget cc :cur)
+            mode (c/mget cc :mode)
+            queue (c/mget cc :queue)]
+        (cond
+          (some? cur)
+          (if (not= :wsock mode)
+            (.add ^List queue msg))
+          :else
+          (if (n/h1msg? msg)
+            (on-read ctx msg)
+            (n/fire-msg ctx msg)))))
+    (onWrite [ctx msg _]
+      (on-write ctx msg _))
+    (onInactive [ctx]
+      (n/akey- ctx n/cache-key))
+    (onActive [ctx]
+      (doto (n/akey+ ctx
+                     n/cache-key (HashMap.))
+        (c/mput! :cur nil) (c/mput! :queue (ArrayList.))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn h1-pipeline
   [p args]
-  (let [{:keys [user-handler user-cb
-                max-msg-size cors-cfg]} args]
+  (let [{:keys [pipelining?
+                cors-cfg user-cb]} args]
     (n/pp->last p "codec" (HttpServerCodec.))
-    (some->> cors-cfg
-             CorsHandler.
-             (n/pp->last p "cors"))
+    (some->> cors-cfg CorsHandler. (n/pp->last p "cors"))
     (n/pp->last p
-                "continue-expected??"
-                (continue-expected?? max-msg-size))
-    (n/pp->last p
-                "http-adder" (http-adder args))
-    (n/pp->last p "websock??" websock??)
+                "h1"
+                (if pipelining? h1-complex<> h1-simple<>))
     (n/pp->last p "chunker" (ChunkedWriteHandler.))
-    (n/pp->last p "user-func" (n/app-handler user-handler user-cb))))
+    (n/pp->last p "user-func" (n/app-handler user-cb))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF
-
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn http-pipelining
-  ""
-  ^ChannelHandler
-  [args]
-  (proxy [DuplexHandler][]
-    (onInactive [ctx]
-      (n/del-akey* ctx h1p-qkey h1p-ckey))
-    (onActive [ctx]
-      (n/set-akey* ctx
-                   [h1p-ckey nil]
-                   [h1p-qkey (ArrayList.)]))
-    (readMsg [ctx msg]
-      (n/fire-msg ctx msg))
-    (onWrite [ctx msg _]
-      (if (and (not-cont-100? msg)
-               (c/or?? [msg instance?]
-                       LastHttpContent
-                       FullHttpResponse))
-        (let [cur (n/akey?? ctx h1p-ckey)
-              ^List q (n/akey?? ctx h1p-qkey)]
-          (u/assert-ISE (some? cur)
-                        "h1pipeline corrupt!")
-          (c/doto->> (if-not
-                       (.isEmpty q) (.remove q 0))
-            (n/akey+ ctx h1p-ckey) (n/fire-msg ctx)))))))
-
-
 

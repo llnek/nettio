@@ -10,12 +10,14 @@
 package czlab.nettio;
 
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelInitializer;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelPipeline;
+
 /**
  * @author Kenneth Leung
  */
-public abstract class ChannelInizer extends io.netty.channel.ChannelInitializer {
+public abstract class ChannelInizer extends ChannelInitializer {
 
   /*
    */

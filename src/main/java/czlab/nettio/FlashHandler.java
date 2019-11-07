@@ -67,7 +67,7 @@ public class FlashHandler extends InboundHandler {
   protected FlashHandler() {}
 
   @Override
-  public void readMsg(ChannelHandlerContext ctx, Object msg) throws Exception {
+  public void onRead(ChannelHandlerContext ctx, Object msg) throws Exception {
     ByteBuf bmsg = (msg instanceof ByteBuf) ? (ByteBuf)msg : null;
     Channel ch = ctx.channel();
 

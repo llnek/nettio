@@ -44,9 +44,8 @@ public abstract class DuplexHandler extends ChannelDuplexHandler {
   }
 
   public void onWrite(ChannelHandlerContext ctx, Object msg, ChannelPromise cp) throws Exception {}
-  public void readMsg(ChannelHandlerContext ctx, Object msg) throws Exception {}
+  public void onRead(ChannelHandlerContext ctx, Object msg) throws Exception {}
   public void onWriteChanged(ChannelHandlerContext ctx) throws Exception {}
-  public void onRead(ChannelHandlerContext ctx, Object m) throws Exception {}
   public void onInactive(ChannelHandlerContext ctx) throws Exception {}
   public void onActive(ChannelHandlerContext ctx) throws Exception {}
   public void onUnreg(ChannelHandlerContext ctx) throws Exception {}
@@ -98,7 +97,7 @@ public abstract class DuplexHandler extends ChannelDuplexHandler {
   @Override
   public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
     try {
-      readMsg(ctx, msg);
+      onRead(ctx, msg);
     } finally {
       if (_rel) ReferenceCountUtil.release(msg);
     }

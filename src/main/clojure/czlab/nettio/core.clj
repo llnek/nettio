@@ -21,6 +21,7 @@
             [czlab.basal.io :as i]
             [czlab.basal.core :as c]
             [czlab.niou.core :as cc]
+            [czlab.niou.upload :as cu]
             [czlab.niou.routes :as cr])
 
   (:import [io.netty.handler.codec DecoderResultProvider DecoderResult]
@@ -50,11 +51,13 @@
            [io.netty.handler.codec.http.multipart
             HttpDataFactory
             MixedAttribute
+            Attribute
             HttpData
             FileUpload
             DiskAttribute
             DiskFileUpload
-            InterfaceHttpPostRequestDecoder]
+            InterfaceHttpPostRequestDecoder
+            HttpPostRequestDecoder$EndOfDataDecoderException]
            [io.netty.handler.ssl
             OpenSsl
             SslHandler
@@ -89,6 +92,7 @@
             HttpHeaderValues
             HttpHeaderNames
             HttpMessage
+            HttpContent
             HttpResponse
             DefaultFullHttpResponse
             DefaultHttpResponse
@@ -153,8 +157,12 @@
   :SINGLE_EVENTEXECUTOR_PER_GROUP})
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(def ct-form-url "application/x-www-form-urlencoded")
-(def ct-form-mpart "multipart/form-data")
+(defmacro chcfg??
+  [ctx] `(czlab.nettio.core/akey?? ~ctx czlab.nettio.core/chcfg-key))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defmacro cache??
+  [ctx] `(czlab.nettio.core/akey?? ~ctx czlab.nettio.core/cache-key))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defmacro ihprd?
@@ -369,6 +377,7 @@
 ;;(defonce ^AttributeKey h1msg-key (akey<> :h1req))
 (defonce ^AttributeKey routes-key (akey<> :cracker))
 (defonce ^AttributeKey chcfg-key (akey<> :ch-config))
+(defonce ^AttributeKey cache-key (akey<> :ch-cache))
 (defonce ^String body-id "--body--")
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -398,6 +407,17 @@
 (defn data-attr<>
   ""
   [size] (MixedAttribute. body-id size))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn h1msg?
+  [msg]
+  (c/or?? [msg instance?]
+          HttpContent HttpRequest HttpResponse))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn h1end?
+  [msg]
+  (c/or?? [msg instance?] LastHttpContent FullHttpResponse))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn put-post?
@@ -585,6 +605,32 @@
              x
              (i/spit-file (i/temp-file) x true))]
      (if wrap? (XData. r) r))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(c/defmacro- next-body?
+  [deco]
+  `(try (.hasNext ~deco)
+        (catch HttpPostRequestDecoder$EndOfDataDecoderException ~'_ false)))
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn parse-form-multipart
+  [^InterfaceHttpPostRequestDecoder deco]
+  (l/debug "inside parse-post, decoder= %s." deco)
+  (loop [out (cu/form-items<>)]
+    (if-not (next-body? deco)
+      (try (XData. out)
+           (finally (.destroy deco)))
+      (let [n (.next deco)
+            nm (.getName n)
+            b (get-http-data n true)]
+        (recur
+          (cu/add-item out
+                       (or (if-some [u (c/cast? FileUpload n)]
+                             (cu/file-item<>
+                               false (.getContentType u)
+                               nil nm (.getFilename u) b))
+                           (if-some [a (c/cast? Attribute n)]
+                             (cu/file-item<> true "" nil nm "" b))
+                           (u/throw-IOE "Bad http data."))))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn get-mp-attr
