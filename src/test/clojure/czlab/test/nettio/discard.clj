@@ -14,42 +14,31 @@
 
   (:gen-class)
 
-  (:require [czlab.basal
-             [proc :as p]
-             [log :as l]
-             [core :as c]
-             [util :as u]
-             [xpis :as po]]
-            [czlab.nettio
-             [core :as nc]
-             [server :as sv]])
-
-  (:import [io.netty.handler.codec.http HttpResponseStatus]
-           [io.netty.handler.codec.http LastHttpContent]
-           [czlab.nettio InboundHandler]
-           [clojure.lang APersistentMap]
-           [io.netty.channel
-            ChannelPipeline
-            ChannelHandler
-            Channel
-            ChannelHandlerContext]
-           [io.netty.bootstrap ServerBootstrap]))
+  (:require [czlab.basal.proc :as p]
+            [czlab.basal.log :as l]
+            [czlab.basal.core :as c]
+            [czlab.basal.util :as u]
+            [czlab.basal.xpis :as po]
+            [czlab.niou.core :as cc]
+            [czlab.niou.module :as mo]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;(set! *warn-on-reflection* false)
 (c/defonce- svr (atom nil))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- h1proxy
+(defn- mkcb
   [cb]
-  (proxy [InboundHandler][true]
-    (readMsg [ctx _]
-      (nc/reply-status ctx) (c/try! (cb)))))
+  (fn [msg]
+    (-> (cc/http-result msg) cc/reply-result) (cb)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn discard-httpd<>
   "Drops the req and returns OK"
   [cb & args]
-  (sv/tcp-server<> (merge {:hh1 (h1proxy cb)} (c/kvs->map args))))
+  (mo/web-server-module<>
+    (merge {:implements :czlab.nettio.server/netty
+            :user-cb (mkcb cb)} (c/kvs->map args))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn finz-server
@@ -57,19 +46,19 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn -main
-  "" [& args]
+  [& args]
   (cond
     (< (count args) 2)
     (println "usage: discard host port")
     :else
-    (let [s (discard-httpd<>
-              #(println "hello, poked by discarder"))]
-      (p/exit-hook #(po/stop s))
-      (reset! svr s)
-      (po/start s
-                {:host (nth args 0)
-                 :block? true
-                 :port (c/s->int (nth args 1) 8080)}))))
+    (let [{:keys [host port] :as w}
+          (-> (discard-httpd<>
+                #(println "hello, poked by discarder!"))
+              (po/start {:host (nth args 0)
+                         :port (c/s->int (nth args 1) 8080)}))]
+      (p/exit-hook #(po/stop w))
+      (reset! svr w)
+      (u/block!))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF

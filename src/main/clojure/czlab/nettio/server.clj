@@ -20,8 +20,10 @@
             [czlab.basal.io :as i]
             [czlab.basal.xpis :as po]
             [czlab.niou.routes :as cr]
+            [czlab.niou.module
+             :refer [web-server-module<> udp-server-module<>]]
             [czlab.nettio.core :as n]
-            [czlab.nettio.inizor :as iz])
+            [czlab.nettio.iniz :as z])
 
   (:import [io.netty.handler.logging LogLevel LoggingHandler]
            [czlab.nettio H1DataFactory]
@@ -55,45 +57,52 @@
   [server]
   (l/debug "about to build a web-server...")
   (let [{:as args'
-         :keys [boss workers routes rcv-buf options temp-dir inizor
-                server-key passwd backlog max-msg-size max-mem-size]}
-        (merge {:max-msg-size Integer/MAX_VALUE
-                :temp-dir i/*tempfile-repo*
+         :keys [threads
+                boss
+                routes
+                rcv-buf
+                options
+                temp-dir
+                inizor
+                backlog
+                max-msg-size
+                max-mem-size
+                max-frame-size]}
+        (merge {:max-frame-size (* 32 c/MegaBytes)
+                :max-msg-size Integer/MAX_VALUE
+                :temp-dir i/*file-repo*
                 :backlog c/KiloBytes
-                :workers 0
+                :threads 0
                 :boss 1
                 :routes nil
                 :rcv-buf (* 2 c/MegaBytes)
                 :max-mem-size i/*membuf-limit*} (:args server))
          args' (dissoc args' :routes :options)
+         boss (if (pos? boss) boss 1)
+         threads (if (pos? threads) threads 0)
          bs (ServerBootstrap.)
-         [^EventLoopGroup g
-          ^ChannelHandler z] (n/group+channel boss :tcps)
-         [^EventLoopGroup g' _] (n/group+channel workers :tcps)
-         hdlr (if (fn? inizor)
-                (inizor args')
-                (if (c/nichts? server-key)
-                  (iz/web-inizor<> args')
-                  (iz/web-ssl-inizor<> server-key passwd args')))]
+         hdlr (inizor args')
+         [^EventLoopGroup gb z] (n/group+channel boss :tcps)
+         [^EventLoopGroup gw _] (n/group+channel threads :tcps)]
     (n/config-disk-files true (u/fpath temp-dir))
-    (if (pos? workers)
-      (l/info "threads=%s." workers)
-      (l/info "threads= 2*num_of_processors."))
+    (if (pos? threads)
+      (l/info "threads=%s." threads)
+      (l/info "threads=0 => 2*num_of_processors."))
     (l/debug "setting child options...")
-    (doseq [[k v] (partition 2 (or (:child options)
-                                   [:TCP_NODELAY true
-                                    :SO_RCVBUF (int rcv-buf)]))]
+    (doseq [[k v] (c/chop 2 (or (:child options)
+                                [:TCP_NODELAY true
+                                 :SO_RCVBUF (int rcv-buf)]))]
       (.childOption bs (n/chopt* k) v))
     (l/debug "setting server options...")
-    (doseq [[k v] (partition 2 (or (:server options)
-                                   [:SO_REUSEADDR true
-                                    :SO_BACKLOG (int backlog)]))]
+    (doseq [[k v] (c/chop 2 (or (:server options)
+                                [:SO_REUSEADDR true
+                                 :SO_BACKLOG (int backlog)]))]
       (.option bs (n/chopt* k) v))
 
-    (.group bs g g')
+    (.group bs gb gw)
     (.channel bs z)
     (.childHandler bs ^ChannelHandler hdlr)
-    (.handler bs (LoggingHandler. LogLevel/INFO))
+    (.handler bs (LoggingHandler. LogLevel/DEBUG))
 
     (l/debug "set generic attributes for all channels...")
     (.childAttr bs n/chcfg-key args')
@@ -117,27 +126,30 @@
 (defn- start<tcp>
   [server options]
   (letfn
-    [(ssvr [bs host port]
-       (let [bs' (c/cast? ServerBootstrap bs)
-             ^H1DataFactory
-             dfac (some-> bs' .config .childAttrs (.get n/dfac-key))
+    [(ssvr [^ServerBootstrap bs host port]
+       (let [^H1DataFactory
+             dfac (.. bs config
+                      childAttrs (get n/dfac-key))
              ip (if (c/nichts? host)
                   (InetAddress/getLocalHost)
                   (InetAddress/getByName host))
-             quit
-             (c/fn_1 (c/try! (some-> dfac .cleanAllHttpData))
-                     (c/try! (some-> bs' .config .childGroup .shutdownGracefully))
-                     (c/try! (.. bs' config group shutdownGracefully))
-                     (l/debug "server @ip %s stopped." ip))]
-         (c/do-with [ch (.. bs' (bind ip (int port)) sync channel)]
-           (l/info "web-server starting on %s:%s." ip port)
+             quit #(do %1
+                       (c/try! (some-> dfac .cleanAllHttpData))
+                       (c/try! (.. bs config
+                                   childGroup shutdownGracefully))
+                       (c/try! (.. bs config
+                                   group shutdownGracefully))
+                       (l/debug "server @ip %s stopped." host))]
+         (c/do-with [ch (.. bs
+                            (bind ip (int port)) sync channel)]
+           (l/info "web-server starting on %s:%s." host port)
            (n/cf-cb (.closeFuture ch) quit))))]
     (u/assert-ISE (not (:started? server)) "server running!")
-    (let [server (build<tcp> server)
+    (let [{:keys [impl channel] :as server}
+          (build<tcp> server)
           {:keys [host port]} options
-          {:keys [impl channel]} server
           port (c/num?? port 80)
-          host (c/stror host n/lhost-name)]
+          host (c/stror host (n/lhost-name))]
       (->> (ssvr impl host port)
            (aset #^"[Ljava.lang.Object;" channel 0))
       (assoc server :started? true :host host :port port))))
@@ -149,78 +161,78 @@
          :keys [inizor threads options]}
         (merge {:threads 0
                 :rcv-buf (* 2 c/MegaBytes)} (:args server))
+        threads (if (pos? threads) threads 0)
         bs (Bootstrap.)
-        [^EventLoopGroup g ^ChannelHandler z] (n/group+channel threads :udps)]
+        [g z] (n/group+channel threads :udps)]
 
     (if (pos? threads)
       (l/info "threads=%s." threads)
-      (l/info "threads= 2*num_of_processors"))
+      (l/info "threads=0 => 2*num_of_processors"))
 
     (l/debug "setting server options...")
-    (doseq [[k v] (partition 2 (or options
-                                   [:SO_BROADCAST true]))]
+    (doseq [[k v] (c/chop 2 (or options
+                                [:SO_BROADCAST true]))]
       (.option bs (n/chopt* k) v))
 
     (.channel bs z)
     (.group bs g)
-    (.handler bs
-              ^ChannelHandler
-              (if (fn? inizor)
-                (inizor args')
-                (iz/udp-inizor<> args')))
+    (.handler bs ^ChannelHandler (inizor args'))
 
-    (try (assoc server :impl bs :channel (object-array 1))
+    (try (assoc server
+                :impl bs
+                :channel (object-array 1))
          (finally (l/debug "udp-server implemented - ok.")))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- start<udp>
   [server options]
   (letfn
-    [(ssvr [bs host port]
-       (let [bs (c/cast? Bootstrap bs)
-             ip (if (c/nichts? host)
+    [(ssvr [^Bootstrap bs host port]
+       (let [ip (if (c/nichts? host)
                   (InetAddress/getLocalHost)
                   (InetAddress/getByName host))
-             quit (c/fn_1 (c/try! (.. bs config group shutdownGracefully))
-                          (l/debug "server @ip %s stopped." ip))]
-         (c/do-with [ch (.. bs (bind ip (int port)) sync channel)]
-           (l/info "udp-server starting on %s:%s." ip port)
+             quit #(c/try! %1 (.. bs config
+                                  group shutdownGracefully)
+                           (l/debug "server @ip %s stopped." host))]
+         (c/do-with [ch (.. bs
+                            (bind ip (int port)) sync channel)]
+           (l/info "udp-server starting on %s:%s." host port)
            (n/cf-cb (.closeFuture ch) quit))))]
     (u/assert-ISE (not (:started? server)) "server running!")
-    (let [server (build<udp> server)
+    (let [{:keys [impl channel] :as server}
+          (build<udp> server)
           {:keys [host port]} options
-          {:keys [impl channel]} server
           port (c/num?? port 4444)
-          host (c/stror host n/lhost-name)]
+          host (c/stror host (n/lhost-name))]
       (->> (ssvr impl host port)
            (aset #^"[Ljava.lang.Object;" channel 0))
       (assoc server :started? true :host host :port port))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defrecord NettyTcpServer []
+(defrecord NettyTcpServer [args]
   po/Startable
   (stop [_] (stop-server _))
   (start [_] (.start _ nil))
   (start [_ options] (start<tcp> _ options)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defrecord NettyUdpServer []
+(defrecord NettyUdpServer [args]
   po/Startable
   (stop [_] (stop-server _))
   (start [_] (.start _ nil))
   (start [_ options] (start<udp> _ options)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn udp-server<>
-  "A UDP Server using netty."
+(defmethod udp-server-module<>
+  :czlab.nettio.server/netty
   [args]
-  (c/object<> NettyUdpServer :args args))
+  (NettyUdpServer. (assoc args :inizor z/udp-inizor<>)))
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn web-server<>
-  "A Web Server using netty."
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defmethod web-server-module<>
+  :czlab.nettio.server/netty
   [args]
-  (c/object<> NettyTcpServer :args args))
+  (NettyTcpServer. (assoc args :inizor z/web-inizor<>)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF

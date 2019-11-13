@@ -144,14 +144,14 @@
                    "continue-expected??"
                    (continue-expected?? max-msg-size)))
     (n/pp->last p "chunker" (ChunkedWriteHandler.))
-    (n/pp->last p "user-func" (n/app-handler user-handler user-cb))))
+    (n/pp->last p "user-func" (n/app-handler user-cb))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn h2-pipeline
   [p args]
-  (let [{:keys [user-handler user-cb]} args]
+  (let [{:keys [user-cb]} args]
     (n/pp->last p "codec" (h2-aggregator<>))
-    (n/pp->last p "user-func" (n/app-handler user-handler user-cb))))
+    (n/pp->last p "user-func" (n/app-handler user-cb))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF

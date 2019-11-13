@@ -16,6 +16,7 @@
             [clojure.string :as cs]
             [czlab.niou.util :as ct]
             [czlab.niou.core :as cc]
+            [czlab.niou.module :refer [web-client-module<>]]
             [czlab.basal.log :as l]
             [czlab.basal.io :as i]
             [czlab.basal.core :as c]
@@ -23,12 +24,13 @@
             [czlab.nettio.core :as n]
             [czlab.nettio.http :as h1]
             [czlab.nettio.http2 :as h2]
-            [czlab.nettio.inizor :as iz])
+            [czlab.nettio.iniz :as iz])
 
   (:import [io.netty.handler.codec.http.websocketx.extensions.compression
             WebSocketClientCompressionHandler]
            [io.netty.handler.ssl.util InsecureTrustManagerFactory]
-           [czlab.nettio.inizor WSInizor H2Inizor H1Inizor]
+           [czlab.nettio.iniz WSInizor H2Inizor H1Inizor]
+           [czlab.niou.core WsockMsg]
            [io.netty.channel.socket.nio NioSocketChannel]
            [io.netty.handler.codec.http.websocketx
             ContinuationWebSocketFrame
@@ -113,10 +115,9 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (c/def- ^AttributeKey h2s-key  (n/akey<> :h2settings-promise))
-(c/def- ^AttributeKey rsp-key  (n/akey<> :rsp-result))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- bootstrap!
+(defn- boot!
   [args]
   (l/info "client bootstrap ctor().")
   (let [{:as ARGS
@@ -126,72 +127,73 @@
         (merge {:max-mem-size i/*membuf-limit*
                 :rcv-buf (* 2 c/MegaBytes)
                 :threads 0
-                :max-msg-size Integer/MAX_VALUE} args)
+                :max-msg-size Integer/MAX_VALUE
+                :max-frame-size (* 32 c/MegaBytes)} args)
+        threads (if (pos? threads) threads 0)
         temp-dir (u/fpath (or temp-dir
-                              i/*tempfile-repo*))
+                              i/*file-repo*))
         bs (Bootstrap.)
-        [^EventLoopGroup g
-         ^ChannelHandler z] (n/group+channel threads :tcpc)]
+        [^EventLoopGroup g z] (n/group+channel threads :tcpc)]
     (n/config-disk-files true temp-dir)
     (l/info "setting client options...")
-    (doseq [[k v] (partition 2
-                             (or options
-                                 [:SO_KEEPALIVE true
-                                  :TCP_NODELAY true
-                                  :SO_RCVBUF (int rcv-buf)]))]
+    (doseq [[k v] (partition 2 (or options
+                                   [:SO_KEEPALIVE true
+                                    :TCP_NODELAY true
+                                    :SO_RCVBUF (int rcv-buf)]))]
       (.option bs (n/chopt* k) v))
     ;;assign generic attributes for all channels
     (.attr bs n/chcfg-key ARGS)
-    (.attr bs
-           n/dfac-key
-           (H1DataFactory.
-             (int max-mem-size)))
     [(doto bs (.channel z) (.group g)) ARGS]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- hx-conn
-  [module host port args hint]
+  [module host port hint]
   (letfn
     [(connect [^Bootstrap bs ssl?]
        (let [port' (if (neg? port)
                      (if ssl? 443 80) port)
              _ (l/debug "connecting to: %s@%s." host port')
              ^ChannelFuture
-             cf (some->> (InetSocketAddress. (str host)
-                                             (int port'))
-                         (.connect bs) .sync)]
-         (u/assert-IOE (some? cf) "connect failed.")
-         (c/do-with [ch (.channel cf)]
+             cf (some-> (.connect bs
+                                  (InetSocketAddress. (str host)
+                                                      (int port'))) .sync)]
+         (u/assert-IOE (some? cf) "client connect failed.")
+         (let [ch (.channel cf)]
            (u/assert-IOE (and ch
-                              (.isSuccess cf)) (.cause cf))
-           (l/debug "connected: %s@%s." host port'))))
-     (cconn<> [bs ^Channel ch]
+                              (.isSuccess cf)) (u/emsg (.cause cf)))
+           (l/debug "client connected: %s@%s." host port')
+           {:channel ch :host host :port port'})))
+     (cconn<> [bs ch info]
        (reify cc/ClientConnect
+         (cc-remote-port [_] (:port info))
+         (cc-remote-host [_] (:host info))
          (cc-module [_] module)
+         (cc-is-open? [_]
+           (and ch (.isOpen ^Channel ch)))
          (cc-channel [_] ch)
-         (cc-remote-port [_] port)
-         (cc-remote-host [_] host)
-         (cc-ws-write [_ msg]
-           (cc/hc-ws-send module _ msg))
+         (cc-write [_ msg]
+           (c/condp?? instance? hint
+             H2Inizor (cc/hc-h2-send module _ msg)
+             H1Inizor (cc/hc-h1-send module _ msg)
+             WSInizor (cc/hc-ws-send module _ msg)))
          (cc-finz [_]
            (if (c/is? WSInizor hint)
-             (c/try! (if (.isOpen ch)
-                       (n/write-msg ch
-                                    (CloseWebSocketFrame.)))))
+             (c/try! (some-> (and ch (.isOpen ^Channel ch) ch)
+                             (n/write-msg {:is-close? true}))))
            (n/nobs! bs ch))))
-     (h1c-finz [bs ^Channel ch]
-       (let [f (n/akey?? ch n/dfac-key)]
-         (n/cf-cb (.closeFuture ch)
-                  (c/fn_1 (.cleanAllHttpData ^H1DataFactory f)
-                          (n/nobs! bs nil)
-                          (l/debug "shutdown: netty h1-client.")))))
-     (ret-conn [bs rcp]
+     (h1c-finz [bs info]
+       (n/cf-cb (.closeFuture ^Channel (:channel info))
+                (c/fn_1 (n/nobs! bs nil)
+                        (l/debug "client shutdown: netty client.")))
+       info)
+     (ret-conn [bs rcp info]
        (reify cc/ClientConnectPromise
          (cc-sync-get-connect [_]
            (cc/cc-sync-get-connect _ 5000))
          (cc-sync-get-connect [_ ms]
            (let [r (deref rcp ms nil)]
-             (cond (not (c/is? Channel r))
+             ;(l/debug "r === %s" r)
+             (cond (c/!is? Channel r)
                    r
                    (c/is? H2Inizor hint)
                    (try (let [^ChannelPromise
@@ -201,155 +203,163 @@
                             (.awaitUninterruptibly pm
                                                    ms TimeUnit/MILLISECONDS)
                             "Time out waiting for h2-settings.")
-                          (if-not
-                            (.isSuccess pm)
-                            (.cause pm) (cconn<> bs r)))
+                          (if-not (.isSuccess pm)
+                            (.cause pm)
+                            (n/akey+ r n/cc-key (cconn<> bs r info))))
                         (catch Throwable e e))
                    :else
-                   (let [x (cconn<> bs r)]
-                     (if (c/is? WSInizor hint)
-                       (n/akey+ r n/cc-key x)) x))))))]
-    (let [[^Bootstrap bs args]
-          (bootstrap! (assoc args
-                             :protocol
-                             (if (c/is? H2Inizor hint) "2" "1.1")))
-          rcp (promise) ;return this back to caller
-          {:keys [server-cert]} args]
+                   (n/akey+ r n/cc-key (cconn<> bs r info)))))))]
+    (let [{:keys [uri
+                  sync-wait
+                  server-cert] :as args'
+           :or {sync-wait 5000}} (:args hint)
+          ws? (c/is? WSInizor hint)
+          [^Bootstrap bs args]
+          (boot! (assoc args'
+                        :protocol
+                        (if (c/is? H2Inizor hint) "2" "1.1")))
+          scheme (if (c/hgl? server-cert)
+                   (if ws? "wss" "https") (if ws? "ws" "http"))
+          uri2 (c/fmt "%s://%s:%d%s" scheme host port uri)
+          ;return this back to caller
+          rcp (promise)
+          args (assoc args :uri2 uri2)]
       (.handler bs
-                (cond
-                  (c/is? WSInizor hint)
-                  (iz/websock-inizor<> rcp server-cert args)
-                  :else
-                  (if-not server-cert
-                    (iz/webc-inizor<> rcp args)
-                    (iz/webc-ssl-inizor<> rcp server-cert args))))
-      (h1c-finz bs (connect bs (c/hgl? server-cert)))
-      (ret-conn bs rcp))))
+                (if-not (c/is? WSInizor hint)
+                  (iz/webc-inizor<> rcp args)
+                  (iz/websock-inizor<> rcp args)))
+      (cc/cc-sync-get-connect
+        (->> (c/hgl? server-cert)
+             (connect bs)
+             (h1c-finz bs)
+             (ret-conn bs rcp)) sync-wait))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn http-req<>
-  ^HttpRequest [^HttpMethod mt ^String uri]
-  (DefaultHttpRequest. HttpVersion/HTTP_1_1 mt uri))
+(defn- http-req<>
+  ^HttpRequest [mt uri]
+  (DefaultHttpRequest. HttpVersion/HTTP_1_1
+                       (HttpMethod/valueOf (c/ucase (name mt))) (str uri)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn http-req<+>
+(defn- http-req<+>
   {:tag FullHttpRequest}
   ([mt uri] (http-req<+> mt uri nil))
-  ([^HttpMethod mt ^String uri ^ByteBuf body]
-   (if (nil? body)
-     (c/do-with [x (DefaultFullHttpRequest.
-                     HttpVersion/HTTP_1_1 mt uri)]
-       (HttpUtil/setContentLength x 0))
-     (DefaultFullHttpRequest. HttpVersion/HTTP_1_1 mt uri body))))
+  ([mt uri ^ByteBuf body]
+   (let [op (HttpMethod/valueOf (c/ucase (name mt)))]
+     (if (nil? body)
+       (c/do-with [x (DefaultFullHttpRequest.
+                       HttpVersion/HTTP_1_1 op (str uri))]
+         (HttpUtil/setContentLength x 0))
+       (DefaultFullHttpRequest. HttpVersion/HTTP_1_1 op (str uri) body)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn http-post<+>
+(defn- http-post<+>
   ^FullHttpRequest
-  [^String uri ^ByteBuf body] (http-req<+> HttpMethod/POST uri body))
+  [^String uri ^ByteBuf body] (http-req<+> :post uri body))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn http-post<>
-  ^HttpRequest [uri] (http-req<> HttpMethod/POST uri))
+(defn- http-post<>
+  ^HttpRequest [uri] (http-req<> :post uri))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn http-get<>
-  ^FullHttpRequest [uri] (http-req<+> HttpMethod/GET uri nil))
+(defn- http-get<>
+  ^FullHttpRequest [uri] (http-req<+> :get uri nil))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defrecord NettyModule [])
+(defrecord NettyClientModule [])
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn netty-module<>
-  []
-  (c/object<> NettyModule {}))
+(defmethod web-client-module<>
+  :czlab.nettio.client/netty
+  [args]
+  (c/object<> NettyClientModule args))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (extend-protocol cc/HttpClientModule
-  NettyModule
-  (hc-send-http [_ conn op uri data args]
-    (let [mt (HttpMethod/valueOf (c/ucase (name op)))
-          ^URI uri (or (c/cast? URI uri)
-                       (URI. uri))
-          {:keys [encoding headers
-                  keep-alive?
-                  protocol override]} args
+
+  NettyClientModule
+
+  (hc-h2-conn [_ host port args]
+    (hx-conn _ host port (H2Inizor. args)))
+
+  (hc-h1-conn [_ host port args]
+    (hx-conn _ host port (H1Inizor. args)))
+
+  (hc-ws-conn [_ host port args]
+    (hx-conn _ host port (WSInizor. args)))
+
+  (hc-ws-send [_ conn msg]
+    (let [ch (cc/cc-channel conn)]
+      (u/assert-BadArg (c/is? WsockMsg msg) "not wsmsg.")
+      (n/write-msg ch msg)))
+
+  (hc-h2-send [_ conn msg] );op uri data args
+
+  (hc-h1-send [_ conn args];op uri data args
+    (let [{:keys [request-method
+                  encoding
+                  uri host
+                  body headers
+                  keep-alive? override]} args
           ^Channel ch (cc/cc-channel conn)
-          body (n/bbuf?? data ch encoding)
+          body (n/bbuf?? body ch encoding)
+          ^URI uri (or (c/cast? URI uri)
+                       (URI. ^String uri))
           path (.getPath uri)
           qy (.getQuery uri)
           uriStr (if (c/hgl? qy)
                    (str path "?" qy) path)
           req (if-not (or (nil? body)
                           (c/is? ByteBuf body))
-                (http-req<> mt uriStr)
-                (http-req<+> mt uriStr body))
-          clen (cond (c/is? ByteBuf body) (.readableBytes ^ByteBuf body)
-                     (c/is? File body) (.length ^File body)
-                     (c/is? InputStream body) -1
-                     (nil? body) 0
-                     :else (u/throw-IOE "Bad type %s." (class body)))]
+                (http-req<> request-method uriStr)
+                (http-req<+> request-method uriStr body))
+          clen (cond (c/is? ByteBuf body)
+                     (.readableBytes ^ByteBuf body)
+                     (c/is? File body)
+                     (.length ^File body)
+                     (c/is? InputStream body)
+                     -1
+                     (nil? body)
+                     0
+                     :else
+                     (u/throw-IOE "Bad type %s." (class body)))]
+      (c/if-some+ [mo (c/stror override "")]
+        (n/set-header req "X-HTTP-Method-Override" mo))
       (doseq [[k v] (seq headers)
               :let [kw (name k)]]
         (if (seq? v)
           (doseq [vv (seq v)]
             (n/add-header req kw vv))
           (n/set-header req kw v)))
-      (n/set-header req (n/h1hdr* HOST) (:host args))
-      (if (.equals "2" protocol)
-        (n/set-header req
-                      (.text HttpConversionUtil$ExtensionHeaderNames/SCHEME)
-                      (.getScheme uri))
-        (n/set-header req
-                      (n/h1hdr* CONNECTION)
-                      (if-not keep-alive?
-                        (n/h1hdv* CLOSE)
-                        (n/h1hdv* KEEP_ALIVE))))
-      (c/if-some+ [mo (c/stror override "")]
-        (n/set-header req "X-HTTP-Method-Override" mo))
+      (n/set-header req (n/h1hdr* HOST) host)
+      (n/set-header req
+                    (n/h1hdr* CONNECTION)
+                    (if-not keep-alive?
+                      (n/h1hdv* CLOSE)
+                      (n/h1hdv* KEEP_ALIVE)))
       (if (zero? clen)
         (HttpUtil/setContentLength req 0)
         (do (if-not (c/is? FullHttpRequest req)
               (HttpUtil/setTransferEncodingChunked req true))
             (if-not (n/has-header? req "content-type")
               (n/set-header req
-                             (n/h1hdr* CONTENT_TYPE)
-                             "application/octet-stream"))
+                            (n/h1hdr* CONTENT_TYPE)
+                            "application/octet-stream"))
             (if (c/spos? clen)
               (HttpUtil/setContentLength req clen))))
       (l/debug (str "about to flush out req (headers), "
                     "isKeepAlive= %s, content-length= %s") keep-alive? clen)
-      (c/do-with [out (n/akey+ ch rsp-key (promise))]
-        (let [cf (.write ch req)
+      (c/do-with [out (n/akey+ ch iz/rsp-key (promise))]
+        (let [cf (n/write-msg* ch req)
               cf (condp instance? body
                    File
-                   (->> (ChunkedFile. ^File body)
-                        HttpChunkedInput. (.write ch))
+                   (n/write-msg* ch
+                                 (HttpChunkedInput.
+                                   (ChunkedFile. ^File body)))
                    InputStream
-                   (->> (ChunkedStream.
-                          ^InputStream body)
-                        HttpChunkedInput. (.write ch)) cf)] (.flush ch)))))
-
-  (hc-ws-send [_ conn msg]
-    (let [^Channel ch (cc/cc-channel conn)]
-    (some->> (cond
-               (c/is? WebSocketFrame msg)
-               msg
-               (string? msg)
-               (TextWebSocketFrame. ^String msg)
-               (bytes? msg)
-               (some-> (.alloc ch)
-                       (.directBuffer (int 4096))
-                       (.writeBytes ^bytes msg)
-                       (BinaryWebSocketFrame. ))) (.writeAndFlush ch))))
-
-  (hc-h2-conn [_ host port args]
-    (hx-conn _ host port args (H2Inizor.)))
-
-  (hc-h1-conn [_ host port args]
-    (hx-conn _ host port args (H1Inizor.)))
-
-  (hc-ws-conn [_ host port user args]
-    (hx-conn _ host port args (WSInizor. user))))
+                   (n/write-msg* ch
+                                 (HttpChunkedInput.
+                                   (ChunkedStream. ^InputStream body))) cf)] (.flush ch))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF

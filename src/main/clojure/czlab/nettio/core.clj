@@ -71,6 +71,7 @@
             ApplicationProtocolConfig$SelectorFailureBehavior
             ApplicationProtocolConfig$SelectedListenerFailureBehavior]
            [czlab.nettio InboundHandler]
+           [czlab.niou Headers]
            [java.util List]
            [java.net
             InetAddress
@@ -158,10 +159,12 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defmacro chcfg??
+  "Get config info from channel's attr."
   [ctx] `(czlab.nettio.core/akey?? ~ctx czlab.nettio.core/chcfg-key))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defmacro cache??
+  "Get data cache from channel's attr."
   [ctx] `(czlab.nettio.core/akey?? ~ctx czlab.nettio.core/cache-key))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -207,11 +210,21 @@
                 `(czlab.nettio.core/akey- ~ctx ~k)) args)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defmacro chopt*
-  [opt] `(ChannelOption/valueOf (str ~opt)))
+(defn chopt*
+  "Morph into a netty's ChannelOption enum."
+  ^ChannelOption [opt]
+  (ChannelOption/valueOf (name opt)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defmacro new-promise
+  "Make a new promise."
+  [ctx]
+  `(.newPromise ~(with-meta ctx
+                            {:tag 'io.netty.channel.ChannelHandlerContext})))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (c/defmacro- gandc
+  "Group and Channel info."
   [e n]
   `(array-map :epoll ~e :nio ~n))
 
@@ -282,13 +295,14 @@
   (content-type [_] "")
   (content-length! [_ len] "")
   (content-length-as-int [_] "")
-  (detect-acceptable-charset [_] ""))
+  (detect-charset [_] ""))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defprotocol BootstrapAPI (nobs! [_ ch] ""))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defmacro num->status
+  "Morph INT into netty's http response object."
   [c] `(io.netty.handler.codec.http.HttpResponseStatus/valueOf ~c))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -300,6 +314,14 @@
        (.fireChannelRead ~(with-meta ctx {:tag 'io.netty.channel.ChannelHandlerContext}) m#))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defmacro write-msg*
+  "Inline write."
+  [c msg]
+  `(let [m# ~msg]
+     (if m#
+       (.write ~(with-meta c {:tag 'io.netty.channel.ChannelOutboundInvoker}) m#))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defmacro write-msg
   "Inline writeAndFlush."
   [c msg]
@@ -309,22 +331,27 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defmacro hreq?
+  "Isa HttpRequest?"
   [m] `(instance? ~'HttpRequest ~m))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defmacro hrsp?
+  "Isa HttpResponse?"
   [m] `(instance? ~'HttpResponse ~m))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defmacro h1hdr*
+  "Morph into a HttpHeaderName."
   [name] `~(symbol (str "HttpHeaderNames/"  (str name))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defmacro h1hdv*
+  "Morph into a HttpHeaderValue."
   [name] `~(symbol (str "HttpHeaderValues/"  (str name))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defmacro scode*
+  "Morph into a HttpResponseStatus then cast to INT."
   [status]
   `(.code ~(symbol (str "HttpResponseStatus/"  (str status)))))
 
@@ -341,11 +368,13 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defmacro ref-del
-  "" [r] `(io.netty.util.ReferenceCountUtil/release ~r))
+  "May be release a reference-counted object."
+  [r] `(io.netty.util.ReferenceCountUtil/release ~r))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defmacro ref-add
-  "" [r] `(io.netty.util.ReferenceCountUtil/retain ~r))
+  "May be increase reference-count of an object."
+  [r] `(io.netty.util.ReferenceCountUtil/retain ~r))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defmacro cfop<e>
@@ -360,25 +389,33 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defmacro gattr
+  "Get actual data inside an Attribute."
   [attr] `(czlab.nettio.core/get-http-data ~attr true))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defmacro mg-headers??
-  "Get the Headers map." [msg] `(:headers ~msg))
+(c/defmacro- hthds
+  [msg] `(.headers ~msg))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defmacro ht-headers??
-  "Get the HttpHeaders object." [msg] `(.headers ~msg))
+(c/defmacro- ghthds
+  [msg h] `(.get (.headers ~msg) ~h))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(c/defmacro- shthds
+  [msg h v] `(.set (.headers ~msg) ~h ~v))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(c/defmacro- ahthds
+  [msg h v] `(.add (.headers ~msg) ~h ~v))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defonce ^AttributeKey dfac-key (akey<> :data-factory))
 (defonce ^AttributeKey cc-key  (akey<> :wsock-client))
-(defonce ^AttributeKey req-key (akey<> :request))
-;;(defonce ^AttributeKey h1msg-key (akey<> :h1req))
 (defonce ^AttributeKey routes-key (akey<> :cracker))
 (defonce ^AttributeKey chcfg-key (akey<> :ch-config))
 (defonce ^AttributeKey cache-key (akey<> :ch-cache))
 (defonce ^String body-id "--body--")
+(defonce ^String user-cb "user-cb")
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- cfg-ctx-bldr
@@ -403,10 +440,22 @@
         ApplicationProtocolConfig$SelectorFailureBehavior/NO_ADVERTISE
         ApplicationProtocolConfig$SelectedListenerFailureBehavior/ACCEPT ps))))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn pp->last
+  [p n h]
+  (l/debug "add-last %s/%s to ch-pipeline." n (u/gczn h))
+  (.addLast ^ChannelPipeline p ^String n ^ChannelHandler h))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn pp->next
+  [p a n h]
+  (l/debug "add-after %s %s/%s to ch-pipeline." a n (u/gczn h))
+  (.addAfter ^ChannelPipeline p ^String a ^String n ^ChannelHandler h))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn data-attr<>
-  ""
-  [size] (MixedAttribute. body-id size))
+  "Create a Mixed Attribute for storage."
+  ^Attribute [size] (MixedAttribute. body-id size))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn h1msg?
@@ -417,7 +466,8 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn h1end?
   [msg]
-  (c/or?? [msg instance?] LastHttpContent FullHttpResponse))
+  (c/or?? [msg instance?]
+          LastHttpContent FullHttpResponse))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn put-post?
@@ -427,26 +477,26 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn app-handler
   ^ChannelHandler
-  [user-handler user-cb]
-  (or (c/cast? ChannelHandler user-handler)
-      (and user-cb
-           (proxy [InboundHandler][]
-             (readMsg [ctx msg] (user-cb ctx msg))))))
+  [user-cb]
+  {:pre [(fn? user-cb)]}
+  (proxy [InboundHandler][]
+    (onRead [_ _ msg] (user-cb msg))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (extend-protocol BootstrapAPI
   Bootstrap
-  (nobs! [bs ch]
+  (nobs! [bs ^Channel ch]
     (c/try! (if (and ch
-                     (.isOpen ^Channel ch))
-              (.close ^Channel ch)))
+                     (.isOpen ch))
+              (.close ch)))
     (if-some [bs' (c/cast? ServerBootstrap bs)]
       (c/try! (.. bs' config childGroup shutdownGracefully)))
     (c/try! (.. bs config group shutdownGracefully))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn client-ssl??
-  [^ChannelPipeline pp server-cert
+  [^ChannelPipeline pp
+   server-cert
    {:keys [scheme protocol] :as args}]
   (l/info "server-cert = %s." server-cert)
   (letfn
@@ -464,14 +514,15 @@
                           (ccerts (io/as-url server-cert)))
            (.trustManager ctx InsecureTrustManagerFactory/INSTANCE))))]
     (when (and (not (.equals "http" scheme))
-               (c/hgl? server-cert)
-               (cs/starts-with? server-cert "file:"))
+               (or (.equals "*" server-cert)
+                   (some-> server-cert
+                           (cs/starts-with? "file:"))))
       (c/let#nil [^SslContextBuilder b (bld-ctx)
                   ^SslContext ctx
                   (if-not (.equals "2" protocol)
                     (.build b)
                     (.build (cfg-ctx-bldr b true)))]
-        (.addLast pp "ssl" (.newHandler ctx (.. pp channel alloc)))))))
+        (pp->last pp "ssl" (.newHandler ctx (.. pp channel alloc)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn server-ssl??
@@ -483,15 +534,16 @@
              (let [c (SelfSignedCertificate.)]
                (SslContextBuilder/forServer (.certificate c)
                                             (.privateKey c)))
-             (and (c/hgl? keyfile)
-                  (cs/starts-with? keyfile "file:"))
+             (some-> keyfile
+                     (cs/starts-with? "file:"))
              (let [t (->> (TrustManagerFactory/getDefaultAlgorithm)
                           TrustManagerFactory/getInstance)
                    k (->> (KeyManagerFactory/getDefaultAlgorithm)
                           KeyManagerFactory/getInstance)
                    cpwd (some-> passwd i/x->chars)
                    ks (KeyStore/getInstance
-                        (if (cs/ends-with? key ".jks") "JKS" "PKCS12"))]
+                        (if (cs/ends-with?
+                              keyfile ".jks") "JKS" "PKCS12"))]
                (c/wo* [inp (io/input-stream (URL. ^String keyfile))]
                  (.load ks inp cpwd)
                  (.init t ks)
@@ -500,22 +552,10 @@
              :else
              (u/throw-BadArg "Invalid keyfile path: %s" keyfile)))]
     (c/let#nil [^SslContextBuilder b (bld-ctx)]
-      (.addLast pp
+      (pp->last pp
                 "ssl"
                 (-> (.build (cfg-ctx-bldr b false))
                     (.newHandler (.. pp channel alloc)))))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn pp->last
-  [p n h]
-  (l/debug "add-last %s/%s to ch-pipeline." n (u/gczn h))
-  (.addLast ^ChannelPipeline p ^String n ^ChannelHandler h))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn pp->next
-  [p a n h]
-  (l/debug "add-after %s %s/%s to ch-pipeline." a n (u/gczn h))
-  (.addAfter ^ChannelPipeline p ^String a ^String n ^ChannelHandler h))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn cfop<>
@@ -533,14 +573,15 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (extend-protocol cc/HttpMsgGist
   czlab.niou.core.Http1xMsg
-  (msg-header-keys [msg]
-    (keys (mg-headers?? msg)))
   (msg-header-vals [msg h]
-    (get (mg-headers?? msg) (str h)))
+    (.get ^Headers (:headers msg) h))
   (msg-header [msg h]
     (first (cc/msg-header-vals msg h)))
   (msg-header? [msg h]
-    (contains? (mg-headers?? msg) (str h))))
+    (.containsKey ^Headers (:headers msg) h))
+  (msg-header-keys [msg]
+    (into #{}
+          (.keySet ^Headers (:headers msg)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (extend-protocol AttributeKeyAPI
@@ -560,19 +601,25 @@
     (some-> (.attr _ ^AttributeKey key) (.set val)) val))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(let [h (InetAddress/getLocalHost)
-      a (InetAddress/getLoopbackAddress)]
-  (def ^String host-loopback-name (.getHostName a))
-  (def ^String lhost-name (.getHostName h))
-  (def ^String lhost-addr (.getHostAddress h))
-  (def ^String host-loopback-addr (.getHostAddress a)))
+(defn host-loopback-name
+  ^String [] (.getHostName
+               (InetAddress/getLoopbackAddress)))
 
-(if false
-  (do
-    (println "lhost name= " lhost-name)
-    (println "lhost addr= " lhost-addr)
-    (println "loop name= " host-loopback-name)
-    (println "loop addr= " host-loopback-addr)))
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn lhost-name
+  ^String [] (.getHostName
+               (InetAddress/getLocalHost)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn lhost-addr
+  ^String [] (.getHostAddress
+               (InetAddress/getLocalHost)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn host-loopback-addr
+  ^String []
+  (.getHostAddress
+    (InetAddress/getLoopbackAddress)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn fake-req<>
@@ -591,7 +638,9 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn get-http-data
-  "Get content and if it's a file, rename to self ,trick code to not delete the file."
+  "Get content and if it's a file,
+  rename to self,
+  trick code to not delete the file."
   ([d] (get-http-data d nil))
   ([^HttpData d wrap?]
    (let [f? (c/is? FileUpload d)
@@ -833,20 +882,18 @@
      (write-last-content inv false))
     ([inv flush?]
      (if-not flush?
-       (.write inv LastHttpContent/EMPTY_LAST_CONTENT)
-       (.writeAndFlush inv LastHttpContent/EMPTY_LAST_CONTENT))))
+       (write-msg* inv LastHttpContent/EMPTY_LAST_CONTENT)
+       (write-msg inv LastHttpContent/EMPTY_LAST_CONTENT))))
   (reply-status
     ([inv status] (reply-status inv status false))
     ([inv] (reply-status inv 200))
     ([inv status keepAlive?]
      (let [rsp (http-reply<+> status)
-           code (.. rsp status code)
-           ka? (if-not (and (>= code 200)
-                            (< code 300)) false keepAlive?)]
+           ka? (if-not (and (>= status 200)
+                            (< status 300)) false keepAlive?)]
        (l/debug "returning status [%s]." status)
        (HttpUtil/setKeepAlive rsp ka?)
-       ;(HttpUtil/setContentLength rsp 0)
-       (cf-close (.writeAndFlush inv rsp) ka?))))
+       (cf-close (write-msg inv rsp) ka?))))
   (reply-redirect
     ([inv perm? location]
      (reply-redirect inv perm? location false))
@@ -857,7 +904,7 @@
                    (scode* MOVED_PERMANENTLY)
                    (scode* TEMPORARY_REDIRECT)))]
        (l/debug "redirecting to -> %s." location)
-       (.set (.headers rsp) (h1hdr* LOCATION) location)
+       (shthds rsp (h1hdr* LOCATION) location)
        (HttpUtil/setKeepAlive rsp ka?)
        (cf-close (write-msg inv rsp) ka?))))
   (continue-100 [inv]
@@ -893,45 +940,39 @@
            (.getName c) (.getValue c))
   (doto (DefaultCookie. (.getName c)
                         (.getValue c))
-    ;;(.setComment (.getComment c))
     (.setDomain (.getDomain c))
     (.setMaxAge (.getMaxAge c))
     (.setPath (.getPath c))
-    ;;(.setDiscard (.getDiscard c))
-    ;;(.setVersion 0)
     (.setHttpOnly (.isHttpOnly c))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn http-cookie<>
   ^HttpCookie [^Cookie c]
-  (doto (HttpCookie. (.name c) (.value c))
-    ;;(.setComment (.comment c))
+  (doto (HttpCookie. (.name c)
+                     (.value c))
     (.setDomain (.domain c))
     (.setMaxAge (.maxAge c))
     (.setPath (.path c))
-    ;;(.setVersion (.getVersion c))
     (.setHttpOnly (.isHttpOnly c))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (extend-protocol HttpMessageAPI
   HttpMessage
-  (detect-acceptable-charset [msg]
-    (c/when-some+ [cs (some-> (c/cast? HttpRequest msg)
-                              .headers
-                              (.get (h1hdr* ACCEPT_CHARSET)))]
+  (detect-charset [msg]
+    (c/when-some+ [cs (ghthds msg (h1hdr* ACCEPT_CHARSET))]
       (or (->> (c/split cs "[,;\\s]+")
                (some #(c/try! (u/charset?? %)))) (u/charset??))))
   (get-charset [msg]
     (HttpUtil/getCharset msg (Charset/forName "utf-8")))
-  (get-header [msg h] (.get (.headers msg) ^String h))
-  (has-header? [msg h] (.contains (.headers msg) ^String h))
-  (add-header [msg h v] (.add (.headers msg) ^String h v))
-  (set-headers [msg hs] (.set (.headers msg) ^HttpHeaders hs))
-  (set-header [msg h v] (.set (.headers msg) ^String h v))
-  (get-headers [msg] (.headers msg))
+  (get-header [msg h] (ghthds msg ^CharSequence h))
+  (has-header? [msg h] (.contains (hthds msg) ^CharSequence h))
+  (add-header [msg h v] (ahthds msg ^CharSequence h v))
+  (set-headers [msg ^HttpHeaders hs] (.set (hthds msg) hs))
+  (set-header [msg h v] (shthds msg ^CharSequence h v))
+  (get-headers [msg] (hthds msg))
   (get-method [msg]
     (if-some [req (c/cast? HttpRequest msg)]
-      (keyword (c/lcase (c/stror (.get (.headers req) "X-HTTP-Method-Override")
+      (keyword (c/lcase (c/stror (ghthds req "X-HTTP-Method-Override")
                                  (.. req getMethod name))))))
   (get-uri-path [msg]
     (if-some [req (c/cast? HttpRequest msg)]
@@ -942,38 +983,26 @@
   (crack-cookies [msg]
     (c/condp?? instance? msg
       HttpRequest
-      (c/if-some+
-        [v (.get (.headers ^HttpRequest msg) (h1hdr* COOKIE))]
-        (c/preduce<map>
-          #(assoc! %1
-                   (.name ^Cookie %2)
-                   (http-cookie<> %2))
-          (.decode ServerCookieDecoder/STRICT v)))
+      (c/preduce<map>
+        #(assoc! %1
+                 (.name ^Cookie %2)
+                 (http-cookie<> %2))
+        (->> (str (ghthds msg (h1hdr* COOKIE)))
+             (.decode ServerCookieDecoder/STRICT)))
       HttpResponse
       (c/preduce<map>
-        #(let [v (.decode ClientCookieDecoder/STRICT %2)]
-           (assoc! %1
-                   (.name v)
-                   (http-cookie<> v)))
-        (.getAll (.headers ^HttpResponse msg) (h1hdr* SET_COOKIE)))))
+        #(if-some [v (.decode ClientCookieDecoder/STRICT %2)]
+           (assoc! %1 (.name v) (http-cookie<> v)) %1)
+        (.getAll (hthds msg) (h1hdr* SET_COOKIE)))))
   (no-content? [msg]
     (or (not (HttpUtil/isContentLengthSet msg))
         (not (> (HttpUtil/getContentLength msg -1) 0))))
   (content-type [msg]
-    (-> (.headers msg)
-        (.get (h1hdr* CONTENT_TYPE) "")))
+    (c/stror (ghthds msg (h1hdr* CONTENT_TYPE)) ""))
   (content-length-as-int [msg]
     (HttpUtil/getContentLength msg (int 0)))
-  (content-length! [msg len]
+  (content-length! [msg ^long len]
     (HttpUtil/setContentLength msg (long len))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(extend-protocol cc/WsockMsgReplyer
-  Channel
-  (send-ws-string [inv s]
-    (write-msg inv (TextWebSocketFrame. ^String s)))
-  (send-ws-bytes [inv b]
-    (write-msg inv (BinaryWebSocketFrame. (x->bbuf inv b)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- akey*
@@ -981,19 +1010,12 @@
         (if-not (AttributeKey/exists s)
           (AttributeKey/newInstance s) (AttributeKey/valueOf s))))
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(extend-protocol cc/SocketAttrProvider
-  Channel
-  (socket-attr-get [c k] (akey?? c (akey* k)))
-  (socket-attr-del [c k] (akey- c (akey* k)))
-  (socket-attr-set [c k a] (akey+ c (akey* k) a)))
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn dbg-ref-count
   "Show ref-count of object." [obj]
-  (if-some
-    [rc (c/cast? ReferenceCounted obj)]
-    (l/debug "object %s: has refcount: %s." obj (.refCnt rc))))
+  [obj] (if-some
+          [r (c/cast? ReferenceCounted obj)]
+          (l/debug "object %s: has refcount: %s." obj (.refCnt r))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF

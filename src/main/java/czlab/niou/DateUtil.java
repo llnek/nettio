@@ -8,7 +8,7 @@
  * You must not remove this notice, or any other, from this software.
  */
 
-package czlab.nettio;
+package czlab.niou;
 
 import java.text.ParseException;
 import java.text.SimpleDateFormat;

@@ -15,6 +15,7 @@ import io.netty.channel.ChannelDuplexHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelPromise;
 import io.netty.channel.ChannelHandler;
+import io.netty.channel.Channel;
 import static org.slf4j.LoggerFactory.getLogger;
 import org.slf4j.Logger;
 import czlab.basal.CU;
@@ -43,13 +44,15 @@ public abstract class DuplexHandler extends ChannelDuplexHandler {
     onActive(ctx);
   }
 
-  public void onWrite(ChannelHandlerContext ctx, Object msg, ChannelPromise cp) throws Exception {}
-  public void onRead(ChannelHandlerContext ctx, Object msg) throws Exception {}
-  public void onWriteChanged(ChannelHandlerContext ctx) throws Exception {}
-  public void onInactive(ChannelHandlerContext ctx) throws Exception {}
-  public void onActive(ChannelHandlerContext ctx) throws Exception {}
-  public void onUnreg(ChannelHandlerContext ctx) throws Exception {}
-  public void onReg(ChannelHandlerContext ctx) throws Exception {}
+  protected void onWrite(ChannelHandlerContext ctx, Object msg, ChannelPromise cp) throws Exception {}
+  protected void onHandlerAdded(ChannelHandlerContext ctx) throws Exception {}
+  protected void onRead(ChannelHandlerContext ctx, Channel ch, Object msg) throws Exception {}
+  protected void onError(ChannelHandlerContext ctx, Throwable cause) throws Exception {}
+  protected void onWriteChanged(ChannelHandlerContext ctx) throws Exception {}
+  protected void onInactive(ChannelHandlerContext ctx) throws Exception {}
+  protected void onActive(ChannelHandlerContext ctx) throws Exception {}
+  protected void onUnreg(ChannelHandlerContext ctx) throws Exception {}
+  protected void onReg(ChannelHandlerContext ctx) throws Exception {}
 
   @Override
   public void channelInactive(ChannelHandlerContext ctx) throws Exception {
@@ -75,16 +78,30 @@ public abstract class DuplexHandler extends ChannelDuplexHandler {
     onWriteChanged(ctx);
   }
 
+  protected Object preWrite(ChannelHandlerContext ctx, Object msg) throws Exception {
+    return msg;
+  }
+
   @Override
   public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise cp) throws Exception {
-    super.write(ctx, msg, cp);
-    onWrite(ctx, msg, cp);
+    if (msg==null) {
+      // should never be null, right?
+      super.write(ctx, msg, cp);
+      onWrite(ctx, msg, cp);
+    } else {
+      Object msg_ = preWrite(ctx, msg);
+      if (msg_ != null) {
+        super.write(ctx, msg_, cp);
+        onWrite(ctx, msg_, cp);
+      }
+    }
   }
 
   @Override
   public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
     if (CU.canLog())
       TLOG.error("", cause);
+    onError(ctx,cause);
     ctx.channel().close();
   }
 
@@ -97,11 +114,15 @@ public abstract class DuplexHandler extends ChannelDuplexHandler {
   @Override
   public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
     try {
-      onRead(ctx, msg);
+      onRead(ctx, ctx.channel(), msg);
     } finally {
       if (_rel) ReferenceCountUtil.release(msg);
     }
   }
 
+  @Override
+  public void handlerAdded(ChannelHandlerContext ctx) throws Exception {
+    onHandlerAdded(ctx);
+  }
 }
 

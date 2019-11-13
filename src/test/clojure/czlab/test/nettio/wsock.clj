@@ -13,181 +13,150 @@
   czlab.test.nettio.wsock
 
   (:require [clojure.java.io :as io]
-            [clojure
-             [test :as ct]
-             [string :as cs]]
-            [czlab.test.nettio
-             [snoop :as sn]
-             [files :as fs]
-             [discard :as dc]]
-            [czlab.nettio
-             [http11 :as h1]
-             [ranges :as nr]
-             [core :as nc]
-             [msgs :as mg]
-             [resp :as rs]
-             [server :as sv]
-             [client :as cl]]
-            [czlab.niou
-             [core :as cc]
-             [upload :as cu]
-             [routes :as cr]]
-            [czlab.basal
-             [proc :as p]
-             [util :as u]
-             [log :as l]
-             [io :as i]
-             [xpis :as po]
-             [core :as c :refer [ensure?? ensure-thrown??]]])
+            [clojure.test :as ct]
+            [clojure.string :as cs]
+            [czlab.basal.util :as u]
+            [czlab.basal.log :as l]
+            [czlab.basal.io :as i]
+            [czlab.basal.xpis :as po]
+            [czlab.niou.core :as cc]
+            [czlab.nettio.resp :as nr]
+            [czlab.nettio.client :as cl]
+            [czlab.nettio.server :as sv]
+            [czlab.niou.module :as mo]
+            [czlab.basal.core :as c
+             :refer [ensure?? ensure-thrown??]])
 
-  (:import [io.netty.buffer Unpooled ByteBuf ByteBufHolder]
-           [org.apache.commons.fileupload FileItem]
-           [czlab.basal XData]
-           [io.netty.handler.codec.http.websocketx
-            BinaryWebSocketFrame
-            TextWebSocketFrame
-            CloseWebSocketFrame
-            PongWebSocketFrame
-            PingWebSocketFrame]
-           [io.netty.handler.codec.http.multipart
-            HttpDataFactory
-            Attribute
-            HttpPostRequestDecoder]
-           [io.netty.handler.codec.http
-            HttpResponseStatus]
-           [java.nio.charset Charset]
-           [java.net URL URI]
-           [jregex Matcher]
-           [czlab.nettio
-            H1DataFactory
-            InboundHandler]
-           [io.netty.channel
-            ChannelHandler
-            Channel
-            ChannelHandlerContext]
-           [io.netty.channel.embedded EmbeddedChannel]))
+  (:import [czlab.basal XData]))
+
+ ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(c/defonce- HELLO-BYTES (i/x->bytes "hello"))
+
+(c/defonce- MODULE
+  (mo/web-client-module<> {:implements :czlab.nettio.client/netty}))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (c/deftest test-wsock
 
-  (ensure?? "websock/bad"
-            (let [w (-> (sv/web-server<>
-                          {:wsock-path #{"/web/sock"}
-                           :user-cb (fn [_ msg] (println "Oh no! msg = " msg))})
-                        (po/start {:port 5556 :host n/lhost-name}))
-                  rcp (cc/ws-connect<> (cl/netty-module<>)
-                                       n/lhost-name port "/websock" (fn [_ _]))
-                  cc (cc/cc-sync-get-connect rcp)]
-              (po/stop w)
-              (u/pause 1000)
-              (c/is? Throwable cc)))
+  (ensure??
+    "websock/bad-uri"
+    (let [{:keys [host port] :as w}
+          (-> (mo/web-server-module<>
+                {:implements :czlab.nettio.server/netty
+                 :wsock-path "/websock"
+                 :user-cb #(println "msg = " %1)})
+              (po/start {:port 5556}))
+          _ (u/pause 888)
+          c (cc/hc-ws-conn MODULE host port {:uri "/crap"})]
+      (u/pause 500)
+      (po/stop w)
+      (u/pause 500)
+      (c/is? Throwable c)))
 
-  (ensure?? "websock/remote-port"
-            (let [w (-> (sv/web-server<>
-                          {:wsock-path #{"/web/sock"}
-                           :user-cb (fn [_ msg] (println "Why? msg = " msg))})
-                        (po/start {:port 5556 :host n/lhost-name}))
-                  rcp (cc/ws-connect<> (cl/netty-module<>)
-                                       n/lhost-name port "/web/sock" (fn [_ _]))
-                  cc (cc/cc-sync-get-connect rcp)]
-              (po/stop w)
-              (some-> cc cc/cc-finz)
-              (u/pause 1000)
-              (and cc (== 5556 (cc/cc-remote-port cc)))))
+  (ensure??
+    "websock/remote-port"
+    (let [{:keys [host port] :as w}
+          (-> (mo/web-server-module<>
+                {:implements :czlab.nettio.server/netty
+                 :user-cb #(println "msg = " %1)})
+              (po/start {:port 5556}))
+          _ (u/pause 888)
+          c (cc/hc-ws-conn MODULE host port {:uri "/websock"})]
+      (u/pause 500)
+      (po/stop w)
+      (cc/cc-finz c)
+      (u/pause 500)
+      (and c (== 5556
+                 (cc/cc-remote-port c)))))
 
-  (ensure?? "websock/stop"
-            (let [w (-> (sv/web-server<>
-                          {:wsock-path "/web/sock"
-                           :hh1 (fn [_ msg] (println "msg = " msg))})
-                        (po/start {:port 5556 :host n/lhost-name}))
-                  rcp (cc/ws-connect<> (cl/netty-module<>)
-                                       n/lhost-name
-                                       port "/web/sock" (fn [_ _]))
-                  cc (cc/cc-sync-get-connect rcp)]
-              (po/stop w)
-              (u/pause 1000)
-              (try (and (c/is? czlab.niou.core.ClientConnect cc)
-                        (not (.isOpen ^Channel (cc/cc-channel cc))))
-                   (finally
-                     (some-> cc cc/cc-finz)))))
+  (ensure??
+    "websock/stop"
+    (let [{:keys [host port] :as w}
+          (-> (mo/web-server-module<>
+                {:implements :czlab.nettio.server/netty
+                 :user-cb #(println "msg = " %1)})
+              (po/start {:port 5556}))
+          _ (u/pause 888)
+          c (cc/hc-ws-conn MODULE host port {:uri "/websock"})
+          ok? (and (c/is? czlab.niou.core.ClientConnect c)
+                   (cc/cc-is-open? c))]
+      (u/pause 500)
+      (po/stop w)
+      (cc/cc-finz c)
+      (u/pause 500)
+      (and ok?
+           (not (cc/cc-is-open? c)))))
 
-  (ensure?? "websock/text"
-            (let [w (-> (sv/web-server<>
-                          {:wsock-path "/web/sock"
-                           :server-key "*"
-                           :user-cb (fn [ctx msg]
-                                      (let [^XData x (:body msg)]
-                                        (n/write-msg ctx
-                                                     (TextWebSocketFrame. (.strit x)))))})
-                        (po/start {:port 8443 :host n/lhost-name}))
-                  out (atom nil)
-                  rcp (cc/ws-connect<> (cl/netty-module<>)
-                                       (:host w)
-                                       (:port w)
-                                       "/web/sock"
-                                       (fn [cc msg]
-                                         (when-some [s (:body msg)]
-                                           (reset! out (.strit ^XData s))
-                                           (cc/cc-ws-write cc (CloseWebSocketFrame.))))
-                                       {:server-cert "*"})
-                  cc (cc/cc-sync-get-connect rcp)]
-              (some-> cc (cc/cc-ws-write  "hello"))
-              (u/pause 1000)
-              (some-> cc cc/cc-finz)
-              (po/stop w)
-              (u/pause 1000)
-              (= "hello" @out)))
 
-  (ensure?? "websock/blob"
-            (let [w (-> (sv/web-server<>
-                          {:wsock-path "/web/sock"
-                           :user-cb (fn [ctx msg]
-                                      (n/write-msg ctx
-                                                   (BinaryWebSocketFrame.
-                                                     (-> (n/bbuf?? (:body msg)
-                                                                   (nc/ch?? ctx))))))})
-                        (po/start {:port 5556 :host n/lhost-name}))
-                  out (atom nil)
-                  rcp (cc/ws-connect<> (cl/netty-module<>)
-                                       (:host w)
-                                       (:port w)
-                                       "/web/sock"
-                                       (fn [cc msg]
-                                         (when-some [b (:body msg)]
-                                           (reset! out (.strit ^XData b))
-                                           (cc/cc-ws-write cc (CloseWebSocketFrame.)))))
-                  cc (cc/cc-sync-get-connect rcp)]
-              (some-> cc (cc/cc-ws-write (i/x->bytes "hello")))
-              (u/pause 1000)
-              (some-> cc cc/cc-finz)
-              (po/stop w)
-              (u/pause 1000)
-              (= "hello" @out)))
+  (ensure??
+    "websock/text"
+    (let [{:keys [host port] :as w}
+          (-> (mo/web-server-module<>
+                {:implements :czlab.nettio.server/netty
+                 :server-key "*"
+                 :user-cb #(cc/reply-result %1)})
+              (po/start {:port 8443}))
+          _ (u/pause 888)
+          out (atom nil)
+          c (cc/hc-ws-conn
+                MODULE
+                host port
+                {:server-cert "*"
+                 :uri "/websock"
+                 :user-cb #(reset! out (:body %1))})]
+      (cc/cc-write c
+                   (cc/ws-text<> "hello"))
+      (u/pause 666)
+      (po/stop w)
+      (cc/cc-finz c)
+      (u/pause 500)
+      (.equals "hello" (i/x->str @out))))
 
-  (ensure?? "websock/ping"
-            (let [pong (atom false)
-                  out (atom nil)
-                  w (-> (sv/web-server<>
-                          {:wsock-path #{"/web/sock"}
-                           :user-cb (fn [ctx msg] (reset! out "bad"))})
-                        (po/start {:port 5556 :host n/lhost-name}))
-                  rcp (cc/ws-connect<> (cl/netty-module<>)
-                                       (:host w)
-                                       (:port w)
-                                       "/web/sock"
-                                       (fn [cc msg]
-                                         (when (:pong? msg)
-                                           (reset! pong true)
-                                           (cc/cc-ws-write cc (CloseWebSocketFrame.)))))
-                  cc (cc/cc-sync-get-connect rcp)]
-              (some-> cc (cc/cc-ws-write (PingWebSocketFrame.)))
-              (u/pause 1000)
-              (some-> cc cc/cc-finz)
-              (po/stop w)
-              (u/pause 1000)
-              (and (nil? @out) (true? @pong))))
+  (ensure??
+    "websock/blob"
+    (let [{:keys [host port] :as w}
+          (-> (mo/web-server-module<>
+                {:implements :czlab.nettio.server/netty
+                 :user-cb #(cc/reply-result %1)})
+              (po/start {:port 5556}))
+          _ (u/pause 888)
+          out (atom nil)
+          c (cc/hc-ws-conn MODULE
+                           host port
+                           {:uri "/websock"
+                            :user-cb #(reset! out (:body %1))})]
+      (cc/cc-write c (cc/ws-bytes<> HELLO-BYTES))
+      (u/pause 666)
+      (po/stop w)
+      (cc/cc-finz c)
+      (u/pause 500)
+      (u/obj-eq? HELLO-BYTES (i/x->bytes @out))))
 
-  (ensure?? "test-end" (= 1 1)))
+  (ensure??
+    "websock/ping"
+    (let [pong (atom false)
+          ping (atom false)
+          {:keys [host port] :as w}
+          (-> (mo/web-server-module<>
+                {:implements :czlab.nettio.server/netty
+                 :user-cb #(when (:is-ping? %1)
+                             (reset! ping true))})
+              (po/start {:port 5556}))
+          _ (u/pause 888)
+          c (cc/hc-ws-conn MODULE
+                           host port
+                           {:uri "/websock"
+                            :user-cb
+                            #(when (:is-pong? %1)
+                               (reset! pong true))})]
+      (cc/cc-write c cc/ws-ping<>)
+      (u/pause 666)
+      (po/stop w)
+      (cc/cc-finz c)
+      (u/pause 500)
+      (and (false? @ping) (true? @pong))))
+
+  (ensure?? "test-end" (== 1 1)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (ct/deftest

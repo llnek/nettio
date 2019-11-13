@@ -15,95 +15,56 @@
   (:gen-class)
 
   (:require [clojure.string :as cs]
-            [czlab.basal
-             [core :as c]
-             [util :as u]
-             [log :as l]
-             [proc :as p]
-             [xpis :as po]]
-            [czlab.nettio
-             [core :as nc]
-             [server :as sv]]
-            [czlab.niou.core :as cc])
+            [czlab.basal.core :as c]
+            [czlab.basal.util :as u]
+            [czlab.basal.log :as l]
+            [czlab.basalproc :as p]
+            [czlab.basalxpis :as po]
+            [czlab.niou.core :as cc]
+            [czlab.niou.module :as mo])
 
-  (:import [io.netty.util Attribute AttributeKey CharsetUtil]
-           [czlab.nettio InboundHandler]
-           [java.util Map$Entry]
-           [io.netty.channel
-            ChannelInitializer
-            Channel
-            ChannelPipeline
-            ChannelHandler
-            ChannelHandlerContext]
-           [io.netty.handler.codec.http.cookie
-            CookieDecoder
-            Cookie
-            ServerCookieEncoder]
-           [io.netty.handler.codec.http
-            HttpHeaders
-            HttpHeaderNames
-            HttpHeaderValues
-            HttpServerCodec
-            HttpVersion
-            FullHttpResponse
-            HttpContent
-            HttpResponseStatus
-            HttpRequest
-            QueryStringDecoder
-            LastHttpContent]
-           [czlab.basal XData]
-           [io.netty.bootstrap ServerBootstrap]))
+  (:import [czlab.basal XData]
+           [java.net HttpCookie]
+           [java.util Map$Entry]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;(set! *warn-on-reflection* true)
-(c/defonce- keep-alive (nc/akey<> :keepalive))
-(c/defonce- cookie-buf (nc/akey<> :cookies))
-(c/defonce- msg-buf (nc/akey<> :msg))
 (c/defonce- svr (atom nil))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- write-reply
-  "Reply back a string"
-  [^ChannelHandlerContext ctx curObj]
-  (let [cookies (:cookies curObj)
-        buf (nc/get-akey msg-buf ctx)
-        res (nc/http-reply<+>
-              (nc/scode* OK) (str buf) (.alloc ctx))
-        hds (.headers res)
-        ce ServerCookieEncoder/STRICT
-        clen (-> (.content res) .readableBytes)]
-    (.set hds "Content-Length" (str clen))
+  "Reply back a string."
+  [req buf]
+  (let [cookies (:cookies req)
+        body (i/x->bytes buf)
+        res (-> (cc/http-result req)
+                (cc/res-body-set body))
+        ^HttpHeaders hds (:headers res)]
+    (.set hds "Content-Length" (str (alength body)))
     (.set hds "Content-Type"
               "text/plain; charset=UTF-8")
     (.set hds
           "Connection"
-          (if (nc/get-akey keep-alive ctx) "keep-alive" "close"))
-    (if (empty? cookies)
-      (doto hds
-        (.add "Set-Cookie"
-              (.encode ce "key1" "value1"))
-        (.add "Set-Cookie"
-              (.encode ce "key2" "value2")))
-      (doseq [v cookies]
-        (.add hds
-              "Set-Cookie"
-              (.encode ce ^Cookie (nc/netty-cookie<> v)))))
-    (.writeAndFlush ctx res)))
+          (if (:keep-alive? req) "keep-alive" "close"))
+    (->> (if (not-empty cookies)
+           cookies
+           {"key1" (HttpCookie. "key1" "value1")
+            "key2" (HttpCookie. "key2" "value2")})
+         vals
+         (reduce #(cc/res-cookie-set %1 %2) res)
+         (cc/reply-result))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- handle-req
   "Introspect the inbound request"
-  [^ChannelHandlerContext ctx req]
-  (let [^HttpHeaders headers (:headers req)
-        ka? (:is-keep-alive? req)
-        buf (c/sbf<>)]
-    (nc/set-akey keep-alive ctx ka?)
-    (nc/set-akey msg-buf ctx buf)
-    (c/sbf+ buf
+  [req]
+  (let [headers (:headers req)
+        ka? (:keep-alive? req)]
+    (c/sbf+ (c/sbf<>)
             "WELCOME TO THE TEST WEB SERVER\r\n"
             "==============================\r\n"
             "VERSION: "
-            (:version req)
+            (:protocol req)
             "\r\n"
             "HOSTNAME: "
             (str (cc/msg-header req "host"))
@@ -116,9 +77,9 @@
                        "HEADER: "
                        %2
                        " = "
-                       (cs/join "," (.getAll headers ^String %2))
+                       (cs/join "," (cc/msg-header-vals headers %2))
                        "\r\n")
-              (.names headers))
+              (cc/msg-header-names headers))
             "\r\n"
             (c/sreduce<>
               (fn [b ^Map$Entry en]
@@ -134,27 +95,26 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- handle-cnt
   "Handle the request content"
-  [^ChannelHandlerContext ctx msg]
-  (let [^XData ct (:body msg)
-        buf (nc/get-akey msg-buf ctx)]
+  [msg buf]
+  (let [^XData ct (:body msg)]
     (if (.hasContent ct)
       (c/sbf+ buf "CONTENT: " (.strit ct) "\r\n"))
-    (c/sbf+ buf "END OF CONTENT\r\n")
-    (write-reply ctx msg)))
+    (write-reply msg
+                 (c/sbf+ buf "END OF CONTENT\r\n"))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn snoop-httpd<>
-  "Sample Snooper HTTPD." [& args]
-   (sv/tcp-server<> (merge {:hh1
-                            (proxy [InboundHandler][true]
-                              (readMsg [ctx msg]
-                                (handle-req ctx msg)
-                                (handle-cnt ctx msg)))}
-                           (c/kvs->map args))))
+  "Sample Snooper HTTPD."
+  [& args]
+  (mo/web-server-module<>
+    (merge {:implements :czlab.nettio.server/netty
+            :user-cb
+            #(->> (handle-req %1)
+                  (handle-cnt %1))} (c/kvs->map args))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn finz-server
-   [] (when @svr (po/stop @svr) (reset! svr nil)))
+  [] (when @svr (po/stop @svr) (reset! svr nil)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn -main
@@ -163,12 +123,13 @@
     (< (count args) 2)
     (println "usage: snoop host port")
     :else
-    (let [w (snoop-httpd<>)]
+    (let [{:keys [host port] :as w}
+          (-> (snoop-httpd<>)
+              (po/start {:host (nth args 0)
+                         :port (c/s->int (nth args 1) 8080)}))]
       (p/exit-hook #(po/stop w))
       (reset! svr w)
-      (po/start w {:host (nth args 0)
-                   :block? true
-                   :port (c/s->int (nth args 1) 8080)}))))
+      (u/block!))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF

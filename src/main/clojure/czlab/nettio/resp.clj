@@ -29,13 +29,14 @@
            [io.netty.buffer Unpooled ByteBuf ByteBufAllocator]
            [java.io IOException File InputStream]
            [io.netty.util ReferenceCountUtil]
+           [com.sun.net.httpserver Headers]
            [clojure.lang APersistentVector]
            [java.nio.charset Charset]
            [java.net HttpCookie URL]
            [java.util Date]
            [czlab.basal XData]
-           [czlab.nettio DateUtil]
-           [czlab.niou.core Http1xMsg HttpResultMsg]
+           [czlab.niou DateUtil]
+           [czlab.niou.core WsockMsg Http1xMsg HttpResultMsg]
            [czlab.nettio.ranges HttpRangesObj]
            [io.netty.handler.codec.http.cookie
             Cookie
@@ -63,7 +64,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- rs-headers??
-  ^HttpHeaders [msg] (:headers msg))
+  ^Headers [msg] (:headers msg))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (c/def- conds-hds
@@ -84,13 +85,13 @@
 (extend-protocol cc/HttpMsgGist
   HttpResultMsg
   (msg-header-keys [msg]
-    (into #{} (.names (rs-headers?? msg))))
+    (into #{} (.keySet (rs-headers?? msg))))
   (msg-header-vals [msg h]
-    (into [] (.getAll (rs-headers?? msg) (str h))))
+    (into [] (.get (rs-headers?? msg) (str h))))
   (msg-header [msg h]
-    (first (cc/msg-header-vals msg h)))
+   (.getFirst (rs-headers?? msg) (str h)))
   (msg-header? [msg h]
-    (.contains (rs-headers?? msg) (str h))))
+    (.containsKey (rs-headers?? msg) (str h))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (declare replyer<> result<>)
@@ -101,7 +102,7 @@
   {:pre [(or (nil? status)
              (number? status))]}
   (c/object<> HttpResultMsg
-              :headers (DefaultHttpHeaders.)
+              :headers (Headers.)
               :request theReq
               :cookies {}
               :protocol (.text HttpVersion/HTTP_1_1)
@@ -122,8 +123,22 @@
     ([theRes arg] (replyer<> theRes arg))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(extend-protocol cc/HttpResultMsgReplyer
+  WsockMsg
+  (reply-result
+    ([theRes] (cc/reply-result theRes nil))
+    ([theRes _] (let [ch (:socket theRes)]
+                  (some-> ch (n/write-msg theRes))))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (extend-protocol cc/HttpResultMsgModifier
   HttpResultMsg
+  (res-cookie-add [res cookie]
+    (update-in res
+               [:cookies]
+               assoc (.getName ^HttpCookie cookie) cookie))
+  (res-body-set [res body]
+    (assoc res :body body))
   (res-header-add [res name value]
     (c/do-with [res]
       (.add (rs-headers?? res) ^String name value)))

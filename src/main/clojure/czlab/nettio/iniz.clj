@@ -11,7 +11,7 @@
   ^{:doc ""
       :author "Kenneth Leung"}
 
-  czlab.nettio.inizor
+  czlab.nettio.iniz
 
   (:require [clojure.java.io :as io]
             [clojure.string :as cs]
@@ -61,6 +61,7 @@
             ApplicationProtocolConfig$SelectedListenerFailureBehavior]
            [java.security KeyStore]
            [java.util List]
+           [java.net URI]
            [io.netty.util
             AttributeKey]
            [io.netty.channel
@@ -74,41 +75,43 @@
            [io.netty.handler.codec.http.websocketx
             CloseWebSocketFrame
             WebSocketVersion
-            WebSocketClientHandshakerFactory
-            WebSocketClientHandshaker]
+            WebSocketClientHandshaker
+            WebSocketFrameAggregator
+            WebSocketClientHandshakerFactory]
            [io.netty.handler.codec.http.websocketx.extensions.compression
             WebSocketClientCompressionHandler]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;(set! *warn-on-reflection* true)
-(defrecord WSInizor [user])
-(defrecord H2Inizor [])
-(defrecord H1Inizor [])
+(defrecord WSInizor [args])
+(defrecord H2Inizor [args])
+(defrecord H1Inizor [args])
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(c/defonce- ^AttributeKey rsp-key  (n/akey<> :cli-resp))
-(c/defonce- ^AttributeKey cf-key  (n/akey<> :wsock-future))
+(defonce ^AttributeKey rsp-key  (n/akey<> :rsp-result))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (c/defonce- ^{:tag ChannelHandler}
   client-hdlr
   (proxy [InboundHandler][]
-    (readMsg [ctx msg]
+    (onRead [ctx ch msg]
       (when-some
         [p (n/akey?? ctx rsp-key)]
         (deliver p msg)
         (n/akey- ctx rsp-key)))
-    (exceptionCaught [ctx err]
-      (try (when-some
-             [p (n/akey?? ctx rsp-key)]
-             (deliver p err)
-             (n/akey- ctx rsp-key))
-           (finally (n/close! ctx))))))
+    (onError [ctx err]
+      (when-some
+        [p (n/akey?? ctx rsp-key)]
+        (deliver p err)
+        (n/akey- ctx rsp-key)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn webc-ssl-inizor<>
-  ^ChannelHandler
-  [server-cert rcp {:keys [protocol max-msg-size] :as args}]
+(defn- webc-ssl-inizor<>
+
+  "Initialize a web client SSL pipeline."
+  [rcp server-cert
+   {:keys [protocol max-msg-size] :as args}]
+
   (letfn
     [(h2hdlr []
        (let [co (DefaultHttp2Connection. false)]
@@ -123,128 +126,119 @@
                       (DelegatingDecompressorFrameListener. co)))
                (.frameLogger (Http2FrameLogger. LogLevel/INFO))))))]
     (proxy [ChannelInizer][]
-      (onHandlerAdded [cx]
-        (deliver rcp (n/ch?? cx)))
+      (onActive [ctx]
+        (deliver rcp (n/ch?? ctx)))
       (onError [_ e]
         (deliver rcp e))
-      (onInitChannel [ch ^ChannelPipeline pp]
+      (onInitChannel [pp]
         (n/client-ssl?? pp server-cert args)
         (if-not (.equals "2" protocol)
           (do
-            (n/pp->last pp "codec" (HttpClientCodec.))
-            ;(n/pp->last pp "aggregator" (h1/http-adder args))
-            (n/pp->last pp "chunker" (ChunkedWriteHandler.))
-            (n/pp->last pp "user-cb" client-hdlr))
+            (n/pp->last pp "1" (HttpClientCodec.))
+            (n/pp->last pp "2" h1/h1-simple<>)
+            (n/pp->last pp "3" (ChunkedWriteHandler.))
+            (n/pp->last pp n/user-cb client-hdlr))
           (do
             (n/pp->last pp
                         (proxy [APNHttp2Handler][]
                           (cfgH2 [pp]
                             (n/pp->last pp "h2" (h2hdlr))
-                            (n/pp->last pp "user-cb" client-hdlr))))))))))
+                            (n/pp->last pp n/user-cb client-hdlr))))))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn webc-inizor<>
-  ^ChannelHandler
-  [rcp args]
-  (proxy [ChannelInizer][]
-    (onHandlerAdded [cx]
-      (deliver rcp (n/ch?? cx)))
-    (onError [_ e]
-      (deliver rcp e))
-    (onInitChannel [ch pp]
-      (n/pp->last pp "codec" (HttpClientCodec.))
-      ;(n/pp->last pp "aggregator" (h1/http-adder args))
-      (n/pp->last pp "chunker" (ChunkedWriteHandler.))
-      (n/pp->last pp "user-cb" client-hdlr))))
+
+  "Initialize pipeline for a web client."
+  [rcp {:keys [server-cert] :as args}]
+
+  (if (c/hgl? server-cert)
+    (webc-ssl-inizor<> rcp server-cert args)
+    (proxy [ChannelInizer][]
+      (onActive [ctx]
+        (deliver rcp (n/ch?? ctx)))
+      (onError [_ e]
+        (deliver rcp e))
+      (onInitChannel [pp]
+        (n/pp->last pp "1" (HttpClientCodec.))
+        (n/pp->last pp "2" h1/h1-simple<>)
+        (n/pp->last pp "3" (ChunkedWriteHandler.))
+        (n/pp->last pp n/user-cb client-hdlr)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn- hshaker
+  ^WebSocketClientHandshaker [^String uri]
+  (l/debug "wsc handshake uri= %s." uri)
+  (WebSocketClientHandshakerFactory/newHandshaker
+    (URI. uri) WebSocketVersion/V13 nil true (DefaultHttpHeaders.)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn websock-inizor<>
-  ^ChannelHandler
-  [rcp server-cert {:keys [uri user-cb] :as args}]
+
+  "Initialize pipeline for a websock client."
+  [rcp
+   {:keys [uri2 user-cb
+           server-cert max-frame-size] :as args}]
+
   (letfn
-    [(wsock-hdlr []
-       (proxy [InboundHandler][]
-         (exceptionCaught [ctx err] (n/close! ctx))
-         (readMsg [ctx msg] (user-cb (n/akey?? ctx n/cc-key) msg))))
-     (wsh<> [^WebSocketClientHandshaker handshaker]
-       (letfn
-         [(cb [^ChannelFuture ff]
-            (deliver rcp
-                     (if (.isSuccess ff)
-                       (.channel ff)
-                       (or (.cause ff) (Exception. "Conn error!")))))]
+    [(wsh<> []
+       (let [hs (hshaker uri2)]
          (proxy [InboundHandler][true]
-           (handlerAdded [^ChannelHandlerContext ctx]
-             (-> ^ChannelPromise (n/akey+ ctx
-                                          cf-key
-                                          (.newPromise ctx))
-                 (.addListener (n/cfop<> cb)))
-             (l/debug "wsc handler-added."))
-           (channelActive [ctx]
-             (l/debug "wsc starting hand-shake...")
-             (.handshake handshaker (n/ch?? ctx)))
-           (exceptionCaught [ctx err]
-             (if-some [^ChannelPromise
-                       f (n/akey?? ctx cf-key)]
-               (if-not (.isDone f)
-                 (.setFailure f ^Throwable err)))
-             (n/close! ctx)
-             (l/warn "%s." (.getMessage ^Throwable err)))
-           (readMsg [ctx msg]
-             (let [ch (n/ch?? ctx)
-                   ^ChannelPromise
-                   f (n/akey?? ctx cf-key)]
-               (cond
-                 (not (.isHandshakeComplete handshaker))
-                 (do (l/debug "finzing the hand-shake...")
-                     (.finishHandshake handshaker
-                                       ch ^FullHttpResponse msg)
-                     (.setSuccess f)
-                     (l/debug "finz'ed the hand-shake... success!"))
-                 (c/is? FullHttpResponse msg)
-                 (do (u/throw-ISE
-                       "Unexpected Response (rc=%s)."
-                       (.status ^FullHttpResponse msg)))
-                 (c/is? CloseWebSocketFrame msg)
-                 (do (n/close! ctx)
-                     (l/debug "received close frame."))
-                 :else
-                 (n/fire-msg ctx (n/ref-add msg))))))))]
+           (onActive [ctx]
+             (l/debug "about to start wsc handshake...")
+             (.handshake hs (n/ch?? ctx)))
+           (onRead [ctx ch msg]
+             (cond
+               (not (.isHandshakeComplete hs))
+               (try
+                 (->> (c/cast? FullHttpResponse msg)
+                      (.finishHandshake hs ch))
+                 (deliver rcp ch)
+                 (n/dbg-pipeline (n/cpipe?? ch))
+                 (catch Exception e (deliver rcp e)))
+
+               (c/is? FullHttpResponse msg)
+               (u/throw-ISE
+                 "Unexpected Response (rc=%s)."
+                 (.status ^FullHttpResponse msg))
+
+               (c/is? CloseWebSocketFrame msg)
+               (do (n/close! ctx)
+                   (l/debug "received close frame."))
+
+               :else
+               (n/fire-msg ctx (n/ref-add msg)))))))]
     (proxy [ChannelInizer][]
-      (onInitChannel [ch ^ChannelPipeline pp]
+      (onInitChannel [pp]
         (n/client-ssl?? pp server-cert args)
-        (n/pp->last pp "codec" (HttpClientCodec.))
-        (n/pp->last pp "aggregator" (HttpObjectAggregator. 96000))
-        (n/pp->last pp "wcc" WebSocketClientCompressionHandler/INSTANCE)
-        (n/pp->last pp
-                    "wsh"
-                    (wsh<>
-                      (WebSocketClientHandshakerFactory/newHandshaker
-                        uri WebSocketVersion/V13 nil true (DefaultHttpHeaders.))))
-        ;(n/pp->last pp "ws-agg" h1/websock-adder)
-        (n/pp->last pp "ws-user" (wsock-hdlr))))))
+        (n/pp->last pp "1" (HttpClientCodec.))
+        (n/pp->last pp "2"
+                    (HttpObjectAggregator. 96000))
+        (n/pp->last pp "3" WebSocketClientCompressionHandler/INSTANCE)
+        (n/pp->last pp "4" (wsh<>))
+        (n/pp->last pp "5"
+                    (WebSocketFrameAggregator. max-frame-size))
+        (n/pp->last pp "6" h1/ws-monolith<>)
+        (n/pp->last pp n/user-cb
+                    (proxy [InboundHandler][]
+                      (onRead [ctx _ msg] (user-cb msg))))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn udp-inizor<>
-  ^ChannelHandler
-  [args]
+
+  "Initialize pipeline for UDP."
+  [{:keys [user-cb] :as args}]
+
   (proxy [ChannelInizer][]
-    (onInitChannel [ch pp]
-      (n/pp->last pp "user-func" nil))))
+    (onInitChannel [pp]
+      (n/pp->last pp n/user-cb (n/app-handler user-cb)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn web-inizor<>
-  ^ChannelHandler
-  [args]
-  (proxy [ChannelInizer][]
-    (onInitChannel [ch pp]
-      (h1/h1-pipeline pp args))))
+(defn- web-ssl-inizor<>
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn web-ssl-inizor<>
-  "Detects and negotiate http or http 2."
-  ^ChannelHandler
-  [keyfile passwd {:keys [h2-frames?] :as args}]
+  "Detects and negotiate http1 or http2."
+  [keyfile
+   {:keys [passwd h2-frames?] :as args}]
+
   (letfn
     [(ssl-negotiator []
        (proxy [APNHttpXHandler][]
@@ -255,9 +249,21 @@
              (h2/h2-pipeline pp args)
              (h2/hx-pipeline pp args)))))]
     (proxy [ChannelInizer][]
-      (onInitChannel [ch pp]
+      (onInitChannel [pp]
         (n/server-ssl?? pp keyfile passwd args)
         (n/pp->last pp "neg" (ssl-negotiator))))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn web-inizor<>
+
+  "Pipeline initializer for http and ssl."
+  [{:keys [server-key] :as args}]
+
+  (if (c/nichts? server-key)
+    (proxy [ChannelInizer][]
+      (onInitChannel [pp]
+        (h1/h1-pipeline pp args)))
+    (web-ssl-inizor<> server-key args)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF

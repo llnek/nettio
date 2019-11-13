@@ -25,6 +25,8 @@
 
   (:import [io.netty.handler.stream ChunkedWriteHandler]
            [java.util ArrayList HashMap Map List]
+           [czlab.niou.core WsockMsg]
+           [czlab.niou Headers]
            [io.netty.handler.codec.http.cors
             CorsConfig
             CorsHandler]
@@ -105,6 +107,14 @@
      (czlab.nettio.core/get-charset ~msg)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn- headers->std
+  ^Headers [^HttpHeaders hds]
+  (reduce
+    (fn [^Headers acc ^String n]
+      (doseq [v (.getAll hds n)]
+       (.add acc n ^String v)) acc) (Headers.) (.names hds)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- headers->map
   [^HttpHeaders hds]
   (c/preduce<map>
@@ -129,17 +139,17 @@
     (let [ssl (n/get-ssl?? ctx)
           ch (n/ch?? ctx)
           hs (.headers req)
-          ccert (some-> ssl
-                        .engine
-                        .getSession
-                        .getPeerCertificates)
+          ccert (c/try! (some-> ssl
+                                .engine
+                                .getSession
+                                .getPeerCertificates))
           q (QueryStringDecoder. (.uri req))
           laddr (c/cast? InetSocketAddress
                          (.localAddress ch))
           out {:keep-alive? (HttpUtil/isKeepAlive req)
                :protocol (.. req protocolVersion text)
                :request-method (n/get-method req)
-               :headers (headers->map hs)
+               :headers (headers->std hs)
                :scheme (if ssl :https :http)
                :ssl-client-cert (first ccert)
                :ssl? (some? ssl)
@@ -186,41 +196,68 @@
                   :cookies (n/crack-cookies res)
                   :status (.code s)
                   :status-reason (.reasonPhrase s)
-                  :headers (headers->map (.headers res))))))
+                  :headers (headers->std (.headers res))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- wsmsg<>
-  [m] (c/object<> czlab.niou.core.WsockMsg
-                  (assoc m :route {:status? true})))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(c/def- ws-monolith<>
-  ^ChannelHandler
-  (proxy [InboundHandler][true]
-    (on_read [ctx msg]
-      (when-some [bb (cond
-                       (c/is? PingWebSocketFrame msg)
-                       (c/do#nil
-                         (n/write-msg ctx (PongWebSocketFrame.)))
-                       (c/is? CloseWebSocketFrame msg)
-                       (c/do#nil (n/close! ctx))
-                       (or (c/is? TextWebSocketFrame msg)
-                           (c/is? BinaryWebSocketFrame msg))
-                       (.content ^WebSocketFrame msg))]
-        (->> (wsmsg<> {:body (XData. (n/bbuf->bytes bb))
-                       :is-text? (c/is? TextWebSocketFrame msg)})
-             (n/fire-msg ctx))))))
+(def ws-monolith<>
+  (proxy [DuplexHandler][true]
+    (preWrite [ctx msg]
+      (if-not (c/is? WsockMsg msg)
+        msg
+        (let [ch (n/ch?? ctx)
+              {:keys [is-close?
+                      is-ping?
+                      is-pong?
+                      is-text?
+                      ^XData body]} msg]
+          (l/debug "about to write a websock-frame.")
+          (cond is-close?
+                (CloseWebSocketFrame.)
+                is-ping?
+                (PingWebSocketFrame.)
+                is-pong?
+                nil;(PongWebSocketFrame.)
+                is-text?
+                (try (TextWebSocketFrame. (.strit body))
+                     (finally (l/debug "writing a text ws-frame.")))
+                (some? body)
+                (try (BinaryWebSocketFrame. (n/bbuf?? (.getBytes body) ch))
+                     (finally (l/debug "writing a binary ws-frame.")))))))
+    (onRead [ctx ch msg]
+      (let [bb (cond
+                 (c/is? PingWebSocketFrame msg)
+                 (do :ping
+                     (n/write-msg ctx (PongWebSocketFrame.)))
+                 (c/is? PongWebSocketFrame msg)
+                 :pong
+                 (c/is? CloseWebSocketFrame msg)
+                 (c/do#nil (n/close! ctx))
+                 (or (c/is? TextWebSocketFrame msg)
+                     (c/is? BinaryWebSocketFrame msg))
+                 (.content ^WebSocketFrame msg))]
+        (l/debug "reading a ws-frame = %s." msg)
+        (some->> (some-> (cond
+                           (= :pong bb) {:is-pong? true}
+                           (= :ping bb) {:is-ping? true}
+                           (some? bb)
+                           {:body (XData. (n/bbuf->bytes bb))
+                            :is-text? (c/is? TextWebSocketFrame msg)})
+                         (assoc :socket (n/ch?? ctx))
+                         cc/ws-msg<>)
+                 (n/fire-msg ctx))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- cfg-websock
   [^ChannelHandlerContext ctx ^HttpRequest req]
   (let [cc (n/cache?? ctx)
-        path (.path (QueryStringDecoder. (.uri req)))
+        uri (.uri req)
+        path (.path (QueryStringDecoder. uri))
         {:keys [wsock-path max-frame-size]} (n/chcfg?? ctx)]
-    (when-not (.equals path wsock-path)
-      (c/mdel! cc :mode)
-      (n/reply-status ctx (n/scode* FORBIDDEN))
-      (u/throw-FFE "mismatch websock path in config."))
+    (if (c/hgl? wsock-path)
+      (when-not (cs/starts-with? path wsock-path)
+        (c/mdel! cc :mode)
+        (n/reply-status ctx (n/scode* FORBIDDEN))
+        (u/throw-FFE "mismatch websock path in config.")))
     (let [cn (.name ctx)
           pp (n/cpipe?? ctx)
           q (c/mget cc :queue)
@@ -228,15 +265,15 @@
                  (.protocolVersion req)
                  (.method req) (.uri req))]
       ;websock, so no pipeline!
-      (.clear ^List q)
+      (if q (.clear ^List q))
       ;fake the headers
       (.add (.headers mock)
             (.headers req))
+
       ;alter pipeline
-      (n/pp->next pp cn
-                  "WSSCH" (WebSocketServerCompressionHandler.))
-      (n/pp->next pp "WSSCH"
-                  "WSSPH" (WebSocketServerProtocolHandler. path nil true))
+      (n/pp->next pp cn "WSSCH" (WebSocketServerCompressionHandler.))
+      (n/pp->next pp "WSSCH" "WSSPH" (WebSocketServerProtocolHandler. uri nil true))
+
       (n/pp->next pp "WSSPH"
                   "WSACC" (WebSocketFrameAggregator. max-frame-size))
       (n/pp->next pp "WSACC" "wsock" ws-monolith<>)
@@ -247,6 +284,7 @@
                                CorsHandler
                                ChunkedWriteHandler "h1" cn])
       (n/dbg-pipeline pp)
+      (l/debug "morphed server pipeline into websock pipline - ok.")
       (n/fire-msg ctx mock))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -293,8 +331,8 @@
         gist (do (.add (.headers msg)
                        (.trailingHeaders part))
                  (netty->ring msg ctx body))]
-    (c/mdel! cc :msg)
     (clear-adder! ctx)
+    (c/mdel! cc :msg)
     gist))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -350,8 +388,9 @@
         {:keys [max-mem-size]}
         (n/chcfg?? ctx)
         cc (n/cache?? ctx)]
-    (if ws?
-      (c/mput! cc :mode :wsock))
+    (when ws?
+      (c/mput! cc :mode :wsock)
+      (l/debug "request is detected as a websock upgrade."))
     (c/mput! cc :msg req)
     (c/mput! cc :adder (if (c/or?? [rc =] :post :multipart)
                          (decoder<> ctx req)
@@ -397,7 +436,9 @@
 
     (catch Throwable e
       (n/ref-del req)
-      (c/mdel! (n/cache?? ctx) :msg)
+      (some-> ctx
+              n/cache??
+              (c/mdel! :msg))
       (if (c/!is? FailFast e) (throw e)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -407,9 +448,11 @@
         msg (c/mget cc :msg)
         mode (c/mget cc :mode)
         gist (do-last-part ctx part)]
-    (if (= :wsock mode)
-      (cfg-websock ctx msg)
-      (n/fire-msg ctx gist))))
+    (if (not= :wsock mode)
+      (n/fire-msg ctx gist)
+      (try (cfg-websock ctx msg)
+           (catch Throwable e
+             (if (c/!is? FailFast e) (throw e)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- on-read
@@ -434,7 +477,7 @@
                           (.remove q 0)))]
     (when (and (!cont-100? msg)
                (n/h1end? msg))
-      ;just replied so can process queued requests
+      ;just replied, next check to process queued requests
       (let [c (n/cache?? ctx)
             out (ArrayList.)
             q (c/mget c :queue)]
@@ -442,33 +485,30 @@
         (c/mput! c :cur nil)
         ;grab next request & its parts
         (loop [m (delhead q)]
-          (cond (n/last-part? m) (.add out m)
-                (nil? m) (.clear out)
-                :else (do (.add out m)
-                          (recur (delhead q)))))
-        ;process the request & its parts
+          (cond
+            (n/last-part? m) (.add out m) ;ok got one complete msg
+            (nil? m) (.clear out) ;something is wrong
+            :else (do (.add out m)
+                      (recur (delhead q)))))
+        ;process the queued request & its parts
         (loop [m (delhead out)]
           (when m
             (on-read ctx m)
             (recur (delhead out))))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(c/def- h1-simple<>
-  ^ChannelHandler
+(def h1-simple<>
   (proxy [DuplexHandler][]
-    (onInactive [ctx]
-      (n/akey- ctx n/cache-key))
-    (onActive [ctx]
+    (onHandlerAdded [ctx]
       (n/akey+ ctx n/cache-key (HashMap.)))
-    (onRead [ctx msg]
+    (onRead [ctx ch msg]
       (if (n/h1msg? msg)
         (on-read ctx msg) (n/fire-msg ctx msg)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(c/def- h1-complex<>
-  ^ChannelHandler
+(def h1-complex<>
   (proxy [DuplexHandler][]
-    (onRead [ctx msg]
+    (onRead [ctx ch msg]
       (let [cc (n/cache?? ctx)
             cur (c/mget cc :cur)
             mode (c/mget cc :mode)
@@ -483,25 +523,27 @@
             (n/fire-msg ctx msg)))))
     (onWrite [ctx msg _]
       (on-write ctx msg _))
-    (onInactive [ctx]
-      (n/akey- ctx n/cache-key))
-    (onActive [ctx]
+    (onHandlerAdded [ctx]
       (doto (n/akey+ ctx
                      n/cache-key (HashMap.))
         (c/mput! :cur nil) (c/mput! :queue (ArrayList.))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn h1-pipeline
+
+  "Pipeline for http server."
   [p args]
+
   (let [{:keys [pipelining?
                 cors-cfg user-cb]} args]
+    (l/info "h1-pipelining mode = %s" (boolean pipelining?))
     (n/pp->last p "codec" (HttpServerCodec.))
     (some->> cors-cfg CorsHandler. (n/pp->last p "cors"))
     (n/pp->last p
                 "h1"
                 (if pipelining? h1-complex<> h1-simple<>))
     (n/pp->last p "chunker" (ChunkedWriteHandler.))
-    (n/pp->last p "user-func" (n/app-handler user-cb))))
+    (n/pp->last p n/user-cb (n/app-handler user-cb))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF

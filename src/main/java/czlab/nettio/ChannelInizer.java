@@ -14,10 +14,16 @@ import io.netty.channel.ChannelInitializer;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelPipeline;
 
+import static org.slf4j.LoggerFactory.getLogger;
+import org.slf4j.Logger;
+import czlab.basal.CU;
+
 /**
  * @author Kenneth Leung
  */
 public abstract class ChannelInizer extends ChannelInitializer {
+
+  public static final Logger TLOG = getLogger(ChannelInizer.class);
 
   /*
    */
@@ -27,13 +33,15 @@ public abstract class ChannelInizer extends ChannelInitializer {
 
   @Override
   protected void initChannel(Channel ch) throws Exception {
-    onInitChannel(ch, ch.pipeline());
+    onInitChannel(ch.pipeline());
   }
 
   @Override
   public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
-    try { onError(ctx,cause); } catch (Throwable t) {}
     super.exceptionCaught(ctx, cause);
+    if (CU.canLog())
+      TLOG.error("", cause);
+    try { onError(ctx,cause); } catch (Throwable t) {}
   }
 
   @Override
@@ -45,7 +53,7 @@ public abstract class ChannelInizer extends ChannelInitializer {
   protected void onError(ChannelHandlerContext ctx, Throwable cause) {}
   protected void onHandlerAdded(ChannelHandlerContext ctx) {}
 
-  protected abstract void onInitChannel(Channel c, ChannelPipeline p);
+  protected abstract void onInitChannel(ChannelPipeline p);
 
 }
 

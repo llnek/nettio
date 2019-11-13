@@ -18,8 +18,10 @@
              [log :as l]
              [core :as c]])
 
-  (:import [java.util
+  (:import [com.sun.net.httpserver Headers]
+           [java.util
             Map]
+           [czlab.basal XData]
            [java.net
             URI]
            [clojure.lang
@@ -31,14 +33,13 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defprotocol ClientConnectPromise
-  ""
   (cc-sync-get-connect [_]
                        [_ millis] ""))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defprotocol ClientConnect
-  ""
-  (cc-ws-write [_ msg] "")
+  (cc-is-open? [_ ] "")
+  (cc-write [_ msg] "")
   (cc-channel [_] "")
   (cc-module [_] "")
   (cc-finz [_] "")
@@ -47,12 +48,15 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defprotocol HttpClientModule
-  ""
+  (hc-ws-send [_ conn msg] "")
+  (hc-h2-send [_ conn msg] "")
+  (hc-h1-send [_ conn msg] "")
   (hc-h1-conn [_ host port args] "")
   (hc-h2-conn [_ host port args] "")
-  (hc-ws-conn [_ host port cb args] "")
-  (hc-ws-send [_ conn msg] "")
-  (hc-send-http [_ conn method uri data args] ""))
+  (hc-ws-conn [_ host port args] ""))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defrecord HttpResultMsg [])
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defrecord Http1xMsg [])
@@ -64,7 +68,15 @@
 (defrecord Http2xMsg [])
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defrecord HttpResultMsg [])
+(defprotocol HttpHeaderGist
+  (gist-header? [_ hd] "")
+  (gist-header [_ hd] "")
+  (gist-header-keys [_] "")
+  (gist-header-vals [_ hd] "")
+  (gist-param? [_ pm] "")
+  (gist-param [_ pm] "")
+  (gist-param-keys [_]  "")
+  (gist-param-vals [_ pm]  ""))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defprotocol HttpMsgGist
@@ -76,47 +88,74 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defprotocol WsockMsgReplyer
-  ""
   (ws-send-string [_ s] "Send websock text")
   (ws-send-bytes [_ b] "Send websock binary"))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defprotocol HttpResultMsgReplyer
-  ""
   (reply-result [res]
                 [res arg] "Reply result back to client"))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defprotocol HttpResultMsgCreator
-  ""
   (http-result [req]
                [req status] "Create a http result object"))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defprotocol SocketAttrProvider
-  ""
-  (socket-attr-set [_ k a] "Set channel attribute")
-  (socket-attr-get [_ k] "Get channel attribute")
-  (socket-attr-del [_ k] "Delete channel attribute"))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defprotocol HttpResultMsgModifier
-  ""
+  (res-cookie-add [_ cookie] "Add a cookie.")
+  (res-body-set [_ body] "Add content.")
   (res-header-del [_ name] "Remove a header")
   (res-header-add [_ name value] "Add a header")
   (res-header-set [_ name value] "Set a header"))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defprotocol HttpHeaderGist
-  ""
-  (gist-header? [_ hd] "")
-  (gist-header [_ hd] "")
-  (gist-header-keys [_] "")
-  (gist-header-vals [_ hd] "")
-  (gist-param? [_ pm] "")
-  (gist-param [_ pm] "")
-  (gist-param-keys [_]  "")
-  (gist-param-vals [_ pm]  ""))
+(defn h1-msg<>
+  [method uri headers body]
+  {:pre [(keyword? method)
+         (or (string? uri)
+             (c/is? URI uri))
+         (or (nil? headers)
+             (c/is? Headers headers))]}
+  (c/object<> czlab.niou.core.Http1xMsg
+              :request-method method
+              :body body
+              :headers (or headers (Headers.))
+              :uri (if-some [uri' (c/cast? URI uri)]
+                     (let [p (.getPath uri')
+                           q (.getQuery uri')]
+                       (if (c/hgl? q) (str p "?" q) p)) uri)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn h1-get<>
+  ([uri] (h1-get<> uri nil))
+  ([uri headers] (h1-msg<> :get uri headers nil)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn h1-post<>
+  ([uri body] (h1-post<> uri body nil))
+  ([uri body headers] (h1-msg<> :post uri headers body)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn ws-msg<>
+  [m] (c/object<> czlab.niou.core.WsockMsg
+                  (assoc m :route {:status? true})))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn ws-bytes<>
+  [b]
+  (c/object<> czlab.niou.core.WsockMsg :body (XData. b)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn ws-text<>
+  [s]
+  (c/object<> czlab.niou.core.WsockMsg
+              :body (XData. s) :is-text? true))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defonce ws-close<> (ws-msg<> {:is-close? true}))
+(defonce ws-ping<> (ws-msg<> {:is-ping? true}))
+(defonce ws-pong<> (ws-msg<> {:is-pong? true}))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (extend-protocol HttpHeaderGist
@@ -159,33 +198,32 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn ws-connect<>
   "Connect to server via websocket."
-  ([module host port uri cb]
-   (ws-connect<> module host port uri cb nil))
-  ([module host port uri cb args]
-   (let [pfx (if (c/hgl? (:server-cert args)) "wss" "ws")
+  ([module host port uri]
+   (ws-connect<> module host port uri nil))
+  ([module host port uri arg]
+   (let [{:keys [user-cb] :as args}
+         (if (fn? arg) {:user-cb arg} arg)
+         pfx (if (c/hgl? (:server-cert args)) "wss" "ws")
          uristr (format "%s://%s:%d%s" pfx host port uri)]
      (hc-ws-conn module
                  host
                  port
-                 cb
-                 (assoc args
-                        :websock? true :uri (URI. uristr))))))
+                 (-> (if (fn? user-cb)
+                       args
+                       (assoc args :user-cb (c/fn_2 0)))
+                     (assoc :websock? true :uri (URI. uristr)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn h2-connect<>
   "Connect to server via http/2."
-  ([module host port]
-   (h2-connect<> module host port nil))
-  ([module host port args]
-   (hc-h2-conn module host port args)))
+  [module host port args]
+  (hc-h2-conn module host port args))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn h1-connect<>
   "Connect to server via http."
-  ([module host port]
-   (h1-connect<> module host port nil))
-  ([module host port args]
-   (hc-h1-conn module host port args)))
+  [module host port args]
+  (hc-h1-conn module host port args))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn h2send*
@@ -194,87 +232,90 @@
    (h2send* conn method uri data nil))
   ([conn method uri data args]
    (let [args (assoc args
+                     :method method
+                     :uri uri
+                     :body data
                      :version "2"
                      :host (cc-remote-host conn))]
-     (hc-send-http (cc-module conn) conn method uri data args))))
+     (hc-h2-send (cc-module conn) conn args))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn h1send*
   "Send stuff to server via http."
-  ([conn method uri data]
-   (h1send* conn method uri data nil))
-  ([conn method uri data args]
-   (let [args (assoc args
-                     :is-keep-alive? true
-                     :host (cc-remote-host conn))]
-     (hc-send-http (cc-module conn) conn method uri data args))))
+  [conn method uri data args]
+  (let [args (assoc args
+                    :keep-alive? true
+                    :method method
+                    :uri uri
+                    :body data
+                    :host (cc-remote-host conn))]
+    (hc-h1-send (cc-module conn) conn args)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- hxsend
   "1-off send." {:tag IDeref}
-  ([module target method data]
-   (hxsend module target method data nil))
-  ([module target method data args]
-   (let [url (io/as-url target)
-         h (.getHost url)
-         p (.getPort url)
-         {:keys [version] :as cargs}
-         (assoc args
-                :is-keep-alive? false
-                :host (.getHost url)
-                :scheme (.getProtocol url))
-         cp (if (= "2" version)
-              (h2-connect<> module h p cargs)
-              (h1-connect<> module h p cargs))
-         cc (->> (c/num?? (:sync-wait args) 5000)
-                 (cc-sync-get-connect cp))]
-     (l/debug "sending request via ch: %s." (cc-channel cc))
-     (hc-send-http module cc method (.toURI url) data cargs))))
+  [module target method data args]
+  (let [url (io/as-url target)
+        h (.getHost url)
+        p (.getPort url)
+        {:keys [version
+                sync-wait] :as cargs}
+        (assoc args
+               :keep-alive? false
+               :host (.getHost url)
+               :scheme (.getProtocol url))
+        v2? (.equals "2" version)
+        cp (if v2?
+             (h2-connect<> module h p cargs)
+             (h1-connect<> module h p cargs))
+        ARGS (assoc cargs
+                    :body data
+                    :method method
+                    :uri (.toURI url))
+        cc (->> (c/num?? sync-wait 5000)
+                (cc-sync-get-connect cp))]
+    (l/debug "sending request via ch: %s." (cc-channel cc))
+    (if v2?
+      (hc-h2-send module cc ARGS)
+      (hc-h1-send module cc ARGS))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn h2send
   "Does a generic web operation,
   result/error delivered in the returned promise."
-  ([module target method data]
-   (h2send module target method data nil))
-  ([module target method data args]
-   (hxsend module target method data (assoc args :version "2"))))
+  [module target method data args]
+  (hxsend module target method data (assoc args :version "2")))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn h1send
   "Does a generic web operation,
   result/error delivered in the returned promise."
-  ([module target method data]
-   (h1send module target method data nil))
-  ([module target method data args]
-   (hxsend module target method data args)))
+  [module target method data args]
+  (hxsend module target method data args))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn h1post
   "Does a web/post, result/error delivered in the returned promise."
-  ([module target data] (h1post module target data nil))
-  ([module target data args] (hxsend module target :post data args)))
+  [module target data args]
+  (hxsend module target :post data args))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn h1get
   "Does a web/get, result/error delivered in the returned promise."
-  ([module target] (h1get module target nil))
-  ([module target args] (hxsend module target :get nil args)))
+  [module target args]
+  (hxsend module target :get nil args))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn h2post
   "Does a web/post, result/error delivered in the returned promise."
-  ([module target data]
-   (h2post module target data nil))
-  ([module target data args]
-   (hxsend module target :post data (assoc args :version "2"))))
+  [module target data args]
+  (hxsend module target :post data (assoc args :version "2")))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn h2get
   "Does a web/get, result/error delivered in the returned promise."
-  ([module target] (h2get module target nil))
-  ([module target args]
-   (hxsend module target :get nil (assoc args :version "2"))))
+  [module target args]
+  (hxsend module target :get nil (assoc args :version "2")))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF

@@ -7,12 +7,12 @@
   :description "Http client and server library using netty."
   :url "https://github.com/llnek/nettio"
 
-  :dependencies [[io.netty/netty-tcnative-boringssl-static "2.0.26.Final"]
+  :dependencies [[io.netty/netty-tcnative-boringssl-static "2.0.27.Final"]
                  [commons-fileupload/commons-fileupload "1.4"]
                  [net.sourceforge.jregex/jregex "1.2_01"]
                  [javax.servlet/javax.servlet-api "4.0.1"]
                  [org.javassist/javassist "3.26.0-GA"]
-                 [io.netty/netty-all "4.1.42.Final"]
+                 [io.netty/netty-all "4.1.43.Final"]
                  [io.czlab/basal "1.1.0"]
                  [io.czlab/twisty "1.1.0"]]
 
@@ -22,6 +22,7 @@
             [lein-codox "0.10.7"]]
 
   :test-selectors {:niou :test-niou
+                   :wsock :test-wsock
                    :nettio :test-nettio}
 
   :profiles {:provided {:dependencies
