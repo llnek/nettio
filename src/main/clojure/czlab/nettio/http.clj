@@ -28,6 +28,7 @@
            [czlab.niou.core WsockMsg]
            [czlab.niou Headers]
            [io.netty.handler.codec.http.cors
+            CorsConfigBuilder
             CorsConfig
             CorsHandler]
            [java.net URL InetSocketAddress]
@@ -37,6 +38,7 @@
            [czlab.basal FailFast XData]
            [io.netty.util AttributeKey]
            [io.netty.handler.codec.http
+            DefaultHttpHeaders
             LastHttpContent
             HttpHeaderNames
             HttpResponse
@@ -88,6 +90,62 @@
 (c/def- hd-websocket "websocket")
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn config->cors
+  ""
+  ^CorsConfig [args]
+  (let [{:keys [enabled?
+                allow-credentials?
+                allowed-req-headers
+                allowed-req-methods
+                allow-null-origin?
+                expose-headers
+                for-any-origin?
+                for-origins
+                max-age
+                preflight-rsp-headers?
+                preflight-rsp-header
+                short-circuit?]} args]
+    (let [^CorsConfigBuilder
+          b (cond
+              for-any-origin?
+              (CorsConfigBuilder/forAnyOrigin)
+              (not-empty for-origins)
+              (if (c/one? for-origins)
+                (CorsConfigBuilder/forOrigin (c/_1 for-origins))
+                (CorsConfigBuilder/forOrigins (into-array String for-origins)))
+              :else
+              (u/throw-BadArg "cors-config must define any-origin or some origins."))]
+      (if (number? max-age)
+        (.maxAge b (long max-age)))
+      (if allow-credentials?
+        (.allowCredentials b))
+      (if allow-null-origin?
+        (.allowNullOrigin b))
+      (if (not-empty allowed-req-headers)
+        (.allowedRequestHeaders b
+                                #^"[Ljava.lang.String;"
+                                (into-array String allowed-req-headers)))
+      (when (not-empty allowed-req-methods)
+        (->> (map #(HttpMethod/valueOf (cs/upper-case %1)) allowed-req-methods)
+             (into-array HttpMethod)
+             (.allowedRequestMethods b)))
+      (if (not-empty expose-headers)
+        (.exposeHeaders b
+                        #^"[Ljava.lang.String;"
+                        (into-array String expose-headers)))
+      (if (false? preflight-rsp-headers?)
+        (.noPreflightResponseHeaders b))
+      (when (not-empty preflight-rsp-header)
+        (let [^CharSequence n (nth preflight-rsp-header 0)]
+          (.preflightResponseHeader b
+                                    n
+                                    ^java.lang.Iterable
+                                    (into [] (drop 1 preflight-rsp-header)))))
+      (if short-circuit? (.shortCircuit b))
+      (if (false? enabled?) (.disable b))
+      (.build b))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defprotocol Netty->RingMap
   (netty->ring [_ ctx body] ""))
 
@@ -105,6 +163,17 @@
      (czlab.nettio.core/dfac?? ~ctx)
      ~(with-meta msg {:tag 'HttpRequest})
      (czlab.nettio.core/get-charset ~msg)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn std->headers
+  ^HttpHeaders [^Headers hds]
+  (reduce
+    (fn [^HttpHeaders acc ^String n]
+      (let [lst (.get hds n)]
+        (if (== 1 (.size lst))
+          (.set acc n ^String (.get lst 0))
+          (doseq [v lst]
+            (.add acc n ^String v))) acc)) (DefaultHttpHeaders.) (.keySet hds)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- headers->std
@@ -128,9 +197,9 @@
   [^Map params]
   (c/preduce<map>
     (fn [acc ^String n]
-      (assoc acc
-             n
-             (mapv #(str %) (.get params n)))) (.keySet params)))
+      (assoc! acc
+              n
+              (mapv #(str %) (.get params n)))) (.keySet params)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (extend-protocol Netty->RingMap
@@ -303,6 +372,7 @@
   (when (n/decoder-err? msg)
     (->> (n/scode* BAD_REQUEST)
          (n/reply-status ctx))
+    (some-> (n/decoder-err-cause?? msg) (l/exception))
     (u/throw-FFE "bad request.")))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -331,6 +401,7 @@
         gist (do (.add (.headers msg)
                        (.trailingHeaders part))
                  (netty->ring msg ctx body))]
+    ;(l/debug "gist = %s." (i/fmt->edn gist))
     (clear-adder! ctx)
     (c/mdel! cc :msg)
     gist))
@@ -340,8 +411,11 @@
   [ctx part]
   (try
 
-    (assert-decoded-ok! ctx part)
-    (do-read-part ctx part)
+    (let [cc (n/cache?? ctx)
+          cur (c/mget cc :msg)]
+      (when-not (nil? cur)
+        (assert-decoded-ok! ctx part)
+        (do-read-part ctx part)))
 
     (catch Throwable e
       (if (c/!is? FailFast e) (throw e)))
@@ -429,6 +503,8 @@
   [ctx req]
   (try
 
+    (l/debug "REQ: %s." req)
+
     (assert-decoded-ok! ctx req)
     (do-100-cont ctx req)
     (do-cache-req ctx req)
@@ -448,6 +524,7 @@
         msg (c/mget cc :msg)
         mode (c/mget cc :mode)
         gist (do-last-part ctx part)]
+    (c/mput! cc :cur msg)
     (if (not= :wsock mode)
       (n/fire-msg ctx gist)
       (try (cfg-websock ctx msg)
@@ -461,7 +538,10 @@
     HttpResponse (on-response ctx msg)
     HttpRequest (on-request ctx msg)
     HttpContent (on-content ctx msg))
-  (if (n/last-part? msg) (read-complete ctx msg)))
+  (let [cc (n/cache?? ctx)
+        cur (c/mget cc :msg)]
+    (when-not (nil? cur)
+      (if (n/last-part? msg) (read-complete ctx msg)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (c/defmacro- !cont-100?
@@ -477,6 +557,7 @@
                           (.remove q 0)))]
     (when (and (!cont-100? msg)
                (n/h1end? msg))
+      (l/debug "checking for pending requests.")
       ;just replied, next check to process queued requests
       (let [c (n/cache?? ctx)
             out (ArrayList.)
@@ -490,6 +571,8 @@
             (nil? m) (.clear out) ;something is wrong
             :else (do (.add out m)
                       (recur (delhead q)))))
+        (if-not (.isEmpty out)
+          (l/debug "**dequeue** request %s." (u/objid?? (.get out 0))))
         ;process the queued request & its parts
         (loop [m (delhead out)]
           (when m
@@ -515,14 +598,16 @@
             queue (c/mget cc :queue)]
         (cond
           (some? cur)
-          (if (not= :wsock mode)
-            (.add ^List queue msg))
+          (when (not= :wsock mode)
+            (.add ^List queue msg)
+            (if (n/hreq? msg)
+              (l/debug "**queue** request %s." (u/objid?? msg))))
           :else
           (if (n/h1msg? msg)
             (on-read ctx msg)
             (n/fire-msg ctx msg)))))
     (onWrite [ctx msg _]
-      (on-write ctx msg _))
+      (on-write ctx msg))
     (onHandlerAdded [ctx]
       (doto (n/akey+ ctx
                      n/cache-key (HashMap.))
@@ -538,7 +623,9 @@
                 cors-cfg user-cb]} args]
     (l/info "h1-pipelining mode = %s" (boolean pipelining?))
     (n/pp->last p "codec" (HttpServerCodec.))
-    (some->> cors-cfg CorsHandler. (n/pp->last p "cors"))
+    (when (not-empty cors-cfg)
+      (->> (config->cors cors-cfg)
+           CorsHandler. (n/pp->last p "cors")))
     (n/pp->last p
                 "h1"
                 (if pipelining? h1-complex<> h1-simple<>))

@@ -16,7 +16,6 @@
             [clojure.string :as cs]
             [czlab.niou.util :as ct]
             [czlab.niou.core :as cc]
-            [czlab.niou.module :refer [web-client-module<>]]
             [czlab.basal.log :as l]
             [czlab.basal.io :as i]
             [czlab.basal.core :as c]
@@ -31,6 +30,7 @@
            [io.netty.handler.ssl.util InsecureTrustManagerFactory]
            [czlab.nettio.iniz WSInizor H2Inizor H1Inizor]
            [czlab.niou.core WsockMsg]
+           [java.util ArrayList List]
            [io.netty.channel.socket.nio NioSocketChannel]
            [io.netty.handler.codec.http.websocketx
             ContinuationWebSocketFrame
@@ -156,83 +156,88 @@
              ^ChannelFuture
              cf (some-> (.connect bs
                                   (InetSocketAddress. (str host)
-                                                      (int port'))) .sync)]
-         (u/assert-IOE (some? cf) "client connect failed.")
-         (let [ch (.channel cf)]
-           (u/assert-IOE (and ch
-                              (.isSuccess cf)) (u/emsg (.cause cf)))
-           (l/debug "client connected: %s@%s." host port')
-           {:channel ch :host host :port port'})))
-     (cconn<> [bs ch info]
+                                                      (int port'))) .sync)
+             rc (try
+                  (if (and (.isSuccess cf) (.channel cf))
+                    (.channel cf)
+                    (.cause cf))
+                  (catch Throwable _ _))]
+         ;add generic key to hold response promises
+         (when (c/is? Channel rc)
+           (n/akey+ rc iz/rsp-key (ArrayList.)))
+         ;(l/debug "client connected: %s@%s." host port')
+         (if (c/!is? Channel rc)
+           {:error rc}
+           {:channel rc :host host :port port'})))
+     (cconn<> [bs {:keys [host port
+                          ^Channel channel]}]
+       (l/info "client channel connected = %s." channel)
        (reify cc/ClientConnect
-         (cc-remote-port [_] (:port info))
-         (cc-remote-host [_] (:host info))
+         (cc-remote-port [_] port)
+         (cc-remote-host [_] host)
          (cc-module [_] module)
          (cc-is-open? [_]
-           (and ch (.isOpen ^Channel ch)))
-         (cc-channel [_] ch)
-         (cc-write [_ msg]
-           (c/condp?? instance? hint
-             H2Inizor (cc/hc-h2-send module _ msg)
-             H1Inizor (cc/hc-h1-send module _ msg)
-             WSInizor (cc/hc-ws-send module _ msg)))
+           (.isOpen channel))
+         (cc-channel [_] channel)
+         (cc-write
+           [_ msg] (cc/cc-write _ msg nil))
+         (cc-write
+           [_ msg args]
+             (c/condp?? instance? hint
+               H2Inizor (cc/hc-h2-send module _ msg args)
+               H1Inizor (cc/hc-h1-send module _ msg args)
+               WSInizor (cc/hc-ws-send module _ msg args)))
          (cc-finz [_]
-           (if (c/is? WSInizor hint)
-             (c/try! (some-> (and ch (.isOpen ^Channel ch) ch)
-                             (n/write-msg {:is-close? true}))))
-           (n/nobs! bs ch))))
+           (n/nobs! bs channel))))
      (h1c-finz [bs info]
        (n/cf-cb (.closeFuture ^Channel (:channel info))
                 (c/fn_1 (n/nobs! bs nil)
                         (l/debug "client shutdown: netty client.")))
        info)
-     (ret-conn [bs rcp info]
-       (reify cc/ClientConnectPromise
-         (cc-sync-get-connect [_]
-           (cc/cc-sync-get-connect _ 5000))
-         (cc-sync-get-connect [_ ms]
-           (let [r (deref rcp ms nil)]
-             ;(l/debug "r === %s" r)
-             (cond (c/!is? Channel r)
-                   r
-                   (c/is? H2Inizor hint)
-                   (try (let [^ChannelPromise
-                              pm (n/akey?? r h2s-key)]
-                          (l/debug "client waits %s[ms] for h2-settings." ms)
-                          (u/assert-ISE
-                            (.awaitUninterruptibly pm
-                                                   ms TimeUnit/MILLISECONDS)
-                            "Time out waiting for h2-settings.")
-                          (if-not (.isSuccess pm)
-                            (.cause pm)
-                            (n/akey+ r n/cc-key (cconn<> bs r info))))
-                        (catch Throwable e e))
-                   :else
-                   (n/akey+ r n/cc-key (cconn<> bs r info)))))))]
+     (ret-conn [bs rcp ms {:keys [channel] :as info}]
+       (c/condp?? instance? hint
+         H1Inizor
+         (n/akey+ channel n/cc-key (cconn<> bs info))
+         H2Inizor
+         (let [^ChannelPromise
+               pm (n/akey?? channel h2s-key)]
+           (l/debug "client waits %s[ms] for h2-settings." ms)
+           (c/try!
+             (.awaitUninterruptibly pm
+                                    ms TimeUnit/MILLISECONDS))
+           (if-not (.isSuccess pm)
+             (.cause pm)
+             (n/akey+ channel n/cc-key (cconn<> bs info))))
+         WSInizor
+         (let [r (deref rcp ms nil)]
+           (if (c/!is? Channel r)
+             r
+             (n/akey+ r n/cc-key (cconn<> bs info))))))]
     (let [{:keys [uri
                   sync-wait
                   server-cert] :as args'
            :or {sync-wait 5000}} (:args hint)
-          ws? (c/is? WSInizor hint)
+          ;return this back to caller
+          rcp (promise)
           [^Bootstrap bs args]
           (boot! (assoc args'
                         :protocol
                         (if (c/is? H2Inizor hint) "2" "1.1")))
-          scheme (if (c/hgl? server-cert)
-                   (if ws? "wss" "https") (if ws? "ws" "http"))
-          uri2 (c/fmt "%s://%s:%d%s" scheme host port uri)
-          ;return this back to caller
-          rcp (promise)
-          args (assoc args :uri2 uri2)]
-      (.handler bs
-                (if-not (c/is? WSInizor hint)
-                  (iz/webc-inizor<> rcp args)
-                  (iz/websock-inizor<> rcp args)))
-      (cc/cc-sync-get-connect
-        (->> (c/hgl? server-cert)
-             (connect bs)
-             (h1c-finz bs)
-             (ret-conn bs rcp)) sync-wait))))
+          args (if-not (c/is? WSInizor hint)
+                 args
+                 (->> (c/fmt "%s://%s:%d%s"
+                             (if (c/hgl? server-cert) "wss" "ws") host port uri)
+                      (assoc args :uri2)))
+          _ (.handler bs
+                      (if (c/!is? WSInizor hint)
+                        (iz/webc-inizor<> rcp args)
+                        (iz/websock-inizor<> rcp args)))
+          {:keys [channel error] :as rc}
+          (connect bs (c/hgl? server-cert))]
+      (if (nil? channel)
+        error
+        (->> (h1c-finz bs rc)
+             (ret-conn bs rcp sync-wait))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- http-req<>
@@ -269,12 +274,6 @@
 (defrecord NettyClientModule [])
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defmethod web-client-module<>
-  :czlab.nettio.client/netty
-  [args]
-  (c/object<> NettyClientModule args))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (extend-protocol cc/HttpClientModule
 
   NettyClientModule
@@ -288,31 +287,34 @@
   (hc-ws-conn [_ host port args]
     (hx-conn _ host port (WSInizor. args)))
 
-  (hc-ws-send [_ conn msg]
-    (let [ch (cc/cc-channel conn)]
-      (u/assert-BadArg (c/is? WsockMsg msg) "not wsmsg.")
-      (n/write-msg ch msg)))
+  (hc-ws-send
+    ([_ conn msg] (cc/hc-ws-send _ conn msg nil))
+    ([_ conn msg args]
+     (let [ch (cc/cc-channel conn)]
+       (u/assert-BadArg (c/is? WsockMsg msg) "not wsmsg.")
+       (n/write-msg ch msg))))
 
-  (hc-h2-send [_ conn msg] );op uri data args
+  (hc-h2-send
+    ([_ conn msg] (cc/hc-h2-send _ conn msg nil))
+    ([_ conn msg args] (cc/hc-h2-send _ conn msg nil)))
 
-  (hc-h1-send [_ conn args];op uri data args
-    (let [{:keys [request-method
-                  encoding
-                  uri host
-                  body headers
-                  keep-alive? override]} args
+  (hc-h1-send
+    ([_ conn msg] (cc/hc-h1-send _ conn msg nil))
+    ([_ conn msg args]
+     (let [{:keys [request-method
+                   uri2 body headers]} msg
+           {:keys [keep-alive?
+                   encoding override]
+            :or {keep-alive? true}} args
           ^Channel ch (cc/cc-channel conn)
+          ssl? (some? (n/get-ssl?? ch))
           body (n/bbuf?? body ch encoding)
-          ^URI uri (or (c/cast? URI uri)
-                       (URI. ^String uri))
-          path (.getPath uri)
-          qy (.getQuery uri)
-          uriStr (if (c/hgl? qy)
-                   (str path "?" qy) path)
+          host (cc/cc-remote-host conn)
+          port (cc/cc-remote-port conn)
           req (if-not (or (nil? body)
                           (c/is? ByteBuf body))
-                (http-req<> request-method uriStr)
-                (http-req<+> request-method uriStr body))
+                (http-req<> request-method uri2)
+                (http-req<+> request-method uri2 body))
           clen (cond (c/is? ByteBuf body)
                      (.readableBytes ^ByteBuf body)
                      (c/is? File body)
@@ -323,14 +325,9 @@
                      0
                      :else
                      (u/throw-IOE "Bad type %s." (class body)))]
+      (n/add-headers req (h1/std->headers headers))
       (c/if-some+ [mo (c/stror override "")]
         (n/set-header req "X-HTTP-Method-Override" mo))
-      (doseq [[k v] (seq headers)
-              :let [kw (name k)]]
-        (if (seq? v)
-          (doseq [vv (seq v)]
-            (n/add-header req kw vv))
-          (n/set-header req kw v)))
       (n/set-header req (n/h1hdr* HOST) host)
       (n/set-header req
                     (n/h1hdr* CONNECTION)
@@ -349,8 +346,10 @@
               (HttpUtil/setContentLength req clen))))
       (l/debug (str "about to flush out req (headers), "
                     "isKeepAlive= %s, content-length= %s") keep-alive? clen)
-      (c/do-with [out (n/akey+ ch iz/rsp-key (promise))]
-        (let [cf (n/write-msg* ch req)
+      (c/do-with [out (promise)]
+        (let [^List plist (n/akey?? ch iz/rsp-key)
+              _ (.add plist out)
+              cf (n/write-msg* ch req)
               cf (condp instance? body
                    File
                    (n/write-msg* ch
@@ -359,7 +358,13 @@
                    InputStream
                    (n/write-msg* ch
                                  (HttpChunkedInput.
-                                   (ChunkedStream. ^InputStream body))) cf)] (.flush ch))))))
+                                   (ChunkedStream. ^InputStream body))) cf)] (.flush ch)))))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn web-client-module<>
+  ""
+  ([] (web-client-module<> nil))
+  ([args] (c/object<> NettyClientModule args)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF

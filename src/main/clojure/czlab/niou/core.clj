@@ -18,7 +18,7 @@
              [log :as l]
              [core :as c]])
 
-  (:import [com.sun.net.httpserver Headers]
+  (:import [czlab.niou Headers]
            [java.util
             Map]
            [czlab.basal XData]
@@ -39,7 +39,8 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defprotocol ClientConnect
   (cc-is-open? [_ ] "")
-  (cc-write [_ msg] "")
+  (cc-write [_ msg]
+            [_ msg args] "")
   (cc-channel [_] "")
   (cc-module [_] "")
   (cc-finz [_] "")
@@ -48,9 +49,9 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defprotocol HttpClientModule
-  (hc-ws-send [_ conn msg] "")
-  (hc-h2-send [_ conn msg] "")
-  (hc-h1-send [_ conn msg] "")
+  (hc-ws-send [_ conn msg] [_ conn msg args] "")
+  (hc-h2-send [_ conn msg] [_ conn msg args] "")
+  (hc-h1-send [_ conn msg] [_ conn msg args] "")
   (hc-h1-conn [_ host port args] "")
   (hc-h2-conn [_ host port args] "")
   (hc-ws-conn [_ host port args] ""))
@@ -121,10 +122,10 @@
               :request-method method
               :body body
               :headers (or headers (Headers.))
-              :uri (if-some [uri' (c/cast? URI uri)]
-                     (let [p (.getPath uri')
-                           q (.getQuery uri')]
-                       (if (c/hgl? q) (str p "?" q) p)) uri)))
+              :uri2 (if-some [uri' (c/cast? URI uri)]
+                      (let [p (.getPath uri')
+                            q (.getQuery uri')]
+                        (if (c/hgl? q) (str p "?" q) p)) uri)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn h1-get<>

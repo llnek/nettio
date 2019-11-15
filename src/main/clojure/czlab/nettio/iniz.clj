@@ -88,22 +88,20 @@
 (defrecord H1Inizor [args])
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defonce ^AttributeKey rsp-key  (n/akey<> :rsp-result))
+(defonce ^AttributeKey rsp-key  (n/akey<> :client-rsp-results))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (c/defonce- ^{:tag ChannelHandler}
   client-hdlr
   (proxy [InboundHandler][]
     (onRead [ctx ch msg]
-      (when-some
-        [p (n/akey?? ctx rsp-key)]
-        (deliver p msg)
-        (n/akey- ctx rsp-key)))
+      (let [^List pl (n/akey?? ctx rsp-key)
+            p (.remove pl 0)]
+        (some-> p (deliver msg))))
     (onError [ctx err]
-      (when-some
-        [p (n/akey?? ctx rsp-key)]
-        (deliver p err)
-        (n/akey- ctx rsp-key)))))
+      (let [^List pl (n/akey?? ctx rsp-key)
+            p (.remove pl 0)]
+        (some-> p (deliver err))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- webc-ssl-inizor<>

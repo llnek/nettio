@@ -23,7 +23,6 @@
             [czlab.nettio.resp :as nr]
             [czlab.nettio.client :as cl]
             [czlab.nettio.server :as sv]
-            [czlab.niou.module :as mo]
             [czlab.basal.core :as c
              :refer [ensure?? ensure-thrown??]])
 
@@ -32,8 +31,8 @@
  ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (c/defonce- HELLO-BYTES (i/x->bytes "hello"))
 
-(c/defonce- MODULE
-  (mo/web-client-module<> {:implements :czlab.nettio.client/netty}))
+
+(c/defonce- MODULE (cl/web-client-module<>))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (c/deftest test-wsock
@@ -41,9 +40,8 @@
   (ensure??
     "websock/bad-uri"
     (let [{:keys [host port] :as w}
-          (-> (mo/web-server-module<>
-                {:implements :czlab.nettio.server/netty
-                 :wsock-path "/websock"
+          (-> (sv/web-server-module<>
+                {:wsock-path "/websock"
                  :user-cb #(println "msg = " %1)})
               (po/start {:port 5556}))
           _ (u/pause 888)
@@ -56,9 +54,7 @@
   (ensure??
     "websock/remote-port"
     (let [{:keys [host port] :as w}
-          (-> (mo/web-server-module<>
-                {:implements :czlab.nettio.server/netty
-                 :user-cb #(println "msg = " %1)})
+          (-> (sv/web-server-module<> #(println "msg = " %1))
               (po/start {:port 5556}))
           _ (u/pause 888)
           c (cc/hc-ws-conn MODULE host port {:uri "/websock"})]
@@ -72,9 +68,7 @@
   (ensure??
     "websock/stop"
     (let [{:keys [host port] :as w}
-          (-> (mo/web-server-module<>
-                {:implements :czlab.nettio.server/netty
-                 :user-cb #(println "msg = " %1)})
+          (-> (sv/web-server-module<> #(println "msg = " %1))
               (po/start {:port 5556}))
           _ (u/pause 888)
           c (cc/hc-ws-conn MODULE host port {:uri "/websock"})
@@ -87,13 +81,11 @@
       (and ok?
            (not (cc/cc-is-open? c)))))
 
-
   (ensure??
     "websock/text"
     (let [{:keys [host port] :as w}
-          (-> (mo/web-server-module<>
-                {:implements :czlab.nettio.server/netty
-                 :server-key "*"
+          (-> (sv/web-server-module<>
+                {:server-key "*"
                  :user-cb #(cc/reply-result %1)})
               (po/start {:port 8443}))
           _ (u/pause 888)
@@ -112,12 +104,11 @@
       (u/pause 500)
       (.equals "hello" (i/x->str @out))))
 
+
   (ensure??
     "websock/blob"
     (let [{:keys [host port] :as w}
-          (-> (mo/web-server-module<>
-                {:implements :czlab.nettio.server/netty
-                 :user-cb #(cc/reply-result %1)})
+          (-> (sv/web-server-module<> #(cc/reply-result %1))
               (po/start {:port 5556}))
           _ (u/pause 888)
           out (atom nil)
@@ -137,10 +128,9 @@
     (let [pong (atom false)
           ping (atom false)
           {:keys [host port] :as w}
-          (-> (mo/web-server-module<>
-                {:implements :czlab.nettio.server/netty
-                 :user-cb #(when (:is-ping? %1)
-                             (reset! ping true))})
+          (-> (sv/web-server-module<>
+                 #(when (:is-ping? %1)
+                    (reset! ping true)))
               (po/start {:port 5556}))
           _ (u/pause 888)
           c (cc/hc-ws-conn MODULE

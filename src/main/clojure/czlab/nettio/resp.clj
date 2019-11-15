@@ -23,19 +23,19 @@
             [czlab.basal.core :as c]
             [czlab.basal.dates :as d]
             [czlab.nettio.core :as n]
+            [czlab.nettio.http :as h1]
             [czlab.nettio.ranges :as nr])
 
   (:import [io.netty.channel ChannelFuture Channel ChannelHandlerContext]
            [io.netty.buffer Unpooled ByteBuf ByteBufAllocator]
            [java.io IOException File InputStream]
            [io.netty.util ReferenceCountUtil]
-           [com.sun.net.httpserver Headers]
            [clojure.lang APersistentVector]
            [java.nio.charset Charset]
            [java.net HttpCookie URL]
            [java.util Date]
            [czlab.basal XData]
-           [czlab.niou DateUtil]
+           [czlab.niou Headers DateUtil]
            [czlab.niou.core WsockMsg Http1xMsg HttpResultMsg]
            [czlab.nettio.ranges HttpRangesObj]
            [io.netty.handler.codec.http.cookie
@@ -68,18 +68,18 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (c/def- conds-hds
-  [[:if-unmod-since (n/h1hdr* IF_UNMODIFIED_SINCE)]
-   [:if-mod-since (n/h1hdr* IF_MODIFIED_SINCE)]
-   [:if-none-match (n/h1hdr* IF_NONE_MATCH)]
-   [:if-match (n/h1hdr* IF_MATCH)]
-   [:if-range (n/h1hdr* IF_RANGE)]
-   [:range (n/h1hdr* RANGE)]])
+  [[:if-unmod-since (str (n/h1hdr* IF_UNMODIFIED_SINCE))]
+   [:if-mod-since (str (n/h1hdr* IF_MODIFIED_SINCE))]
+   [:if-none-match (str (n/h1hdr* IF_NONE_MATCH))]
+   [:if-match (str (n/h1hdr* IF_MATCH))]
+   [:if-range (str (n/h1hdr* IF_RANGE))]
+   [:range (str (n/h1hdr* RANGE))]])
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (c/def- resp-hds
-   [[:last-mod (n/h1hdr* LAST_MODIFIED)]
-    [:etag (n/h1hdr* ETAG)]
-    [:ctype (n/h1hdr* CONTENT_TYPE)]])
+   [[:last-mod (str (n/h1hdr* LAST_MODIFIED))]
+    [:etag (str (n/h1hdr* ETAG))]
+    [:ctype (str (n/h1hdr* CONTENT_TYPE))]])
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (extend-protocol cc/HttpMsgGist
@@ -329,6 +329,7 @@
                 [nil 0]
                 :else
                 (u/throw-IOE "Unsupported result content"))
+          _ (l/debug "body = %s." body)
           [rsp body]
           (cond (bytes? body)
                 [(n/http-reply<+> status body (.alloc socket)) nil]
@@ -339,13 +340,13 @@
                 [(n/http-reply<+> status) nil]
                 :else
                 [(n/http-reply<> status) body])
-          hds (.set (.headers ^HttpMessage rsp) ^HttpHeaders headers)]
+          hds (.set (.headers ^HttpMessage rsp)
+                    (h1/std->headers headers))]
       (cond (== status 416)
             (nr/fmt-error hds body0)
             rangeRef
             (nr/fmt-success hds rangeRef))
       (l/debug "response = %s." rsp)
-      (l/debug "body = %s." body)
       (l/debug "body-len = %s." clen)
       (->> (boolean (and body (not (c/is? FullHttpResponse rsp))))
          (HttpUtil/setTransferEncodingChunked rsp ))
@@ -370,9 +371,9 @@
         (.set hds (n/h1hdr* ETAG) etag))
       (let [c? (HttpUtil/isKeepAlive rsp)
             cf (if (nil? body)
-                 (do (l/debug "reply has NO body, write and flush %s." rsp)
+                 (do (l/debug "reply has no chunked body, write and flush %s." rsp)
                      (.writeAndFlush socket rsp))
-                 (do (l/debug "reply has SOME body, write and flush %s." rsp)
+                 (do (l/debug "reply has chunked body, write and flush %s." rsp)
                      (.write socket rsp)
                      (l/debug "reply body, write and flush body: %s." body)
                      (.writeAndFlush socket body)))]

@@ -17,33 +17,37 @@
             [clojure.string :as cs]
             [czlab.niou.core :as cc]
             [czlab.niou.upload :as cu]
-            [czlab.niou.module :as mo]
             [czlab.basal.proc :as p]
             [czlab.basal.util :as u]
-            [czlab.niou.log :as l]
-            [czlab.niou.io :as i]
-            [czlab.niou.xpis :as po]
-            [czlab.niou.core :as c
+            [czlab.basal.log :as l]
+            [czlab.basal.io :as i]
+            [czlab.basal.xpis :as po]
+            [czlab.nettio.ranges :as nr]
+            [czlab.nettio.client :as cl]
+            [czlab.nettio.server :as sv]
+            [czlab.basal.core :as c
              :refer [ensure?? ensure-thrown??]])
 
   (:import [org.apache.commons.fileupload FileItem]
+           [czlab.niou Headers]
            [czlab.basal XData]
            [java.net URL URI]))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(c/def-
+  _file-content_ (str "hello how are you, "
+                      "are you doing ok? " "very cool!"))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(c/defonce-
-  MODULE
-  (mo/client-module<> {:implements :czlab.nettio.client/netty}))
+(c/defonce- MODULE (cl/web-client-module<>))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- echo-back
   [req]
   (p/async!
     #(let [res (cc/http-result req)]
-       (u/pause 2000)
-       (->> (:body req)
-            (cc/res-body-set res) cc/reply-result))))
+       (u/pause 1000)
+       (->> (cc/res-body-set res (:uri req)) cc/reply-result))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (c/deftest test-h1
@@ -51,34 +55,39 @@
   (ensure??
     "ssl/h1"
     (let [{:keys [host port] :as w}
-          (-> (mo/web-server-module<>
-                {:implements :czlab.nettio.server/netty
-                 :server-key "*"
+          (-> (sv/web-server-module<>
+                {:server-key "*"
                  :user-cb #(-> (cc/http-result %1)
-                               (cc/res-body-set "hello joe") cc/reply-result)})
+                               (cc/res-body-set (:uri %1)) cc/reply-result)})
               (po/start {:port 8443}))
           _ (u/pause 888)
           c (cc/hc-h1-conn MODULE host port {:server-cert "*"})
-          p (cc/write c (cc/h1-get<> (URI. "/blah")))
-          {:keys [body]} (deref p 5000 nil)]
+          p1 (cc/cc-write c (cc/h1-get<> (URI. "/blah")))
+          r1 (deref p1 5000 nil)
+          p2 (cc/cc-write c (cc/h1-get<>
+                              (URI. "/Yoyo"))
+                          {:keep-alive? false})
+          r2 (deref p2 5000 nil)]
       (po/stop w)
       (cc/cc-finz c)
       (u/pause 500)
-      (and rc (.equals "hello joe" (i/x->str body)))))
+      (and r1 r2
+           (.equals "/blah" (i/x->str (:body r1)))
+           (.equals "/Yoyo" (i/x->str (:body r2))))))
 
   (ensure??
     "h1/pipeline"
     (let [{:keys [host port] :as w}
-          (-> (mo/web-server-module<>
-                {:implements :czlab.nettio.server/netty
-                 :server-key "*"
+          (-> (sv/web-server-module<>
+                {:server-key "*"
+                 :pipelining? true
                  :user-cb echo-back})
               (po/start {:port 8443}))
           _ (u/pause 888)
           c (cc/hc-h1-conn MODULE host port {:server-cert "*"})
-          r1 (cc/write c (cc/h1-get<> "/r1"))
-          r2 (cc/write c (cc/h1-get<> "/r2"))
-          r3 (cc/write c (cc/h1-get<> "/r3"))
+          r1 (cc/cc-write c (cc/h1-get<> "/r1"))
+          r2 (cc/cc-write c (cc/h1-get<> "/r2"))
+          r3 (cc/cc-write c (cc/h1-get<> "/r3"))
           rc1 (deref r1 5000 nil)
           rc2 (deref r2 5000 nil)
           rc3 (deref r3 5000 nil)]
@@ -87,112 +96,110 @@
       (u/pause 500)
       (and rc1 rc2 rc3
            (.equals "/r1/r2/r3"
-                    (str (i/x->str rc1)
-                         (i/x->str rc2)
-                         (i/x->str rc3))))))
+                    (str (i/x->str (:body rc1))
+                         (i/x->str (:body rc2))
+                         (i/x->str (:body rc3)))))))
 
   (ensure??
-    "form-post"
+    "h1/form-post"
     (let [out (atom nil)
           {:keys [host port] :as w}
-          (-> (mo/web-server-module<>
-                {:implements :czlab.nettio.server/netty
-                 :user-cb #(do (reset! out (:body %1))
-                               (-> (cc/http-result %1)
-                                   (cc/res-body-set "hello joe") cc/reply-result))})
+          (-> (sv/web-server-module<>
+                 #(do (reset! out (:body %1))
+                      (-> (cc/http-result %1)
+                          (cc/res-body-set "hello joe") cc/reply-result)))
               (po/start {:port 5555}))
           _ (u/pause 888)
           c (cc/hc-h1-conn MODULE host port nil)
           h (-> (Headers.)
                 (.add "content-type" "application/x-www-form-urlencoded"))
-          rc (cc/cc-write c (cc/h1-post<> "/form?a=b&c=3 9&name=john'smith" h nil))
-          {:keys [body]} (deref rc 5000 nil)
-          rmap (when @out
-                 (c/preduce<map>
-                   #(let [^FileItem i %2]
-                      (if (.isFormField i)
-                        (assoc! %1
-                                (keyword (.getFieldName i)) (.getString i)) %1))
-                   (cu/get-all-items (.content ^XData @out))))]
+          rc (cc/cc-write c (cc/h1-msg<> :post
+                                         "/form/a%20b%20c"
+                                         h
+                                         "a=b&c=3%209&name=john%27smith"))
+          {:keys [^XData body]} (deref rc 5000 nil)
+          items (if @out (cu/get-all-items (.content ^XData @out)))
+          rmap (c/preduce<map>
+                 #(let [^FileItem i %2]
+                    (if-not (.isFormField i)
+                      %1
+                      (assoc! %1
+                              (.getFieldName i)
+                              (.getString i)))) items)]
       (po/stop w)
       (cc/cc-finz c)
       (u/pause 500)
-      (and (= "hello joe" (i/x->str body))
-           (= (:a rmap) "b")
-           (= (:c rmap) "3 9")
-           (= (:name rmap) "john'smith"))))
+      (and (.equals "hello joe" (i/x->str body))
+           (.equals "b" (rmap "a"))
+           (.equals "3 9" (rmap "c"))
+           (.equals "john'smith" (rmap "name")))))
 
   (ensure??
-    "form-port/multipart"
+    "h1/form-multipart"
     (let [out (atom nil)
           {:keys [host port] :as w}
-          (-> (mo/web-server-module<>
-                {:implements :czlab.nettio.server/netty
-                 :user-cb #(do (reset! out (:body %1))
-                               (-> (cc/http-result %1) cc/reply-result))})
+          (-> (sv/web-server-module<>
+                #(do (reset! out (:body %1))
+                     (-> (cc/http-result %1) cc/reply-result)))
               (po/start {:port 5555}))
           _ (u/pause 888)
           h (-> (Headers.)
-                (.add "content-type" "multipart/form-data; boundary=---1234"))
+                (.add "content-type"
+                      "multipart/form-data; boundary=---1234"))
           c (cc/hc-h1-conn MODULE host port nil)
-          rc (cc/cc-write c (cc/h1-post<> "/form" h cu/TEST-FORM-MULTIPART))
+          rc (cc/cc-write c (cc/h1-msg<> :post
+                                         "/form" h cu/TEST-FORM-MULTIPART))
           {:keys [body]} (deref rc 5000 nil)
-          rmap (when @out
-                 (c/preduce<map>
-                   #(let [^FileItem i %2]
-                      (if (.isFormField i)
-                        (assoc! %1
-                                (keyword (str (.getFieldName i)
-                                              "+" (.getString i))) (.getString i)) %1))
-                   (cu/get-all-items (.content ^XData @out))))
-          fmap (when @out
-                 (c/preduce<map>
-                   #(let [^FileItem i %2]
-                      (if-not (.isFormField i)
-                        (assoc! %1
-                                (keyword (str (.getFieldName i)
-                                              "+" (.getName i))) (i/x->str (.get i))) %1))
-                   (cu/get-all-items (.content ^XData @out))))]
+          items (.content ^XData @out)
+          rmap (c/preduce<map>
+                 #(let [^FileItem i %2]
+                    (assoc! %1
+                            (str (.getFieldName i)
+                                 (.getString i))
+                            (.getString i))) (cu/get-all-fields items))
+          fmap (c/preduce<map>
+                 #(let [^FileItem i %2]
+                    (assoc! %1
+                            (str (.getFieldName i)
+                                 (.getName i))
+                            (i/x->str (.get i)))) (cu/get-all-files items))]
       (po/stop w)
       (cc/cc-finz c)
       (u/pause 500)
       (and body
-           (zero? (.size ^XData body))
-           (= (:field+fieldValue rmap) "fieldValue")
-           (= (:multi+value1 rmap) "value1")
-           (= (:multi+value2 rmap) "value2")
-           (= (:file1+foo1.tab fmap) "file content(1)\n")
-           (= (:file2+foo2.tab fmap) "file content(2)\n"))))
+           (nil? (.content ^XData body))
+           (.equals "fieldValue" (rmap "fieldfieldValue"))
+           (.equals "value1" (rmap "multivalue1"))
+           (.equals "value2" (rmap "multivalue2"))
+           (.equals "file content(1)\n" (fmap "file1foo1.tab"))
+           (.equals "file content(2)\n" (fmap "file2foo2.tab")))))
 
   (ensure??
     "preflight-not-allowed"
     (let [{:keys [host port] :as w}
-          (-> (mo/web-server-module<>
-                {:implements :czlab.nettio.server/netty
+          (-> (sv/web-server-module<>
+                {:cors-cfg {:short-circuit? true
+                            :for-origins ["blah.com"]}
                  :user-cb #(-> (cc/http-result %1) cc/reply-result)})
               (po/start {:port 5555}))
           _ (u/pause 888)
           h (-> (Headers.)
-                (.add "origin" (str "http://" host))
-                (.add "Access-Control-Request-Method" "PUT")
-                (.add "Access-Control-Request-Headers" "X-Custom-Header"))
+                (.add "origin" (str "http://" host)))
           c (cc/hc-h1-conn MODULE host port nil)
           rc (cc/cc-write c (cc/h1-msg<> :options "/cors" h nil))
           p (deref rc 3000 nil)]
       (po/stop w)
       (cc/cc-finz c)
       (u/pause 500)
-      (and p (== 405 (:status p)))))
+      (and p (== 403 (:status p)))))
 
   (ensure??
     "preflight"
     (let [{:keys [host port] :as w}
-          (-> (mo/web-server-module<>
-                {:implements :czlab.nettio.server/netty
-                 :cors-cfg {:enabled? true
-                            :any-origin? true
-                            :nullable? false
-                            :credentials? true}
+          (-> (sv/web-server-module<>
+                {:cors-cfg {:allow-credentials? true
+                            :for-any-origin? true
+                            :allow-null-origin? false}
                  :user-cb #(-> (cc/http-result %1) cc/reply-result)})
               (po/start {:port 5555}))
           _ (u/pause 888)
@@ -207,8 +214,63 @@
       (po/stop w)
       (cc/cc-finz c)
       (u/pause 500)
-      (and p (.equals origin
-                      (cc/msg-header p "access-control-allow-origin")))))
+      (and p
+           (.equals origin
+                    (cc/msg-header p "access-control-allow-origin"))
+           (.equals "true"
+                    (cc/msg-header p "access-control-allow-credentials")))))
+
+
+  (ensure??
+    "file-range/all"
+    (let [des (i/tmpfile (u/jid<>))
+          _ (spit des _file-content_)
+          {:keys [host port] :as w}
+          (-> (sv/web-server-module<>
+                #(-> (cc/http-result %1)
+                     (cc/res-body-set des)
+                     (cc/res-header-set "content-type" "text/plain")
+                     cc/reply-result))
+              (po/start {:port 5555}))
+          _ (u/pause 888)
+          c (cc/hc-h1-conn MODULE host port nil)
+          p (cc/cc-write c
+                         (cc/h1-msg<> :get
+                                      "/range"
+                                      (-> (Headers.)
+                                          (.add "range" "bytes=0-")) nil))
+          {:keys [^XData body]} (deref p 5000 nil)
+          s (some-> body .strit)]
+      (po/stop w)
+      (cc/cc-finz c)
+      (u/pause 500)
+      (and (c/hgl? s) (= 0 (c/count-str s nr/DEF-BD)))))
+
+
+  (ensure??
+    "file-range/chunked"
+    (let [des (i/tmpfile (u/jid<>))
+          _ (spit des _file-content_)
+          {:keys [host port] :as w}
+          (-> (sv/web-server-module<>
+                #(-> (cc/http-result %1)
+                     (cc/res-body-set des)
+                     (cc/res-header-set "content-type" "text/plain")
+                     cc/reply-result))
+              (po/start {:port 5555}))
+          _ (u/pause 888)
+          c (cc/hc-h1-conn MODULE host port nil)
+          p (cc/cc-write c (cc/h1-msg<> :get
+                                        "/range"
+                                        (-> (Headers.)
+                                            (.add "range" "bytes=0-18,8-20,21-")) nil))
+          {:keys [^XData body]} (deref p 5000 nil)
+          s (some-> body .strit)]
+      (po/stop w)
+      (cc/cc-finz c)
+      (u/pause 500)
+      (and (c/hgl? s)
+           (== 2 (c/count-str s nr/DEF-BD)))))
 
   (ensure?? "test-end" (== 1 1)))
 

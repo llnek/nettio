@@ -20,8 +20,6 @@
             [czlab.basal.io :as i]
             [czlab.basal.xpis :as po]
             [czlab.niou.routes :as cr]
-            [czlab.niou.module
-             :refer [web-server-module<> udp-server-module<>]]
             [czlab.nettio.core :as n]
             [czlab.nettio.iniz :as z])
 
@@ -223,16 +221,20 @@
   (start [_ options] (start<udp> _ options)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defmethod udp-server-module<>
-  :czlab.nettio.server/netty
-  [args]
-  (NettyUdpServer. (assoc args :inizor z/udp-inizor<>)))
+(defn udp-server-module<>
+  ""
+  ([] (udp-server-module<> nil))
+  ([args]
+   (-> (if (fn? args) {:user-cb args} args)
+       (assoc :inizor z/udp-inizor<>) NettyUdpServer. )))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defmethod web-server-module<>
-  :czlab.nettio.server/netty
-  [args]
-  (NettyTcpServer. (assoc args :inizor z/web-inizor<>)))
+(defn web-server-module<>
+  ""
+  ([] (web-server-module<> nil))
+  ([args]
+   (-> (if (fn? args) {:user-cb args} args)
+       (assoc :inizor z/web-inizor<>) NettyTcpServer. )))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF

@@ -290,6 +290,7 @@
   (get-headers [_] "")
   (has-header? [_ h] "")
   (set-headers [_ hs] "")
+  (add-headers [_ hs] "")
   (crack-cookies [_] "")
   (no-content? [_] "")
   (content-type [_] "")
@@ -650,9 +651,12 @@
                (c/doto->> (.getFile d)
                           (.renameTo d))))
          r (if-not (and f?
-                        (bytes? x))
+                        (bytes? x)
+                        (pos? (alength ^bytes x)))
              x
-             (i/spit-file (i/temp-file) x true))]
+             (i/spit-file (i/temp-file) x true))
+         r (if (and (bytes? r)
+                    (zero? (alength ^bytes r))) nil r)]
      (if wrap? (XData. r) r))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -663,10 +667,10 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn parse-form-multipart
   [^InterfaceHttpPostRequestDecoder deco]
-  (l/debug "inside parse-post, decoder= %s." deco)
+  (l/debug "parse-post, decoder= %s, multipart= %s." deco (.isMultipart deco))
   (loop [out (cu/form-items<>)]
     (if-not (next-body? deco)
-      (try (XData. out)
+      (try out
            (finally (.destroy deco)))
       (let [n (.next deco)
             nm (.getName n)
@@ -709,6 +713,12 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defmacro decoder-err?
   [m] `(not (decoder-ok? ~m)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defmacro decoder-err-cause??
+  [m]
+  `(if-some
+     [~'r (czlab.nettio.core/decoder-result ~m)] (.cause ~'r)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defmacro decoder-ok?
@@ -786,7 +796,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- x->bbuf
   ^ByteBuf [^Channel ch arg encoding]
-  (let [cs (u/charset?? encoding)
+  (let [cs (u/charset?? encoding "utf-8")
         buf (some-> ch .alloc .directBuffer)]
     (cond
       (bytes? arg)
@@ -967,6 +977,7 @@
   (get-header [msg h] (ghthds msg ^CharSequence h))
   (has-header? [msg h] (.contains (hthds msg) ^CharSequence h))
   (add-header [msg h v] (ahthds msg ^CharSequence h v))
+  (add-headers [msg ^HttpHeaders hs] (.add (hthds msg) hs))
   (set-headers [msg ^HttpHeaders hs] (.set (hthds msg) hs))
   (set-header [msg h v] (shthds msg ^CharSequence h v))
   (get-headers [msg] (hthds msg))

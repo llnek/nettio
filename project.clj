@@ -7,7 +7,9 @@
   :description "Http client and server library using netty."
   :url "https://github.com/llnek/nettio"
 
-  :dependencies [[io.netty/netty-tcnative-boringssl-static "2.0.27.Final"]
+  ;WARNING
+  ;io.netty/netty-tcnative-boringssl-static "2.0.27.Final" crashes jvm
+  :dependencies [[io.netty/netty-tcnative-boringssl-static "2.0.26.Final"]
                  [commons-fileupload/commons-fileupload "1.4"]
                  [net.sourceforge.jregex/jregex "1.2_01"]
                  [javax.servlet/javax.servlet-api "4.0.1"]
@@ -22,6 +24,7 @@
             [lein-codox "0.10.7"]]
 
   :test-selectors {:niou :test-niou
+                   :h1 :test-h1
                    :wsock :test-wsock
                    :nettio :test-nettio}
 
