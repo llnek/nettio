@@ -23,7 +23,7 @@
             [czlab.basal.io :as i]
             [czlab.basal.xpis :as po]
             [czlab.niou.core :as cc]
-            [czlab.niou.module :as mo])
+            [czlab.nettio.server :as sv])
 
   (:import [java.io IOException File]
            [czlab.niou Headers]
@@ -38,9 +38,9 @@
   [req ^XData xdata]
   (let [{:keys [keep-alive?]} req
         clen (.size xdata)
-        res (-> (cc/http-result)
+        res (-> (cc/http-result req)
                 (cc/res-body-set (.fileRef xdata)))
-        ^HttpHeaders hds (:headers res)]
+        ^Headers hds (:headers res)]
     (l/debug "flushing file of %s bytes to client." clen)
     (.add hds "content-length" (str clen))
     (.add hds "Content-Type" "application/octet-stream")
@@ -57,6 +57,7 @@
     (if (.isFile body)
       (l/debug "fPutter orig= %s." (.fileRef body)))
     (-> (cc/http-result
+          req
           (try (i/save-file vdir fname body)
                200
                (catch Throwable _ 500))) cc/reply-result)))
@@ -92,10 +93,10 @@
 (defn file-server<>
   "A file server which can get/put files."
   [& args]
-  (mo/web-server-module<>
-    (merge {:implements :czlab.nettio.server/netty
-            :udir i/*file-repo*
-            :user-cb (h1proxy udir)} (c/kvs->map args))))
+  (let [{:keys [udir] :as args'}
+        (merge {:udir i/*file-repo*} (c/kvs->map args))]
+    (sv/web-server-module<> (assoc args'
+                                   :user-cb (h1proxy udir)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; filesvr host port vdir

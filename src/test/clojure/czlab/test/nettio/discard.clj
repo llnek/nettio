@@ -20,7 +20,7 @@
             [czlab.basal.util :as u]
             [czlab.basal.xpis :as po]
             [czlab.niou.core :as cc]
-            [czlab.niou.module :as mo]))
+            [czlab.nettio.server :as sv]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;(set! *warn-on-reflection* false)
@@ -36,9 +36,8 @@
 (defn discard-httpd<>
   "Drops the req and returns OK"
   [cb & args]
-  (mo/web-server-module<>
-    (merge {:implements :czlab.nettio.server/netty
-            :user-cb (mkcb cb)} (c/kvs->map args))))
+  (sv/web-server-module<>
+    (merge {:user-cb (mkcb cb)} (c/kvs->map args))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn finz-server

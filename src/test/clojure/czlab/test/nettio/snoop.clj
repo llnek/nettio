@@ -18,12 +18,14 @@
             [czlab.basal.core :as c]
             [czlab.basal.util :as u]
             [czlab.basal.log :as l]
-            [czlab.basalproc :as p]
-            [czlab.basalxpis :as po]
+            [czlab.basal.io :as i]
+            [czlab.basal.proc :as p]
+            [czlab.basal.xpis :as po]
             [czlab.niou.core :as cc]
-            [czlab.niou.module :as mo])
+            [czlab.nettio.server :as sv])
 
   (:import [czlab.basal XData]
+           [czlab.niou Headers]
            [java.net HttpCookie]
            [java.util Map$Entry]))
 
@@ -39,7 +41,7 @@
         body (i/x->bytes buf)
         res (-> (cc/http-result req)
                 (cc/res-body-set body))
-        ^HttpHeaders hds (:headers res)]
+        ^Headers hds (:headers res)]
     (.set hds "Content-Length" (str (alength body)))
     (.set hds "Content-Type"
               "text/plain; charset=UTF-8")
@@ -51,7 +53,7 @@
            {"key1" (HttpCookie. "key1" "value1")
             "key2" (HttpCookie. "key2" "value2")})
          vals
-         (reduce #(cc/res-cookie-set %1 %2) res)
+         (reduce #(cc/res-cookie-add %1 %2) res)
          (cc/reply-result))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -77,9 +79,9 @@
                        "HEADER: "
                        %2
                        " = "
-                       (cs/join "," (cc/msg-header-vals headers %2))
+                       (cs/join "," (cc/msg-header-vals req %2))
                        "\r\n")
-              (cc/msg-header-names headers))
+              (cc/msg-header-keys req))
             "\r\n"
             (c/sreduce<>
               (fn [b ^Map$Entry en]
@@ -106,9 +108,8 @@
 (defn snoop-httpd<>
   "Sample Snooper HTTPD."
   [& args]
-  (mo/web-server-module<>
-    (merge {:implements :czlab.nettio.server/netty
-            :user-cb
+  (sv/web-server-module<>
+    (merge {:user-cb
             #(->> (handle-req %1)
                   (handle-cnt %1))} (c/kvs->map args))))
 

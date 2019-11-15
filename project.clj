@@ -25,6 +25,7 @@
 
   :test-selectors {:niou :test-niou
                    :h1 :test-h1
+                   :apps :test-apps
                    :wsock :test-wsock
                    :nettio :test-nettio}
 

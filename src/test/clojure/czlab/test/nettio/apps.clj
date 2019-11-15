@@ -16,23 +16,22 @@
             [clojure.test :as ct]
             [clojure.string :as cs]
             [czlab.niou.core :as cc]
-            [czlab.niou.module :as mo]
             [czlab.basal.util :as u]
             [czlab.basal.log :as l]
             [czlab.basal.io :as i]
             [czlab.basal.xpis :as po]
-            [czlab.basal.core :as c
+            [czlab.nettio.client :as cl]
+            [czlab.nettio.server :as sv]
             [czlab.test.nettio.snoop :as sn]
             [czlab.test.nettio.files :as fs]
             [czlab.test.nettio.discard :as dc]
+            [czlab.basal.core :as c
              :refer [ensure?? ensure-thrown??]])
 
   (:import [czlab.basal XData]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(c/defonce-
-  MODULE
-  (mo/client-module<> {:implements :czlab.nettio.client/netty}))
+(c/defonce- MODULE (cl/web-client-module<>))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (c/deftest test-apps
@@ -46,12 +45,13 @@
           c (cc/hc-h1-conn MODULE host port nil)
           r (cc/cc-write c
                          (cc/h1-get<>
-                           "/test/snooper?a=1&b=john smith"))
-          {:keys [body]} (deref r 3000 nil)]
+                           "/test/snooper?a=1&b=john%20smith"))
+          {:keys [^XData body]} (deref r 3000 nil)]
+      ;(l/debug "bbb = %s" (.strit body))
       (po/stop w)
       (cc/cc-finz c)
       (u/pause 500)
-      (c/hgl? (i/x->str body))))
+      (and body (c/hgl? (i/x->str body)))))
 
   (ensure??
     "discard-httpd<>"
@@ -73,14 +73,15 @@
     "file-server/get"
     (let [{:keys [host port] :as w}
           (-> (fs/file-server<>)
-              (po/start {:port port}))
+              (po/start {:port 5555}))
           _ (u/pause 888)
           s "test content"
           tn (u/jid<>)
           _ (spit (i/tmpfile tn) s)
           c (cc/hc-h1-conn MODULE host port nil)
           r (cc/cc-write c (cc/h1-get<> (str "/" tn)))
-          {:keys [body]} (deref r 5000 nil)]
+          {:keys [^XData body]} (deref r 5000 nil)]
+      (l/debug "bbbb = %s" (.strit body))
       (po/stop w)
       (cc/cc-finz c)
       (u/pause 500)
@@ -109,6 +110,7 @@
            (zero? (.size ^XData body))
            (.exists des)
            (.equals s (slurp des)))))
+
 
   (ensure?? "test-end" (== 1 1)))
 
