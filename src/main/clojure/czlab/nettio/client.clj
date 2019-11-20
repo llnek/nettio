@@ -29,7 +29,8 @@
             WebSocketClientCompressionHandler]
            [io.netty.handler.ssl.util InsecureTrustManagerFactory]
            [czlab.nettio.iniz WSInizor H2Inizor H1Inizor]
-           [czlab.niou.core WsockMsg]
+           [czlab.niou.core Http1xMsg Http2xMsg WsockMsg]
+           [czlab.niou Headers]
            [java.util ArrayList List]
            [io.netty.channel.socket.nio NioSocketChannel]
            [io.netty.handler.codec.http.websocketx
@@ -49,6 +50,10 @@
            [io.netty.handler.codec.http2
             HttpConversionUtil$ExtensionHeaderNames
             HttpConversionUtil
+            DefaultHttp2Connection
+            DefaultHttp2Headers
+            DefaultHttp2HeadersFrame
+            DefaultHttp2DataFrame
             Http2SecurityUtil
             Http2FrameAdapter
             Http2Settings
@@ -105,6 +110,7 @@
             ChannelHandlerContext]
            [czlab.nettio
             ChannelInizer
+            H2Handler
             DuplexHandler
             H1DataFactory
             InboundHandler]
@@ -112,9 +118,6 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;(set! *warn-on-reflection* false)
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(c/def- ^AttributeKey h2s-key  (n/akey<> :h2settings-promise))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- boot!
@@ -147,97 +150,81 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- hx-conn
+  "Set up connection for various protocols - h1, wsock, h2."
   [module host port hint]
   (letfn
-    [(connect [^Bootstrap bs ssl?]
+    [(connect [bs ssl?]
        (let [port' (if (neg? port)
                      (if ssl? 443 80) port)
              _ (l/debug "connecting to: %s@%s." host port')
              ^ChannelFuture
-             cf (some-> (.connect bs
+             cf (some-> (.connect ^Bootstrap bs
                                   (InetSocketAddress. (str host)
                                                       (int port'))) .sync)
-             rc (try
-                  (if (and (.isSuccess cf) (.channel cf))
-                    (.channel cf)
-                    (.cause cf))
-                  (catch Throwable _ _))]
+             rc (try (or (and (.isSuccess cf) (.channel cf))
+                         (.cause cf))
+                     (catch Throwable _ _))]
          ;add generic key to hold response promises
-         (when (c/is? Channel rc)
-           (n/akey+ rc iz/rsp-key (ArrayList.)))
-         ;(l/debug "client connected: %s@%s." host port')
          (if (c/!is? Channel rc)
            {:error rc}
-           {:channel rc :host host :port port'})))
-     (cconn<> [bs {:keys [host port
-                          ^Channel channel]}]
-       (l/info "client channel connected = %s." channel)
+           (try (n/akey+ rc iz/rsp-key (ArrayList.))
+                {:channel rc :host host :port port'}
+                (finally (l/debug "client connected: %s@%s." host port'))))))
+     (cconn<> [bs {:keys [^Channel channel host port ssl?]}]
        (reify cc/ClientConnect
          (cc-remote-port [_] port)
          (cc-remote-host [_] host)
          (cc-module [_] module)
-         (cc-is-open? [_]
-           (.isOpen channel))
+         (cc-is-ssl? [_] ssl?)
+         (cc-is-open? [_] (.isOpen channel))
          (cc-channel [_] channel)
-         (cc-write
-           [_ msg] (cc/cc-write _ msg nil))
-         (cc-write
-           [_ msg args]
-             (c/condp?? instance? hint
-               H2Inizor (cc/hc-h2-send module _ msg args)
-               H1Inizor (cc/hc-h1-send module _ msg args)
-               WSInizor (cc/hc-ws-send module _ msg args)))
-         (cc-finz [_]
-           (n/nobs! bs channel))))
+         (cc-finz [_] (n/nobs! bs channel))
+         (cc-write [_ msg] (cc/cc-write _ msg nil))
+         (cc-write [_ msg args]
+           (c/condp?? instance? hint
+             H2Inizor (cc/hc-h2-send module _ msg args)
+             H1Inizor (cc/hc-h1-send module _ msg args)
+             WSInizor (cc/hc-ws-send module _ msg args)))))
      (h1c-finz [bs info]
+       ;prepare for shutdown upon CLOSE
        (n/cf-cb (.closeFuture ^Channel (:channel info))
-                (c/fn_1 (n/nobs! bs nil)
-                        (l/debug "client shutdown: netty client.")))
-       info)
-     (ret-conn [bs rcp ms {:keys [channel] :as info}]
-       (c/condp?? instance? hint
-         H1Inizor
-         (n/akey+ channel n/cc-key (cconn<> bs info))
-         H2Inizor
-         (let [^ChannelPromise
-               pm (n/akey?? channel h2s-key)]
-           (l/debug "client waits %s[ms] for h2-settings." ms)
-           (c/try!
-             (.awaitUninterruptibly pm
-                                    ms TimeUnit/MILLISECONDS))
-           (if-not (.isSuccess pm)
-             (.cause pm)
-             (n/akey+ channel n/cc-key (cconn<> bs info))))
-         WSInizor
-         (let [r (deref rcp ms nil)]
-           (if (c/!is? Channel r)
-             r
-             (n/akey+ r n/cc-key (cconn<> bs info))))))]
-    (let [{:keys [uri
-                  sync-wait
-                  server-cert] :as args'
+                #(do %1 (n/nobs! bs nil)
+                        (l/debug "client shutdown: netty client."))) info)
+     (ret-conn [bs ssl? rcp ms info]
+       ;if http just return the channel, else wait for handshake
+       (let [rc (if (c/is? H1Inizor hint)
+                  (:channel info) (deref rcp ms nil))]
+           (if (c/!is? Channel rc)
+             rc
+             (n/akey+ rc n/cc-key (cconn<> bs
+                                           (assoc info
+                                                  :ssl? ssl?
+                                                  :channel rc))))))]
+    (let [{:keys [uri sync-wait server-cert]
+           :as args'
            :or {sync-wait 5000}} (:args hint)
+          ssl? (c/hgl? server-cert)
           ;return this back to caller
           rcp (promise)
           [^Bootstrap bs args]
           (boot! (assoc args'
                         :protocol
                         (if (c/is? H2Inizor hint) "2" "1.1")))
-          args (if-not (c/is? WSInizor hint)
+          args (if (c/!is? WSInizor hint)
                  args
-                 (->> (c/fmt "%s://%s:%d%s"
-                             (if (c/hgl? server-cert) "wss" "ws") host port uri)
-                      (assoc args :uri2)))
+                 (assoc args
+                        :uri2
+                        (c/fmt "%s://%s:%d%s"
+                               (if ssl? "wss" "ws") host port uri)))
           _ (.handler bs
                       (if (c/!is? WSInizor hint)
                         (iz/webc-inizor<> rcp args)
                         (iz/websock-inizor<> rcp args)))
-          {:keys [channel error] :as rc}
-          (connect bs (c/hgl? server-cert))]
+          {:keys [channel error] :as rc} (connect bs ssl?)]
       (if (nil? channel)
         error
         (->> (h1c-finz bs rc)
-             (ret-conn bs rcp sync-wait))))))
+             (ret-conn bs ssl? rcp sync-wait))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- http-req<>
@@ -296,7 +283,20 @@
 
   (hc-h2-send
     ([_ conn msg] (cc/hc-h2-send _ conn msg nil))
-    ([_ conn msg args] (cc/hc-h2-send _ conn msg nil)))
+    ([_ conn msg args]
+     (condp instance? msg
+       Http2xMsg
+       (let [ch (cc/cc-channel conn)]
+         (c/do-with [out (promise)]
+           (let [^List plist (n/akey?? ch iz/rsp-key)
+                 _ (.add plist out)]
+             (n/write-msg ch msg))))
+       Http1xMsg
+       (let [{:keys [^Headers headers]} msg]
+         (.add headers (h2/h2xhdr* SCHEME)
+               (if (cc/cc-is-ssl? conn) "https" "http"))
+         (cc/hc-h1-send _ conn msg args))
+       (u/throw-BadArg "Invalid msg type %s" msg))))
 
   (hc-h1-send
     ([_ conn msg] (cc/hc-h1-send _ conn msg nil))

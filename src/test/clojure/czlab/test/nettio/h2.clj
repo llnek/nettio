@@ -13,106 +13,69 @@
   czlab.test.nettio.h2
 
   (:require [clojure.java.io :as io]
-            [clojure
-             [test :as ct]
-             [string :as cs]]
-            [czlab.test.nettio
-             [snoop :as sn]
-             [files :as fs]
-             [discard :as dc]]
-            [czlab.nettio
-             [http11 :as h1]
-             [ranges :as nr]
-             [core :as nc]
-             [msgs :as mg]
-             [resp :as rs]
-             [server :as sv]
-             [client :as cl]]
-            [czlab.niou
-             [core :as cc]
-             [upload :as cu]
-             [routes :as cr]]
-            [czlab.basal
-             [proc :as p]
-             [util :as u]
-             [log :as l]
-             [io :as i]
-             [xpis :as po]
-             [core :as c :refer [ensure?? ensure-thrown??]]])
+            [clojure.test :as ct]
+            [clojure.string :as cs]
+            [czlab.nettio.client :as cl]
+            [czlab.nettio.server :as sv]
+            [czlab.niou.core :as cc]
+            [czlab.basal.proc :as p]
+            [czlab.basal.util :as u]
+            [czlab.basal.log :as l]
+            [czlab.basal.io :as i]
+            [czlab.basal.util :as u]
+            [czlab.basal.xpis :as po]
+            [czlab.basal.core :as c
+             :refer [ensure?? ensure-thrown??]])
 
-  (:import [io.netty.buffer Unpooled ByteBuf ByteBufHolder]
-           [org.apache.commons.fileupload FileItem]
+  (:import [java.nio.charset Charset]
            [czlab.basal XData]
-           [io.netty.handler.codec.http.websocketx
-            BinaryWebSocketFrame
-            TextWebSocketFrame
-            CloseWebSocketFrame
-            PongWebSocketFrame
-            PingWebSocketFrame]
-           [io.netty.handler.codec.http.multipart
-            HttpDataFactory
-            Attribute
-            HttpPostRequestDecoder]
-           [io.netty.handler.codec.http
-            HttpResponseStatus]
-           [java.nio.charset Charset]
-           [java.net URL URI]
-           [jregex Matcher]
-           [czlab.nettio
-            H1DataFactory
-            InboundHandler]
-           [io.netty.channel
-            ChannelHandler
-            Channel
-            ChannelHandlerContext]
-           [io.netty.channel.embedded EmbeddedChannel]))
+           [java.net URL URI]))
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(c/def-
-  _file-content_ (str "hello how are you, "
-                      "are you doing ok? " "very cool!"))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- bbuf
-  ^ByteBuf [_ s] (Unpooled/wrappedBuffer (i/x->bytes s)))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- server-handler<>
-  []
-  (proxy [InboundHandler][true]
-    (readMsg [ctx msg]
-      (let [c (.getBytes ^XData (:body msg))
-            ^Channel ch (nc/ch?? ctx)
-            r (nc/http-reply<+>
-                (.code HttpResponseStatus/OK) c (.alloc ch))]
-        (.writeAndFlush ^ChannelHandlerContext ctx r)))))
+(defonce MODULE (cl/web-client-module<>))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (c/deftest test-h2
+(comment
+  (ensure??
+    "ssl/h2-h1"
+    (let [{:keys [host port] :as w}
+          (-> (sv/web-server-module<>
+                {:server-key "*"
+                 :user-cb #(-> (cc/http-result %1)
+                               (cc/res-body-set "hello")
+                               cc/reply-result)})
+              (po/start {:port 8443}))
+          _ (u/pause 888)
+          c (cc/hc-h2-conn MODULE host port {:server-cert "*"})
+          p (cc/cc-write c (cc/h1-msg<> :post "/form" nil "hello"))
+          {:keys [^XData body]} (deref p 5000 nil)]
+      (po/stop w)
+      (cc/cc-finz c)
+      (u/pause 500)
+      (and body (.equals "hello" (.strit body)))))
+)
+(comment)
+  (ensure??
+    "ssl/h2-frames"
+    (let [{:keys [host port] :as w}
+          (-> (sv/web-server-module<>
+                {:server-key "*"
+                 :h2-frames? true
+                 :user-cb #(cc/reply-result %1)})
+              (po/start {:port 8443}))
+          _ (u/pause 888)
+          c (cc/hc-h2-conn MODULE host port {:h2-frames? true
+                                             :server-cert "*"})
+          p (cc/cc-write c (cc/h2-msg<> :post "/form" nil "hello"))
+          {:keys [^XData body]} (deref p 5000 nil)]
+      (po/stop w)
+      (cc/cc-finz c)
+      (u/pause 500)
+      (and body (.equals "hello" (.strit body)))))
 
-  (ensure?? "ssl/h2"
-            (let [w (sv/tcp-server<>
-                      {:server-key "*"
-                       :passwd ""
-                       :hh2 (fn [ctx msg]
-                              (let [^Channel ch (nc/ch?? ctx)
-                                    rsp (nc/http-reply<+> 200
-                                                          (i/x->bytes "hello")
-                                                          (.alloc ch))]
-                                (.writeAndFlush ^ChannelHandlerContext ctx rsp)))})
-                  _ (po/start w {:port 8443 :host nc/lhost-name})
-                  po (cc/h2get (cl/netty-module<>)
-                               (str "https://" nc/lhost-name ":8443/form")
-                               {:server-cert "*"})
-                  rc (deref po 5000 nil)
-                  s (and rc
-                         (c/is? XData (:body rc))
-                         (.strit ^XData (:body rc)))]
-              (po/stop w)
-              (u/pause 1000)
-              (= "hello" s)))
-
-  (ensure?? "test-end" (= 1 1)))
+  (ensure?? "test-end" (== 1 1)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (ct/deftest

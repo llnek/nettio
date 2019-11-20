@@ -30,6 +30,7 @@ public abstract class APNHttpXHandler
   @Override
   protected void configurePipeline(ChannelHandlerContext ctx, String protocol)
   throws Exception {
+    System.out.println("APNHttpXHandler: configPipeline: protocol = " + protocol);
     if (ApplicationProtocolNames.HTTP_2.equals(protocol)) {
       cfgH2(ctx.pipeline());
     } else if (ApplicationProtocolNames.HTTP_1_1.equals(protocol)) {

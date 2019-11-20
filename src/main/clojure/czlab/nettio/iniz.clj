@@ -30,6 +30,7 @@
            [io.netty.handler.logging LogLevel]
            [io.netty.handler.codec.http2
             Http2SecurityUtil
+            Http2Settings
             Http2FrameLogger
             DefaultHttp2Connection
             InboundHttp2ToHttpAdapterBuilder
@@ -42,6 +43,7 @@
             DefaultHttpHeaders
             HttpObjectAggregator]
            [czlab.nettio
+            InboundH2ToH1
             ChannelInizer
             InboundHandler
             DuplexHandler
@@ -108,40 +110,55 @@
 
   "Initialize a web client SSL pipeline."
   [rcp server-cert
-   {:keys [protocol max-msg-size] :as args}]
+   {:keys [h2-frames?
+           protocol
+           max-mem-size
+           max-frame-size] :as args}]
 
   (letfn
     [(h2hdlr []
-       (let [co (DefaultHttp2Connection. false)]
-         (.build
-           (-> (HttpToHttp2ConnectionHandlerBuilder.)
-               (.connection co)
-               (.frameListener
-                 (->> (.build
-                        (-> (InboundHttp2ToHttpAdapterBuilder. co)
-                            (.propagateSettings true)
-                            (.maxContentLength (int max-msg-size))))
-                      (DelegatingDecompressorFrameListener. co)))
-               (.frameLogger (Http2FrameLogger. LogLevel/INFO))))))]
+       (let [co (DefaultHttp2Connection. false)
+             f (proxy [InboundH2ToH1]
+                      [co (int max-frame-size) false false]
+                 (onSettings [ctx ch msg]
+                   (deliver rcp ch)))]
+         (.build (-> (HttpToHttp2ConnectionHandlerBuilder.)
+                     (.connection co)
+                     ;(.server false) MUST NOT CALL THIS!
+                     (.frameListener f)
+                     (.frameLogger (Http2FrameLogger. LogLevel/INFO))))))]
     (proxy [ChannelInizer][]
       (onActive [ctx]
-        (deliver rcp (n/ch?? ctx)))
+        (if-not (.equals "2" protocol)
+          (deliver rcp (n/ch?? ctx))))
       (onError [_ e]
         (deliver rcp e))
       (onInitChannel [pp]
         (n/client-ssl?? pp server-cert args)
-        (if-not (.equals "2" protocol)
-          (do
-            (n/pp->last pp "1" (HttpClientCodec.))
-            (n/pp->last pp "2" h1/h1-simple<>)
-            (n/pp->last pp "3" (ChunkedWriteHandler.))
-            (n/pp->last pp n/user-cb client-hdlr))
-          (do
-            (n/pp->last pp
-                        (proxy [APNHttp2Handler][]
-                          (cfgH2 [pp]
-                            (n/pp->last pp "h2" (h2hdlr))
-                            (n/pp->last pp n/user-cb client-hdlr))))))))))
+        (cond
+          (and h2-frames?
+               (n/isH2? protocol))
+          (n/pp->last
+            pp "cli-h2f-neg"
+            (proxy [APNHttp2Handler][]
+              (cfgH2 [pp]
+                (n/pp->last
+                  pp "cli-h2f"
+                  (h2/h2-handler<> rcp max-mem-size))
+                (n/pp->last pp n/user-cb client-hdlr))))
+          (n/isH2? protocol)
+          (n/pp->last
+            pp "cli-h2x-neg"
+            (proxy [APNHttp2Handler][]
+              (cfgH2 [pp]
+                (n/pp->last pp "cli-h2x" (h2hdlr))
+                (n/pp->last pp "h1" h1/h1-simple<>)
+                (n/pp->last pp n/user-cb client-hdlr))))
+          :else
+          (do (n/pp->last pp "1" (HttpClientCodec.))
+              (n/pp->last pp "2" h1/h1-simple<>)
+              (n/pp->last pp "3" (ChunkedWriteHandler.))
+              (n/pp->last pp n/user-cb client-hdlr)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn webc-inizor<>
@@ -237,6 +254,7 @@
   [keyfile
    {:keys [passwd h2-frames?] :as args}]
 
+  (l/debug "server-ssl, h2? = %s" h2-frames?)
   (letfn
     [(ssl-negotiator []
        (proxy [APNHttpXHandler][]
@@ -249,7 +267,7 @@
     (proxy [ChannelInizer][]
       (onInitChannel [pp]
         (n/server-ssl?? pp keyfile passwd args)
-        (n/pp->last pp "neg" (ssl-negotiator))))))
+        (n/pp->last pp "svr-neg" (ssl-negotiator))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn web-inizor<>

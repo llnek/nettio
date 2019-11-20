@@ -39,6 +39,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defprotocol ClientConnect
   (cc-is-open? [_ ] "")
+  (cc-is-ssl? [_] "")
   (cc-write [_ msg]
             [_ msg args] "")
   (cc-channel [_] "")
@@ -111,6 +112,24 @@
   (res-header-set [_ name value] "Set a header"))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn h2-msg<>
+  [method uri headers body]
+  {:pre [(keyword? method)
+         (or (string? uri)
+             (c/is? URI uri))
+         (or (nil? headers)
+             (c/is? Headers headers))]}
+  (let [^URI uri' (if (c/is? URI uri) uri (URI. uri))
+        p (.getPath uri')
+        q (.getQuery uri')]
+    (c/object<> czlab.niou.core.Http2xMsg
+                :request-method method
+                :body (XData. body)
+                :headers (or headers (Headers.))
+                :uri p
+                :uri2 (if (c/hgl? q) (str p "?" q) p))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn h1-msg<>
   [method uri headers body]
   {:pre [(keyword? method)
@@ -118,14 +137,15 @@
              (c/is? URI uri))
          (or (nil? headers)
              (c/is? Headers headers))]}
-  (c/object<> czlab.niou.core.Http1xMsg
-              :request-method method
-              :body body
-              :headers (or headers (Headers.))
-              :uri2 (if-some [uri' (c/cast? URI uri)]
-                      (let [p (.getPath uri')
-                            q (.getQuery uri')]
-                        (if (c/hgl? q) (str p "?" q) p)) uri)))
+  (let [^URI uri' (if (c/is? URI uri) uri (URI. uri))
+        p (.getPath uri')
+        q (.getQuery uri')]
+    (c/object<> czlab.niou.core.Http1xMsg
+                :request-method method
+                :body (XData. body)
+                :headers (or headers (Headers.))
+                :uri p
+                :uri2 (if (c/hgl? q) (str p "?" q) p))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn h1-get<>

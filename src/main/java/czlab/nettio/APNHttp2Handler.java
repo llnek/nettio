@@ -24,12 +24,13 @@ public abstract class APNHttp2Handler
   extends ApplicationProtocolNegotiationHandler {
 
   public APNHttp2Handler() {
-    super("?");
+    super("???");
   }
 
   @Override
   protected void configurePipeline(ChannelHandlerContext ctx, String protocol)
   throws Exception {
+    System.out.println("APNHttp2Handler: configPipeline: protocol = " + protocol);
     if (ApplicationProtocolNames.HTTP_2.equals(protocol)) {
       cfgH2(ctx.pipeline());
     } else {

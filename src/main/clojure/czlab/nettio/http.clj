@@ -585,6 +585,7 @@
     (onHandlerAdded [ctx]
       (n/akey+ ctx n/cache-key (HashMap.)))
     (onRead [ctx ch msg]
+      (l/debug "onRead === msg = %s" msg)
       (if (n/h1msg? msg)
         (on-read ctx msg) (n/fire-msg ctx msg)))))
 

@@ -168,6 +168,11 @@
   [ctx] `(czlab.nettio.core/akey?? ~ctx czlab.nettio.core/cache-key))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defmacro isH2?
+  "Is protocol http2."
+  [protocol] `(.equals "2" ~protocol))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defmacro ihprd?
   "Isa InterfaceHttpPostRequestDecoder?"
   [impl]
@@ -331,6 +336,16 @@
        (.writeAndFlush ~(with-meta c {:tag 'io.netty.channel.ChannelOutboundInvoker}) m#))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defmacro hv-int
+  [h k] `(czlab.basal.core/try!
+           (Integer/parseInt
+             (.getFirst ~(with-meta h {:tag 'Headers}) ~k))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defmacro hv->int
+  [h k dv] `(int (or (hv-int ~h ~k) ~dv)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defmacro hreq?
   "Isa HttpRequest?"
   [m] `(instance? ~'HttpRequest ~m))
@@ -422,14 +437,14 @@
 (defn- cfg-ctx-bldr
   ^SslContextBuilder
   [^SslContextBuilder b h2Only?]
-  (let [^List
-        ps (u/x->java (if h2Only?
-                        [ApplicationProtocolNames/HTTP_2]
-                        [ApplicationProtocolNames/HTTP_2
-                         ApplicationProtocolNames/HTTP_1_1]))]
+  (let [^Iterable
+        ps (if h2Only?
+             [ApplicationProtocolNames/HTTP_2]
+             [ApplicationProtocolNames/HTTP_2
+              ApplicationProtocolNames/HTTP_1_1])]
     (.sslProvider b
                   ^SslProvider
-                  (if (OpenSsl/isAlpnSupported)
+                  (if (and false (OpenSsl/isAlpnSupported))
                     SslProvider/OPENSSL SslProvider/JDK))
     (.ciphers b
               Http2SecurityUtil/CIPHERS
@@ -499,7 +514,7 @@
   [^ChannelPipeline pp
    server-cert
    {:keys [scheme protocol] :as args}]
-  (l/info "server-cert = %s." server-cert)
+  (l/info "protocol = %s, server-cert = %s." protocol server-cert)
   (letfn
     [(ccerts [in]
        (let [[d? inp] (i/input-stream?? in)]

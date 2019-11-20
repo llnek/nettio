@@ -17,6 +17,7 @@ import io.netty.handler.codec.http2.Http2FrameLogger;
 import io.netty.handler.codec.http2.Http2ConnectionHandler;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
+import io.netty.channel.ChannelPromise;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.http.FullHttpRequest;
 import io.netty.handler.codec.http.HttpHeaderNames;
@@ -40,11 +41,22 @@ import static io.netty.handler.codec.http.HttpResponseStatus.OK;
  * @author Kenneth Leung
  *
  */
-public class H2Handler extends Http2ConnectionHandler implements Http2FrameListener {
+public abstract class H2Handler extends Http2ConnectionHandler implements Http2FrameListener {
 
   public H2Handler(Http2ConnectionDecoder decoder, Http2ConnectionEncoder encoder,
                    Http2Settings initialSettings) {
     super(decoder, encoder, initialSettings);
+  }
+
+  public void onError(ChannelHandlerContext ctx, boolean outbound, Throwable cause) {
+    cause.printStackTrace();
+    super.onError(ctx, outbound,cause);
+  }
+
+  public void parWrite(ChannelHandlerContext ctx,
+      Object msg, ChannelPromise promise) throws java.lang.Exception {
+    System.out.println("dude : inside parWrite...." + ctx.channel());
+    super.write(ctx, msg, promise);
   }
 
   @Override
@@ -54,6 +66,7 @@ public class H2Handler extends Http2ConnectionHandler implements Http2FrameListe
 
   @Override
   public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
+    cause.printStackTrace();
     super.exceptionCaught(ctx, cause);
     ctx.close();
   }
@@ -61,29 +74,26 @@ public class H2Handler extends Http2ConnectionHandler implements Http2FrameListe
   @Override
   public int onDataRead(ChannelHandlerContext ctx, int streamId, ByteBuf data, int padding, boolean endOfStream) {
     int processed = data.readableBytes() + padding;
-    if (endOfStream) {
-      //sendResponse(ctx, streamId, data.retain());
-    }
+    onData(ctx, streamId, data, padding, endOfStream);
     return processed;
   }
+
+  protected abstract void onData(ChannelHandlerContext ctx, int streamId,
+      ByteBuf data, int padding, boolean endOfStream);
+
+  protected abstract void onHeaders(ChannelHandlerContext ctx, int streamId,
+                            Http2Headers headers, int padding, boolean endOfStream);
 
   @Override
   public void onHeadersRead(ChannelHandlerContext ctx, int streamId,
                             Http2Headers headers, int padding, boolean endOfStream) {
-    if (endOfStream) {
-      /*
-      ByteBuf content = ctx.alloc().buffer();
-      content.writeBytes(RESPONSE_BYTES.duplicate());
-      ByteBufUtil.writeAscii(content, " - via HTTP/2");
-      sendResponse(ctx, streamId, content);
-      */
-    }
+    onHeaders(ctx, streamId, headers, padding, endOfStream);
   }
 
   @Override
   public void onHeadersRead(ChannelHandlerContext ctx, int streamId, Http2Headers headers, int streamDependency,
                             short weight, boolean exclusive, int padding, boolean endOfStream) {
-    onHeadersRead(ctx, streamId, headers, padding, endOfStream);
+    onHeaders(ctx, streamId, headers, padding, endOfStream);
   }
 
   @Override
