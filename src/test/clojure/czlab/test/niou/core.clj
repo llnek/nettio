@@ -13,22 +13,23 @@
   czlab.test.niou.core
 
   (:require [czlab.test.niou.mock :as m]
-            [czlab.niou
-             [webss :as ws]
-             [routes :as r]
-             [util :as ct]
-             [mime :as mi]
-             [core :as cc]
-             [upload :as cu]]
+            [czlab.niou.webss :as ws]
+            [czlab.niou.routes :as r]
+            [czlab.niou.util :as ct]
+            [czlab.niou.mime :as mi]
+            [czlab.niou.core :as cc]
+            [czlab.niou.upload :as cu]
             [clojure.string :as cs]
             [clojure.test :as t]
-            [czlab.basal
-             [io :as i]
-             [core :refer [ensure?? ensure-thrown??] :as c]])
+            [czlab.basal.io :as i]
+            [czlab.basal.core
+             :as c
+             :refer [ensure?? ensure-thrown??]])
 
   (:import [java.net HttpCookie URL URI]
            [jregex Matcher]
            [czlab.basal XData]
+           [czlab.niou Headers]
            [org.apache.commons.fileupload FileItem]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -78,46 +79,36 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (eval '(mi/setup-cache (i/res->url "czlab/niou/etc/mime.properties")))
 
+
+(c/def- ^Headers HEADERS (doto (Headers.)
+                           (.add "he" "x")
+                           (.set "ha" "y")
+                           (.add "yo" "a")
+                           (.add "yo" "b")))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (c/deftest test-core
 
   (ensure?? "gist-header?"
-            (and (cc/gist-header? {:headers {"yo" []}} "Yo")
-                 (not (cc/gist-header? {:headers {"yo" []}} "o"))))
+            (and (.containsKey HEADERS "Yo")
+                 (not (.containsKey HEADERS "o"))))
 
   (ensure?? "gist-header"
-            (= 1 (cc/gist-header {:headers {"yo" [1 2 3]}} "Yo")))
+            (.equals "a" (.getFirst HEADERS "yo")))
 
   (ensure?? "gist-header-keys"
-            (= ["yo" "he" "ya"]
-               (cc/gist-header-keys {:headers {"yo" []
-                                               "he" []
-                                               "ya" []}})))
+            (let [s (into #{} (.keySet HEADERS))]
+              (and (contains? s "yo")
+                   (contains? s "he")
+                   (contains? s "ha"))))
 
   (ensure?? "gist-header-vals"
-            (= [1 2 3] (cc/gist-header-vals {:headers {"yo" [1 2 3]}} "Yo")))
-
-
-  (ensure?? "gist-param?"
-            (and (cc/gist-param? {:parameters {"Yo" []}} "Yo")
-                 (not (cc/gist-param? {:parameters {"yo" []}} "o"))))
-
-  (ensure?? "gist-param"
-            (= 1 (cc/gist-param {:parameters {"Yo" [1 2 3]}} "Yo")))
-
-  (ensure?? "gist-param-keys"
-            (= ["yo" "He" "ya"]
-               (cc/gist-param-keys {:parameters {"yo" []
-                                                 "He" []
-                                                 "ya" []}})))
-
-  (ensure?? "gist-param-vals"
-            (= [1 2 3] (cc/gist-param-vals {:parameters {"Yo" [1 2 3]}} "Yo")))
+            (= ["a" "b"] (vec (.get HEADERS "yo"))))
 
 
   (ensure?? "init-test" (> (count ROUTES) 0))
 
-  (ensure?? "has-routes?" (r/rc-has-routes? RC))
+  (ensure?? "has-routes?" (r/has-routes? RC))
 
   (ensure?? "parse-path"
             (let [[p g]
@@ -125,59 +116,50 @@
               (and (= g [[1 "a"] [3 "b"] [4 "d"]])
                    (= p "/({a}[^/]+)/([^/]+)/({b}[^/]+)/c/({d}[^/]+)"))))
 
-  (ensure?? "rc-crack-route"
-            (let [{:keys [matcher route-info] :as rc}
-                  (r/rc-crack-route RC
-                                    {:method "post"
-                                     :uri "/hello/world"})
-                  {:keys [groups places]}
-                  (r/ri-collect-info route-info matcher)]
-              (and (= "hello" (c/_1 groups))
-                   (= "world" (c/_E groups))
+  (ensure?? "crack-route"
+            (let [{:keys [groups places]}
+                  (r/crack-route RC
+                                 {:uri "/hello/world"
+                                  :request-method :post})]
+              (and (.equals "hello" (c/_1 groups))
+                   (.equals "world" (c/_E groups))
                    (empty? places))))
 
-  (ensure?? "rc-crack-route"
-            (let [{:keys [matcher route-info]}
-                  (r/rc-crack-route RC
-                                    {:method "get"
-                                     :uri "/favicon.hello"})
-                  {:keys [groups places]}
-                  (r/ri-collect-info route-info matcher)]
-              (and (= "favicon.hello" (c/_1 groups))
-                   (= 1 (count groups))
+  (ensure?? "crack-route"
+            (let [{:keys [groups places]}
+                  (r/crack-route RC
+                                 {:uri "/favicon.hello"
+                                  :request-method :get})]
+              (and (.equals "favicon.hello" (c/_1 groups))
+                   (== 1 (count groups))
                    (empty? places))))
 
-  (ensure?? "rc-crack-route"
-            (let [{:keys [matcher route-info]}
-                  (r/rc-crack-route RC
-                                    {:method "get"
-                                     :uri "/A/zzz/B/c/D"})
-                  {:keys [groups places] :as ccc}
-                  (r/ri-collect-info route-info matcher)]
-              (and (= "A" (nth groups 0))
-                   (= "zzz" (nth groups 1))
-                   (= "B" (nth groups 2))
-                   (= "D" (nth groups 3))
-                   (= "A" (get places "a"))
-                   (= "B" (get places "b"))
-                   (= "D" (get places "d"))
-                   (= 3 (count places)))))
+  (ensure?? "crack-route"
+            (let [{:keys [groups places]}
+                  (r/crack-route RC
+                                 {:uri "/A/zzz/B/c/D"
+                                  :request-method :get})]
+              (and (.equals "A" (nth groups 0))
+                   (.equals "zzz" (nth groups 1))
+                   (.equals "B" (nth groups 2))
+                   (.equals "D" (nth groups 3))
+                   (.equals "A" (get places "a"))
+                   (.equals "B" (get places "b"))
+                   (.equals "D" (get places "d"))
+                   (== 3 (count places)))))
 
-  (ensure?? "rc-crack-route"
-            (let [{:keys [matcher route-info]}
-                  (r/rc-crack-route RC
-                                    {:method "get" :uri "/4"})
-                  {:keys [groups places]}
-                  (r/ri-collect-info route-info matcher)]
+  (ensure?? "crack-route"
+            (let [{:keys [groups places]}
+                  (r/crack-route RC
+                                 {:uri "/4"
+                                  :request-method :get})]
               (and (empty? groups)
                    (empty? places))))
 
-  (ensure?? "rc-crack-route"
-            (let [{:keys [status? matcher route-info]}
-                  (r/rc-crack-route RC
-                                    {:method "get"
-                                     :uri "/1/1/1/1/1/1/14"})]
-              (and (false? status?) (nil? matcher) (nil? route-info))))
+  (ensure?? "crack-route"
+            (nil? (r/crack-route RC
+                                 {:request-method :get
+                                  :uri "/1/1/1/1/1/1/14"})))
 
   (ensure?? "parse-form-post"
             (let [b (XData. cu/TEST-FORM-MULTIPART)
@@ -217,9 +199,9 @@
                   res (m/mock-http-result req)
                   res (ws/downstream res)
                   cs (:cookies res)
-                  c (get cs ws/*session-cookie*)
+                  c (get cs ws/session-cookie)
                   v (.getValue ^HttpCookie c)]
-              (= 6 (count (.split v ":")))))
+              (= 6 (count (.split v "=")))))
 
   (ensure?? "upstream"
             (let [req (m/mock-http-request pkeybytes true)

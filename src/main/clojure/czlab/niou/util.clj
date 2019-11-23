@@ -12,11 +12,10 @@
 
   czlab.niou.util
 
-  (:require [czlab.basal
-             [util :as u]
-             [log :as l]
-             [io :as i]
-             [core :as c]])
+  (:require [czlab.basal.util :as u]
+            [czlab.basal.log :as l]
+            [czlab.basal.io :as i]
+            [czlab.basal.core :as c])
 
   (:import [java.util Base64 Base64$Decoder]
            [org.apache.commons.fileupload FileItem]))
@@ -44,13 +43,15 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn parse-basic-auth
+
   "Parse line looking for
   basic authentication info."
   [line]
+
   (let [[a b :as s]
         (c/split (c/strim line) "\\s+")]
     (when (and (c/two? s)
-               (= basic a) (c/hgl? b))
+               (.equals basic a) (c/hgl? b))
       (let [[x y :as rc]
             (-> (Base64/getDecoder)
                 (.decode (str b))
@@ -65,16 +66,18 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn generate-nonce
-  "" ^String [] (u/uid<>))
+  ^String [] (u/uid<>))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn generate-csrf
-  "" ^String [] (u/uid<>))
+  ^String [] (u/uid<>))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn parse-ie
+
   "Looking for MSIE in UA."
   [line]
+
   (let
     [p1 #".*(MSIE\s*(\S+)\s*).*"
      m1 (re-matches p1 line)
@@ -97,8 +100,10 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn parse-chrome
+
   "Looking for chrome in UA."
   [line]
+
   (let [p1 #".*(Chrome/(\S+)).*"
         m1 (re-matches p1 line)
         bv (if (and (not-empty m1)
@@ -111,7 +116,9 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn parse-kindle
+
   "Looking for Kindle in UA." [line]
+
   (let [p1 #".*(Silk/(\S+)).*"
         m1 (re-matches p1 line)
         bv (if (and (not-empty m1)
@@ -125,6 +132,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn parse-android
+
   "Looking for Android in UA." [line]
 
   (let [p1 #".*(Android\s*(\S+)\s*).*"
@@ -140,6 +148,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn parse-ffox
+
   "Looking for Firefox in UA." [line]
 
   (let [p1 #".*(Firefox/(\S+)\s*).*"
@@ -154,6 +163,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn parse-safari
+
   "Looking for Safari in UA." [line]
 
   (let [p1 #".*(Version/(\S+)\s*).*"
@@ -181,7 +191,9 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn parse-user-agent-line
-  "Retuns browser/device attributes." [agentLine]
+
+  "Retuns browser/device attributes."
+  [agentLine]
 
   (let [line (c/strim agentLine)]
     (cond

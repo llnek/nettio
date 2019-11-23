@@ -14,11 +14,10 @@
 
   (:require [clojure.java.io :as io]
             [clojure.string :as cs]
-            [czlab.basal
-             [io :as i]
-             [log :as l]
-             [core :as c]
-             [util :as u]])
+            [czlab.basal.io :as i]
+            [czlab.basal.log :as l]
+            [czlab.basal.core :as c]
+            [czlab.basal.util :as u])
 
   (:import [java.io
             File
@@ -38,11 +37,14 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defprotocol ContentTypeChecker
-  ""
   (is-compressed? [_] "")
   (is-signed? [_] "")
   (is-mdn? [_] "")
   (is-encrypted? [_] ""))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(c/defmacro- is-pkcs7-mime?
+  [s] `(c/embeds? ~s "application/x-pkcs7-mime"))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (def ^String iso-8859-1 "iso-8859-1")
@@ -56,17 +58,17 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn mime-cache<>
-  "Cache of common MIME/types." ^APersistentMap [] @_mime-cache)
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(c/defmacro- is-pkcs7-mime?
-  [s] `(c/embeds? ~s "application/x-pkcs7-mime"))
+  "Common MIME/types." [] @_mime-cache)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn charset??
-  "charset from content-type."
+
+  "Charset from content-type."
   {:tag String}
+
   ([cType] (charset?? cType nil))
+
   ([cType dft]
    (let [p (doto (ParameterParser.)
              (.setLowerCaseNames true))
@@ -79,10 +81,12 @@
   (is-signed? [me]
     (let [ct (c/lcase me)]
       (or (c/embeds? ct "multipart/signed")
-          (and (is-pkcs7-mime? ct) (c/embeds? ct "signed-data")))))
+          (and (is-pkcs7-mime? ct)
+               (c/embeds? ct "signed-data")))))
   (is-encrypted? [me]
     (let [ct (c/lcase me)]
-      (and (is-pkcs7-mime? ct) (c/embeds? ct "enveloped-data"))))
+      (and (is-pkcs7-mime? ct)
+           (c/embeds? ct "enveloped-data"))))
   (is-compressed? [me]
     (let [ct (c/lcase me)]
       (and (c/embeds? ct "compressed-data")
@@ -94,9 +98,12 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn guess-mime-type
+
   "Guess the MIME/type of file."
   {:tag String}
+
   ([file] (guess-mime-type file nil))
+
   ([file dft]
    (let [mc (.matcher _ext-regex
                       (c/lcase (i/fname file)))
@@ -106,10 +113,14 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn guess-content-type
+
   "Guess the content-type of file."
   {:tag String}
+
   ([file enc] (guess-content-type file enc nil))
+
   ([file] (guess-content-type file "utf-8" nil))
+
   ([file enc dft]
    (let [enc (c/stror enc "utf-8")
          ct (c/stror* (guess-mime-type file) dft _ctype-dft)]
@@ -136,22 +147,26 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn setup-cache
+
   "Load file mime-types as a map."
   [file]
+
   (or (try (c/do#true (setup file))
            (catch Throwable _ false))
       (setup (i/res->url "czlab/niou/etc/mime.properties"))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn normalize-email
+
   "Check email address."
   ^String [email]
+
   (let [email (str email)]
-    (cond (empty? email)
+    (cond (c/nichts? email)
           email
           (or (nil? (cs/index-of email \@))
-              (not= (cs/last-index-of email \@)
-                    (cs/index-of email \@)))
+              (c/!== (cs/index-of email \@)
+                     (cs/last-index-of email \@)))
           (u/throw-BadData "Bad email address %s." email)
           :else
           (let [ss (cs/split email #"@")]

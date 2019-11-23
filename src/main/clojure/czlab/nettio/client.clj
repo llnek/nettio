@@ -171,7 +171,7 @@
                 {:channel rc :host host :port port'}
                 (finally (l/debug "client connected: %s@%s." host port'))))))
      (cconn<> [bs {:keys [^Channel channel host port ssl?]}]
-       (reify cc/ClientConnect
+       (reify cc/ClientConnection
          (cc-remote-port [_] port)
          (cc-remote-host [_] host)
          (cc-module [_] module)

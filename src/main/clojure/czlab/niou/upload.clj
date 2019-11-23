@@ -13,22 +13,23 @@
   czlab.niou.upload
 
   (:require [clojure.java.io :as io]
-            [czlab.basal
-             [util :as u]
-             [log :as l]
-             [core :as c]
-             [io :as i]]
+            [czlab.basal.util :as u]
+            [czlab.basal.log :as l]
+            [czlab.basal.io :as i]
+            [czlab.basal.core :as c]
             [czlab.niou.mime :as mm])
 
   (:import [org.apache.commons.io.output DeferredFileOutputStream]
            [org.apache.commons.fileupload.util Streams]
            [org.apache.commons.fileupload
             FileUploadException
+            FileItemHeaders
             FileItemStream
             FileItem
             FileUpload
             UploadContext
             FileItemIterator]
+           [czlab.niou Headers]
            [czlab.basal XStream XData]
            [java.io File FileInputStream]))
 
@@ -65,7 +66,6 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defprotocol ULFormItems
-  ""
   (get-all-fields [_] "")
   (get-all-files [_] "")
   (get-all-items [_] "")
@@ -76,14 +76,18 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defprotocol ULFileItem
-  ""
   (get-field-file [_] "")
   (get-field-name-lc [_] ""))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn ul-items-finz
-  "" [ul]
-  (doseq [n (get-all-items ul)] (.delete ^FileItem n)) (clear-items ul))
+
+  "Clean up all items."
+  [ul]
+
+  (doseq [n (get-all-items ul)]
+    (.delete ^FileItem n))
+  (clear-items ul))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defrecord ULFormItemsObj []
@@ -116,7 +120,9 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn form-items<>
-  ""
+
+  "Create a new URLFormItemsObj."
+
   ([] (form-items<> nil))
   ([items]
    (c/object<> ULFormItemsObj :items (vec items))))
@@ -149,27 +155,45 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn file-item<>
+
   "Create a wrapper for this file-item."
   ^FileItem [isField? ctype headers field fname data]
+
   (assert (or (nil? data)
               (c/is? XData data)) "Bad file-item.")
   (c/object<> ULFileItemObj
               :is-field? isField?
               :headers headers
-              :body data
+              :body (or (c/cast? XData data)
+                        (XData. data))
               :ctype ctype
               :field field
               :fname fname
               :enc (mm/charset?? ctype)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn- hconv
+  [^FileItemHeaders hds]
+
+  (let [h (Headers.)
+        it (some-> hds .getHeaderNames)]
+    (while (and it (.hasNext it))
+      (let [n (.next it)
+            vs (.getHeaders hds n)]
+        (while (.hasNext vs)
+          (.add h n (.next vs))))) h))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- eval-field
+
+  "Process a file-item."
   ^FileItem [^FileItemStream item]
+
   (let [res (XData.)
         ffld? (.isFormField item)]
     (file-item<> ffld?
                  (.getContentType item)
-                 (.getHeaders item)
+                 (hconv (.getHeaders item))
                  (.getFieldName item)
                  (.getName item)
                  (if ffld?
@@ -186,8 +210,10 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- process-form
+
   ^FileItemIterator
   [gist body]
+
   (->> (reify UploadContext
          (getContentLength [_] (:clen gist))
          (getContentType [_] (:ctype gist))
@@ -202,9 +228,11 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn parse-form-post
+
   "Parses a http form post, returning the list of items in
   the post.  An item can be a simple form-field or a file-upload."
   [gist body]
+
   (let [iter (->> (if-not (c/is? XData body)
                     (XData. body false) body)
                   (process-form gist))]

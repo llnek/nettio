@@ -237,21 +237,12 @@
                :cookies (n/crack-cookies req)
                :local-host (some-> laddr .getHostName)
                :local-port (some-> laddr .getPort)
-               :local-addr (some-> laddr .getAddress .getHostAddress)}
-        {:as ro
-         :keys [matcher status?
-                route-info redirect]}
-        (n/match-one-route?? ctx out)
-        ri (if (and status?
-                    matcher
-                    route-info)
-             (cr/ri-collect-info route-info matcher))]
+               :local-addr (some-> laddr .getAddress .getHostAddress)}]
     (c/object<> czlab.niou.core.Http1xMsg
                 (assoc out
-                       :route (merge (dissoc ro
-                                             :matcher
-                                             :route-info)
-                                     {:info route-info} ri)))))
+                       :route
+                       (n/match-one-route?? ctx out)))))
+
   HttpResponse
   (netty->ring [res ctx body]
     (let [s (.status res)]

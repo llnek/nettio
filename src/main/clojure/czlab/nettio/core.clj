@@ -757,10 +757,10 @@
     (l/debug "match route for path: %s." u2)
     (or (if (and c
                  (c/hgl? u2)
-                 (cr/rc-has-routes? c))
-          (cr/rc-crack-route c
-                             {:uri u
-                              :request-method m})) {:status? true})))
+                 (cr/has-routes? c))
+          (cr/crack-route c
+                          {:uri u
+                           :request-method m})) :passthru)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn cpipe??
