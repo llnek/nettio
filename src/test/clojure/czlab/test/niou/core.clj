@@ -75,6 +75,10 @@
     :groups {:a "[A]+" :b "[B]+" :d "[D]+"}
     :verb :get}
 
+   {:name :g1
+    :pattern "/a/{b}/c/{d}/e/{f}"
+    :groups {:b "[a-z]+" :d "[0-9]+" :f "[A-Z]+"}}
+
    {:pattern "/4"}])
 
 (def ^:private RC (r/route-cracker<> ROUTES))
@@ -168,6 +172,26 @@
             (nil? (r/crack-route RC
                                  {:request-method :get
                                   :uri "/1/1/1/1/1/1/14"})))
+
+  ;:pattern "/a/{b}/c/{d}/e/{f}"
+
+  (ensure?? "gen-route/nil"
+            (nil? (r/gen-route RC :ggg {})))
+
+  (ensure-thrown?? "gen-route/params"
+                   :any
+                   (r/gen-route RC :g1
+                                {:d "911" :f "XYZ"}))
+
+  (ensure-thrown?? "gen-route/malform"
+                   :any
+                   (r/gen-route RC :g1
+                                {:b "xyz" :d "XXX" :f "XYZ"}))
+
+  (ensure?? "gen-route/ok"
+            (.equals "/a/xyz/c/911/e/XYZ"
+                     (first (r/gen-route RC :g1
+                                         {:b "xyz" :d "911" :f "XYZ"}))))
 
   (ensure?? "parse-form-post"
             (let [b (XData. cu/TEST-FORM-MULTIPART)

@@ -26,8 +26,11 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;(set! *warn-on-reflection* true)
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(c/def- place-holder #"^\{([\*@a-zA-Z0-9_\+\-\.]+)\}$")
+
 (c/def- a-route-spec {:name :some-name
-                      :pattern "/foo/yoo/wee/:id/"
+                      :pattern "/foo/yoo/wee/{id}/"
                       :verb :get ; or :verb #{:get :post}
                       :groups {:x "" :y ""}
                       :handler nil
@@ -44,6 +47,7 @@
 (defprotocol RouteCracker
   (is-routable? [_ msgInfo] "")
   (has-routes? [_] "")
+  (gen-route [_ id params] "")
   (crack-route [_ msgInfo] ""))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -76,20 +80,50 @@
                                        k
                                        (.group m (int v))))) groups))))))))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn gen-path
+
+  "Generate a route uri."
+  [route params]
+
+  (let [{:keys [name
+                regex
+                pattern]} route]
+    (c/sreduce<>
+      #(if (.equals "/" %2)
+         (c/sbf+ %1 %2)
+         (c/sbf+ %1
+                 (if-some [[_ k] (re-matches place-holder %2)]
+                   (let [gk (keyword k)
+                         gv (get params gk)
+                         ok? (contains? params gk)]
+                     (u/assert-BadArg
+                       (and ok? gv)
+                       "Bad parameter %s for route %s." k name)
+                     gv)
+                   %2)))
+       (c/split-str (c/strim pattern) "/" true))))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defrecord RouteCrackerObj [routes]
   RouteCracker
-  (is-routable? [me gist]
-    (some? (crack-route me gist)))
-  (has-routes? [me]
+  (is-routable? [_ gist]
+    (some? (crack-route _ gist)))
+  (has-routes? [_]
     (boolean (not-empty routes)))
-  (crack-route [me gist]
+  (gen-route [_ id params]
+    (if-some [r (get routes id)]
+      (let [s (gen-path r params)
+            v (:verb r)
+            m (.matcher ^Pattern
+                        (:regex r) s)]
+        (u/assert-BadArg (.matches m)
+                         "Cannot gen path for route %s." id)
+        (conj (into '() v) s))))
+  (crack-route [_ gist]
     (let [{:keys [uri request-method]} gist]
       (some #(let [[_ v] %]
                (match-path v request-method uri)) routes))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(c/def- place-holder #"^\{([\*@a-zA-Z0-9_\+\-\.]+)\}$")
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn regex-path
@@ -112,26 +146,6 @@
                       (str "(" (c/stror gv "[^/]+") ")"))
                     %2)))
        (c/split-str pattern "/" true)) @parts @params]))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn Xparse-path
-
-  "Parse a route uri."
-  [pathStr]
-
-  (with-local-vars [phs [] cg 0]
-    [(c/sreduce<>
-       #(c/sbf+ %1
-                (if (cs/starts-with? %2 ":")
-                  (let [gn (subs %2 1)]
-                    (var-set cg (+ 1 @cg))
-                    (var-set phs
-                             (conj @phs [@cg gn]))
-                    (str "({" gn "}[^/]+)"))
-                  (let [c (c/count-char %2 \()]
-                    (if (pos? c)
-                      (var-set cg (+ @cg c))) %2)))
-       (c/split-str pathStr "/" true)) @phs]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- mk-route
