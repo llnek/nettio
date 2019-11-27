@@ -7,10 +7,10 @@
 ;; You must not remove this notice, or any other, from this software.
 
 (ns
-  ^{:doc "MIME helpers."
-    :author "Kenneth Leung"}
 
   czlab.niou.mime
+
+  "MIME helpers."
 
   (:require [clojure.java.io :as io]
             [clojure.string :as cs]

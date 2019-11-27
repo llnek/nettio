@@ -7,8 +7,6 @@
 ;; You must not remove this notice, or any other, from this software.
 
 (ns
-  ^{:doc ""
-    :author "Kenneth Leung"}
 
   czlab.niou.core
 
@@ -16,14 +14,13 @@
             [clojure.string :as cs]
             [czlab.basal.log :as l]
             [czlab.basal.io :as i]
+            [czlab.basal.util :as u]
             [czlab.basal.core :as c])
 
-  (:import [czlab.niou Headers]
-           [java.util
-            Map]
-           [java.net
-            URI]
-           [czlab.basal XData]))
+  (:import [java.util Map]
+           [java.net URL URI]
+           [czlab.basal XData]
+           [czlab.niou Headers]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;(set! *warn-on-reflection* true)
@@ -42,24 +39,24 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defprotocol ClientConnection
-  (cc-is-open? [_ ] "")
-  (cc-is-ssl? [_] "")
-  (cc-write [_ msg]
-            [_ msg args] "")
-  (cc-channel [_] "")
-  (cc-module [_] "")
-  (cc-finz [_] "")
-  (cc-remote-host [_] "")
-  (cc-remote-port [_] ""))
+  (is-open? [_ ] "")
+  (is-ssl? [_] "")
+  (write-msg [_ msg]
+             [_ msg args] "")
+  (channel [_] "")
+  (module [_] "")
+  (finz! [_] "")
+  (remote-host [_] "")
+  (remote-port [_] ""))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defprotocol HttpClientModule
-  (hc-h1-conn [_ host port args] "")
-  (hc-h2-conn [_ host port args] "")
-  (hc-ws-conn [_ host port args] "")
-  (hc-ws-send [_ conn msg] [_ conn msg args] "")
-  (hc-h2-send [_ conn msg] [_ conn msg args] "")
-  (hc-h1-send [_ conn msg] [_ conn msg args] ""))
+  (h1-conn [_ host port args] "Connect to server http 1.x style.")
+  (h2-conn [_ host port args] "Connect to server http 2 style.")
+  (ws-conn [_ host port args] "Connect to server websocket style.")
+  (ws-send [_ conn msg] [_ conn msg args] "Send a websocket message.")
+  (h2-send [_ conn msg] [_ conn msg args] "Send a http 2 message.")
+  (h1-send [_ conn msg] [_ conn msg args] "Send a http 1.x message."))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defprotocol HttpMsgGist
@@ -67,11 +64,6 @@
   (msg-header [_ h] "First value for this header")
   (msg-header-keys [_] "List header names")
   (msg-header-vals [_ h] "List values for this header"))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defprotocol WsockMsgReplyer
-  (ws-send-string [_ s] "Send websock text")
-  (ws-send-bytes [_ b] "Send websock binary"))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defprotocol HttpResultMsgReplyer
@@ -92,6 +84,37 @@
   (res-header-set [_ name value] "Set a header"))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn encoded-paths
+  ""
+  [u]
+  (cond
+    (c/is? URL u)
+    (encoded-paths (.toURI ^URL u))
+    (c/is? URI u)
+    (let [p (.getRawPath ^URI u)
+          q (.getRawQuery ^URI u)]
+      [p (if (c/hgl? q)
+           (str p "?" q) p)])))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn decoded-paths
+  ""
+  [u]
+  (cond
+    (c/is? URL u)
+    (decoded-paths (.toURI ^URL u))
+    (c/is? URI u)
+    (let [p (.getPath ^URI u)
+          q (.getQuery ^URI u)]
+      [p (if (c/hgl? q)
+           (str p "?" q) p)])))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn encode-uri
+  ^String [uri]
+  (cs/join "/" (map #(u/url-encode %) (cs/split uri #"/"))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn h2-msg<>
 
   "Create a http-2 data-map."
@@ -107,21 +130,19 @@
 
   ([method uri headers body]
    {:pre [(keyword? method)
-         (or (string? uri)
-             (c/is? URI uri))
-         (or (nil? headers)
-             (c/is? Headers headers))]}
-
-  (let [[uri uri2]
-        (-> (or (c/cast? URI uri)
-                (URI. uri))
-            (i/encoded-paths))]
-    (c/object<> czlab.niou.core.Http2xMsg
-                :request-method method
-                :body (XData. body)
-                :uri uri
-                :uri2 uri2
-                :headers (or headers (Headers.))))))
+          (or (string? uri)
+              (c/is? URI uri))
+          (or (nil? headers)
+              (c/is? Headers headers))]}
+   (let [uriObj (or (c/cast? URI uri)
+                    (URI. uri))]
+     (c/object<> czlab.niou.core.Http2xMsg
+                 :request-method method
+                 :body (XData. body)
+                 :query-string (.getRawQuery uriObj)
+                 :uri (.getRawPath uriObj)
+                 :uri2 uriObj
+                 :headers (or headers (Headers.))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn h1-msg<>
@@ -133,16 +154,14 @@
              (c/is? URI uri))
          (or (nil? headers)
              (c/is? Headers headers))]}
-
-  (let [[uri uri2]
-        (-> (or (c/cast? URI uri)
-                (URI. uri))
-            (i/encoded-paths))]
+  (let [uriObj (or (c/cast? URI uri)
+                   (URI. uri))]
     (c/object<> czlab.niou.core.Http1xMsg
                 :request-method method
                 :body (XData. body)
-                :uri uri
-                :uri2 uri2
+                :query-string (.getRawQuery uriObj)
+                :uri (.getRawPath uriObj)
+                :uri2 uriObj
                 :headers (or headers (Headers.)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -169,7 +188,7 @@
   {:pre [(or (nil? m)(map? m))]}
 
   (c/object<> czlab.niou.core.WsockMsg
-              (assoc m :route {:status? true})))
+              (assoc m :route :pass-thru)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn ws-bytes<>

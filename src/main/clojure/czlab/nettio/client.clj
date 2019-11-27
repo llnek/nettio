@@ -172,19 +172,19 @@
                 (finally (l/debug "client connected: %s@%s." host port'))))))
      (cconn<> [bs {:keys [^Channel channel host port ssl?]}]
        (reify cc/ClientConnection
-         (cc-remote-port [_] port)
-         (cc-remote-host [_] host)
-         (cc-module [_] module)
-         (cc-is-ssl? [_] ssl?)
-         (cc-is-open? [_] (.isOpen channel))
-         (cc-channel [_] channel)
-         (cc-finz [_] (n/nobs! bs channel))
-         (cc-write [_ msg] (cc/cc-write _ msg nil))
-         (cc-write [_ msg args]
+         (remote-port [_] port)
+         (remote-host [_] host)
+         (module [_] module)
+         (is-ssl? [_] ssl?)
+         (is-open? [_] (.isOpen channel))
+         (channel [_] channel)
+         (finz! [_] (n/nobs! bs channel))
+         (write-msg [_ msg] (cc/write-msg _ msg nil))
+         (write-msg [_ msg args]
            (c/condp?? instance? hint
-             H2Inizor (cc/hc-h2-send module _ msg args)
-             H1Inizor (cc/hc-h1-send module _ msg args)
-             WSInizor (cc/hc-ws-send module _ msg args)))))
+             H2Inizor (cc/h2-send module _ msg args)
+             H1Inizor (cc/h1-send module _ msg args)
+             WSInizor (cc/ws-send module _ msg args)))))
      (h1c-finz [bs info]
        ;prepare for shutdown upon CLOSE
        (n/cf-cb (.closeFuture ^Channel (:channel info))
@@ -214,8 +214,8 @@
                  args
                  (assoc args
                         :uri2
-                        (c/fmt "%s://%s:%d%s"
-                               (if ssl? "wss" "ws") host port uri)))
+                        (.toURI (URL. (c/fmt "%s://%s:%d%s"
+                                             (if ssl? "https" "http") host port uri)))))
           _ (.handler bs
                       (if (c/!is? WSInizor hint)
                         (iz/webc-inizor<> rcp args)
@@ -265,28 +265,28 @@
 
   NettyClientModule
 
-  (hc-h2-conn [_ host port args]
+  (h2-conn [_ host port args]
     (hx-conn _ host port (H2Inizor. args)))
 
-  (hc-h1-conn [_ host port args]
+  (h1-conn [_ host port args]
     (hx-conn _ host port (H1Inizor. args)))
 
-  (hc-ws-conn [_ host port args]
+  (ws-conn [_ host port args]
     (hx-conn _ host port (WSInizor. args)))
 
-  (hc-ws-send
-    ([_ conn msg] (cc/hc-ws-send _ conn msg nil))
+  (ws-send
+    ([_ conn msg] (cc/ws-send _ conn msg nil))
     ([_ conn msg args]
-     (let [ch (cc/cc-channel conn)]
+     (let [ch (cc/channel conn)]
        (u/assert-BadArg (c/is? WsockMsg msg) "not wsmsg.")
        (n/write-msg ch msg))))
 
-  (hc-h2-send
-    ([_ conn msg] (cc/hc-h2-send _ conn msg nil))
+  (h2-send
+    ([_ conn msg] (cc/h2-send _ conn msg nil))
     ([_ conn msg args]
      (condp instance? msg
        Http2xMsg
-       (let [ch (cc/cc-channel conn)]
+       (let [ch (cc/channel conn)]
          (c/do-with [out (promise)]
            (let [^List plist (n/akey?? ch iz/rsp-key)
                  _ (.add plist out)]
@@ -294,27 +294,28 @@
        Http1xMsg
        (let [{:keys [^Headers headers]} msg]
          (.add headers (h2/h2xhdr* SCHEME)
-               (if (cc/cc-is-ssl? conn) "https" "http"))
-         (cc/hc-h1-send _ conn msg args))
+               (if (cc/is-ssl? conn) "https" "http"))
+         (cc/h1-send _ conn msg args))
        (u/throw-BadArg "Invalid msg type %s" msg))))
 
-  (hc-h1-send
-    ([_ conn msg] (cc/hc-h1-send _ conn msg nil))
+  (h1-send
+    ([_ conn msg] (cc/h1-send _ conn msg nil))
     ([_ conn msg args]
      (let [{:keys [request-method
                    uri2 body headers]} msg
            {:keys [keep-alive?
                    encoding override]
             :or {keep-alive? true}} args
-          ^Channel ch (cc/cc-channel conn)
+          ^Channel ch (cc/channel conn)
+          [_ target] (cc/encoded-paths uri2)
           ssl? (some? (n/get-ssl?? ch))
           body (n/bbuf?? body ch encoding)
-          host (cc/cc-remote-host conn)
-          port (cc/cc-remote-port conn)
+          host (cc/remote-host conn)
+          port (cc/remote-port conn)
           req (if-not (or (nil? body)
                           (c/is? ByteBuf body))
-                (http-req<> request-method uri2)
-                (http-req<+> request-method uri2 body))
+                (http-req<> request-method target)
+                (http-req<+> request-method target body))
           clen (cond (c/is? ByteBuf body)
                      (.readableBytes ^ByteBuf body)
                      (c/is? File body)

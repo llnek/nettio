@@ -24,7 +24,7 @@
 
   (:import [io.netty.handler.stream ChunkedWriteHandler]
            [io.netty.util AttributeKey]
-           [java.net InetSocketAddress]
+           [java.net URI InetSocketAddress]
            [java.util Map HashMap]
            [io.netty.buffer ByteBuf]
            [java.io OutputStream]
@@ -151,7 +151,7 @@
     (.authority h2hds (.getHostName ^InetSocketAddress (.remoteAddress ch)))
     (.scheme h2hds (if ssl? "https" "http"))
     (.method h2hds mtd)
-    (.path h2hds uri2)
+    (.path h2hds (.getRawPath ^URI uri2))
     (try
       (.writeHeaders enc ctx sid h2hds
                      depid weight

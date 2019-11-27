@@ -26,6 +26,7 @@
             [czlab.nettio.server :as sv])
 
   (:import [java.io IOException File]
+           [java.net URI]
            [czlab.niou Headers]
            [czlab.basal XData]))
 
@@ -77,12 +78,13 @@
   [udir]
   (fn [req]
     (let [{:keys [uri2 request-method]} req
-          pos (cs/last-index-of uri2 \/)
+          path (.getPath ^URI uri2)
+          pos (cs/last-index-of path \/)
           p (if (nil? pos)
-              uri2 (subs uri2 (+ 1 pos)))
+              path (subs path (+ 1 pos)))
           nm (c/stror p (str (u/jid<>) ".dat"))]
       (l/debug "udir= %s." udir)
-      (l/debug "%s: uri= %s, file= %s." request-method uri2 nm)
+      (l/debug "%s: uri= %s, file= %s." request-method path nm)
       (condp = request-method
         :get (fgetter req nm udir)
         :post (fputter req nm udir)

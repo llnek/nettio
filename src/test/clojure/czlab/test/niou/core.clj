@@ -7,8 +7,6 @@
 ;; You must not remove this notice, or any other, from this software.
 
 (ns
-  ^{:doc ""
-    :author "Kenneth Leung"}
 
   czlab.test.niou.core
 
@@ -21,13 +19,13 @@
             [czlab.niou.upload :as cu]
             [clojure.string :as cs]
             [clojure.test :as t]
+            [czlab.basal.log :as l]
             [czlab.basal.io :as i]
             [czlab.basal.core
              :as c
              :refer [ensure?? ensure-thrown??]])
 
   (:import [java.net HttpCookie URL URI]
-           [jregex Matcher]
            [czlab.basal XData]
            [czlab.niou Headers]
            [org.apache.commons.fileupload FileItem]))
@@ -61,25 +59,31 @@
 
 (def ^:private ROUTES
   [{:XXXhandler "p1"
-    :uri "/([^/]+)/(.*)"
+    :pattern "/{a}/{b}"
+    :groups {:a "[a-z]+" :b "[0-9]+"}
     :verb :post
-    :template  "t1.html"}
-   {:mount "m1"
-    :uri "/(favicon\\..+)"}
+    :name :r1
+    :extras {:template  "t1.html"}}
+
+   {:pattern "/{yo}"
+    :name :r2
+    :groups {:yo "favicon\\..+"}}
+
    {:XXXhandler "p2"
-    :uri "/:a/([^/]+)/:b/c/:d"
-    :verb :get
-    :template  "t2.html"}
-   {:mount "m2"
-    :uri "/4"}])
+    :pattern "/{a}/zzz/{b}/c/{d}"
+    :name :r3
+    :groups {:a "[A]+" :b "[B]+" :d "[D]+"}
+    :verb :get}
+
+   {:pattern "/4"}])
 
 (def ^:private RC (r/route-cracker<> ROUTES))
-;;(println "routes = " (i/fmt->edn RC))
+;(println "routes = " (i/fmt->edn RC))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (eval '(mi/setup-cache (i/res->url "czlab/niou/etc/mime.properties")))
 
-
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (c/def- ^Headers HEADERS (doto (Headers.)
                            (.add "he" "x")
                            (.set "ha" "y")
@@ -105,56 +109,60 @@
   (ensure?? "gist-header-vals"
             (= ["a" "b"] (vec (.get HEADERS "yo"))))
 
-
   (ensure?? "init-test" (> (count ROUTES) 0))
 
   (ensure?? "has-routes?" (r/has-routes? RC))
 
   (ensure?? "parse-path"
-            (let [[p g]
-                  (r/parse-path "/:a/([^/]+)/:b/c/:d")]
-              (and (= g [[1 "a"] [3 "b"] [4 "d"]])
-                   (= p "/({a}[^/]+)/([^/]+)/({b}[^/]+)/c/({d}[^/]+)"))))
+            (let [[p c g]
+                  (r/regex-path "/{a}/{z}/{b}/c/{d}"
+                                {:a "foo"
+                                 :b "man"
+                                 :d "chu"
+                                 :z nil})]
+              (and (== 5 c)
+                   (== 1 (:a g))
+                   (== 2 (:z g))
+                   (== 3 (:b g))
+                   (== 4 (:d g))
+                   (.equals "/(foo)/([^/]+)/(man)/c/(chu)" p))))
 
   (ensure?? "crack-route"
-            (let [{:keys [groups places]}
+            (let [{:as R :keys [route params]}
                   (r/crack-route RC
-                                 {:uri "/hello/world"
+                                 {:uri "/hello/007"
                                   :request-method :post})]
-              (and (.equals "hello" (c/_1 groups))
-                   (.equals "world" (c/_E groups))
-                   (empty? places))))
+              (and R
+                   (= :r1 (:name route))
+                   (.equals "hello" (:a params))
+                   (.equals "007" (:b params)))))
 
   (ensure?? "crack-route"
-            (let [{:keys [groups places]}
+            (let [{:as R :keys [route params]}
                   (r/crack-route RC
                                  {:uri "/favicon.hello"
                                   :request-method :get})]
-              (and (.equals "favicon.hello" (c/_1 groups))
-                   (== 1 (count groups))
-                   (empty? places))))
+              (and R
+                   (== 1 (count params))
+                   (.equals "favicon.hello" (:yo params)))))
 
   (ensure?? "crack-route"
-            (let [{:keys [groups places]}
+            (let [{:as R :keys [route params]}
                   (r/crack-route RC
-                                 {:uri "/A/zzz/B/c/D"
+                                 {:uri "/AAA/zzz/BBB/c/DDD"
                                   :request-method :get})]
-              (and (.equals "A" (nth groups 0))
-                   (.equals "zzz" (nth groups 1))
-                   (.equals "B" (nth groups 2))
-                   (.equals "D" (nth groups 3))
-                   (.equals "A" (get places "a"))
-                   (.equals "B" (get places "b"))
-                   (.equals "D" (get places "d"))
-                   (== 3 (count places)))))
+              (and (== 3 (count params))
+                   (.equals "AAA" (:a params))
+                   (.equals "BBB" (:b params))
+                   (.equals "DDD" (:d params)))))
 
   (ensure?? "crack-route"
-            (let [{:keys [groups places]}
+            (let [{:as R :keys [route params]}
                   (r/crack-route RC
                                  {:uri "/4"
                                   :request-method :get})]
-              (and (empty? groups)
-                   (empty? places))))
+              (and route
+                   (empty? params))))
 
   (ensure?? "crack-route"
             (nil? (r/crack-route RC
@@ -170,29 +178,29 @@
                   (when out
                     (c/preduce<map>
                       #(let [^FileItem i %2]
-                         (if (.isFormField i)
+                         (if-not (.isFormField i)
+                           %1
                            (assoc! %1
                                    (keyword (str (.getFieldName i)
                                                  "+" (.getString i)))
-                                   (.getString i))
-                           %1))
+                                   (.getString i))))
                       (cu/get-all-items out)))
                   fmap
                   (when out
                     (c/preduce<map>
                       #(let [^FileItem i %2]
-                         (if-not (.isFormField i)
+                         (if (.isFormField i)
+                           %1
                            (assoc! %1
                                    (keyword (str (.getFieldName i)
                                                  "+" (.getName i)))
-                                   (i/x->str (.get i)))
-                           %1))
+                                   (i/x->str (.get i)))))
                       (cu/get-all-items out)))]
-              (and (= (:field+fieldValue rmap) "fieldValue")
-                   (= (:multi+value1 rmap) "value1")
-                   (= (:multi+value2 rmap) "value2")
-                   (= (:file1+foo1.tab fmap) "file content(1)\n")
-                   (= (:file2+foo2.tab fmap) "file content(2)\n"))))
+              (and (.equals "fieldValue" (:field+fieldValue rmap))
+                   (.equals "value1" (:multi+value1 rmap))
+                   (.equals "value2" (:multi+value2 rmap))
+                   (.equals "file content(1)\n" (:file1+foo1.tab fmap))
+                   (.equals  "file content(2)\n" (:file2+foo2.tab fmap)))))
 
   (ensure?? "downstream"
             (let [req (m/mock-http-request pkeybytes false)
@@ -201,7 +209,7 @@
                   cs (:cookies res)
                   c (get cs ws/session-cookie)
                   v (.getValue ^HttpCookie c)]
-              (= 6 (count (.split v "=")))))
+              (== 6 (count (.split v "=")))))
 
   (ensure?? "upstream"
             (let [req (m/mock-http-request pkeybytes true)
@@ -255,16 +263,16 @@
   (ensure?? "parse-basic-auth"
             (let [{:keys [principal credential]}
                   (ct/parse-basic-auth "  Basic   QWxhZGRpbjpPcGVuU2VzYW1l  ")]
-              (and (= principal "Aladdin")
-                   (= credential "OpenSesame"))))
+              (and (.equals "Aladdin" principal)
+                   (.equals "OpenSesame" credential))))
 
   (ensure?? "form-items<>"
             (let [bag (-> (cu/form-items<>)
                           (cu/add-item (cu/file-item<> true "" nil "a1" "" nil))
                           (cu/add-item (cu/file-item<> false "" nil "f1" "" nil))
                           (cu/add-item (cu/file-item<> true "" nil "a2" "" nil)))]
-              (and (= 1 (count (cu/get-all-files bag)))
-                   (= 2 (count (cu/get-all-fields bag))))))
+              (and (== 1 (count (cu/get-all-files bag)))
+                   (== 2 (count (cu/get-all-fields bag))))))
 
   (ensure?? "file-item<>"
             (let [f (cu/file-item<> true "" nil "a1" "" (XData. "hello"))
@@ -276,11 +284,11 @@
                   z (.getSize f)
                   i (.getInputStream f)]
               (i/klose i)
-              (and (= z (alength b))
+              (and (== z (alength b))
                    (some? i)
-                   (= "a1" n)
+                   (.equals "a1" n)
                    f?
-                   (= "hello" s)
+                   (.equals "hello" s)
                    m?)))
 
   (ensure?? "file-item<>"
@@ -295,19 +303,19 @@
                   z (.getSize f)
                   i (.getInputStream f)]
               (i/klose i)
-              (and (= z (alength b))
-                   (= "text/plain" ct)
+              (and (== z (alength b))
+                   (.equals "text/plain" ct)
                    (some? i)
-                   (= "f1" n)
-                   (= "a.txt" nn)
+                   (.equals "f1" n)
+                   (.equals "a.txt" nn)
                    f?
-                   (= "hello" s)
+                   (.equals "hello" s)
                    m?)))
 
   (ensure?? "mime-cache<>" (map? (mi/mime-cache<>)))
 
   (ensure?? "charset??"
-            (= "utf-16" (mi/charset?? "text/plain; charset=utf-16")))
+            (.equals "utf-16" (mi/charset?? "text/plain; charset=utf-16")))
 
   (ensure-thrown?? "normalize-email"
                    :any
@@ -318,7 +326,7 @@
                    (mi/normalize-email "xxxx"))
 
   (ensure?? "normalize-email"
-            (= "abc@abc.com" (mi/normalize-email "abc@ABC.cOm")))
+            (.equals "abc@abc.com" (mi/normalize-email "abc@ABC.cOm")))
 
   (ensure?? "is-signed?"
             (mi/is-signed? "saljas application/x-pkcs7-mime laslasdf lksalfkla multipart/signed signed-data "))
@@ -338,7 +346,7 @@
   (ensure?? "guess-content-type"
             (cs/includes? (mi/guess-content-type "/tmp/abc.pdf") "/pdf"))
 
-  (ensure?? "test-end" (= 1 1)))
+  (ensure?? "test-end" (== 1 1)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (t/deftest

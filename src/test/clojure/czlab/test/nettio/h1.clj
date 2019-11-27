@@ -61,15 +61,15 @@
                                (cc/res-body-set (:uri %1)) cc/reply-result)})
               (po/start {:port 8443}))
           _ (u/pause 888)
-          c (cc/hc-h1-conn MODULE host port {:server-cert "*"})
-          p1 (cc/cc-write c (cc/h1-get<> (URI. "/blah")))
+          c (cc/h1-conn MODULE host port {:server-cert "*"})
+          p1 (cc/write-msg c (cc/h1-get<> (URI. "/blah")))
           r1 (deref p1 5000 nil)
-          p2 (cc/cc-write c (cc/h1-get<>
+          p2 (cc/write-msg c (cc/h1-get<>
                               (URI. "/Yoyo"))
                           {:keep-alive? false})
           r2 (deref p2 5000 nil)]
       (po/stop w)
-      (cc/cc-finz c)
+      (cc/finz! c)
       (u/pause 500)
       (and r1 r2
            (.equals "/blah" (i/x->str (:body r1)))
@@ -84,15 +84,15 @@
                  :user-cb echo-back})
               (po/start {:port 8443}))
           _ (u/pause 888)
-          c (cc/hc-h1-conn MODULE host port {:server-cert "*"})
-          r1 (cc/cc-write c (cc/h1-get<> "/r1"))
-          r2 (cc/cc-write c (cc/h1-get<> "/r2"))
-          r3 (cc/cc-write c (cc/h1-get<> "/r3"))
+          c (cc/h1-conn MODULE host port {:server-cert "*"})
+          r1 (cc/write-msg c (cc/h1-get<> "/r1"))
+          r2 (cc/write-msg c (cc/h1-get<> "/r2"))
+          r3 (cc/write-msg c (cc/h1-get<> "/r3"))
           rc1 (deref r1 5000 nil)
           rc2 (deref r2 5000 nil)
           rc3 (deref r3 5000 nil)]
       (po/stop w)
-      (cc/cc-finz c)
+      (cc/finz! c)
       (u/pause 500)
       (and rc1 rc2 rc3
            (.equals "/r1/r2/r3"
@@ -110,10 +110,10 @@
                           (cc/res-body-set "hello joe") cc/reply-result)))
               (po/start {:port 5555}))
           _ (u/pause 888)
-          c (cc/hc-h1-conn MODULE host port nil)
+          c (cc/h1-conn MODULE host port nil)
           h (-> (Headers.)
                 (.add "content-type" "application/x-www-form-urlencoded"))
-          rc (cc/cc-write c (cc/h1-msg<> :post
+          rc (cc/write-msg c (cc/h1-msg<> :post
                                          "/form/a%20b%20c"
                                          h
                                          "a=b&c=3%209&name=john%27smith"))
@@ -127,7 +127,7 @@
                               (.getFieldName i)
                               (.getString i)))) items)]
       (po/stop w)
-      (cc/cc-finz c)
+      (cc/finz! c)
       (u/pause 500)
       (and (.equals "hello joe" (i/x->str body))
            (.equals "b" (rmap "a"))
@@ -146,8 +146,8 @@
           h (-> (Headers.)
                 (.add "content-type"
                       "multipart/form-data; boundary=---1234"))
-          c (cc/hc-h1-conn MODULE host port nil)
-          rc (cc/cc-write c (cc/h1-msg<> :post
+          c (cc/h1-conn MODULE host port nil)
+          rc (cc/write-msg c (cc/h1-msg<> :post
                                          "/form" h cu/TEST-FORM-MULTIPART))
           {:keys [body]} (deref rc 5000 nil)
           items (.content ^XData @out)
@@ -164,7 +164,7 @@
                                  (.getName i))
                             (i/x->str (.get i)))) (cu/get-all-files items))]
       (po/stop w)
-      (cc/cc-finz c)
+      (cc/finz! c)
       (u/pause 500)
       (and body
            (nil? (.content ^XData body))
@@ -185,11 +185,11 @@
           _ (u/pause 888)
           h (-> (Headers.)
                 (.add "origin" (str "http://" host)))
-          c (cc/hc-h1-conn MODULE host port nil)
-          rc (cc/cc-write c (cc/h1-msg<> :options "/cors" h nil))
+          c (cc/h1-conn MODULE host port nil)
+          rc (cc/write-msg c (cc/h1-msg<> :options "/cors" h nil))
           p (deref rc 3000 nil)]
       (po/stop w)
-      (cc/cc-finz c)
+      (cc/finz! c)
       (u/pause 500)
       (and p (== 403 (:status p)))))
 
@@ -208,11 +208,11 @@
                 (.add "origin" origin)
                 (.add "Access-Control-Request-Method" "PUT")
                 (.add "Access-Control-Request-Headers" "X-Custom-Header"))
-          c (cc/hc-h1-conn MODULE host port nil)
-          rc (cc/cc-write c (cc/h1-msg<> :options "/cors" h nil))
+          c (cc/h1-conn MODULE host port nil)
+          rc (cc/write-msg c (cc/h1-msg<> :options "/cors" h nil))
           p (deref rc 3000 nil)]
       (po/stop w)
-      (cc/cc-finz c)
+      (cc/finz! c)
       (u/pause 500)
       (and p
            (.equals origin
@@ -233,8 +233,8 @@
                      cc/reply-result))
               (po/start {:port 5555}))
           _ (u/pause 888)
-          c (cc/hc-h1-conn MODULE host port nil)
-          p (cc/cc-write c
+          c (cc/h1-conn MODULE host port nil)
+          p (cc/write-msg c
                          (cc/h1-msg<> :get
                                       "/range"
                                       (-> (Headers.)
@@ -242,7 +242,7 @@
           {:keys [^XData body]} (deref p 5000 nil)
           s (some-> body .strit)]
       (po/stop w)
-      (cc/cc-finz c)
+      (cc/finz! c)
       (u/pause 500)
       (and (c/hgl? s) (= 0 (c/count-str s nr/DEF-BD)))))
 
@@ -259,15 +259,15 @@
                      cc/reply-result))
               (po/start {:port 5555}))
           _ (u/pause 888)
-          c (cc/hc-h1-conn MODULE host port nil)
-          p (cc/cc-write c (cc/h1-msg<> :get
+          c (cc/h1-conn MODULE host port nil)
+          p (cc/write-msg c (cc/h1-msg<> :get
                                         "/range"
                                         (-> (Headers.)
                                             (.add "range" "bytes=0-18,8-20,21-")) nil))
           {:keys [^XData body]} (deref p 5000 nil)
           s (some-> body .strit)]
       (po/stop w)
-      (cc/cc-finz c)
+      (cc/finz! c)
       (u/pause 500)
       (and (c/hgl? s)
            (== 2 (c/count-str s nr/DEF-BD)))))

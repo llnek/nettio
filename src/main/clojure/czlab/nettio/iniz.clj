@@ -181,10 +181,10 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- hshaker
-  ^WebSocketClientHandshaker [^String uri]
-  (l/debug "wsc handshake uri= %s." uri)
+  ^WebSocketClientHandshaker [^URI uri]
+  (l/debug "wsc handshake uri= %s." (.toString uri))
   (WebSocketClientHandshakerFactory/newHandshaker
-    (URI. uri) WebSocketVersion/V13 nil true (DefaultHttpHeaders.)))
+    uri WebSocketVersion/V13 nil true (DefaultHttpHeaders.)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn websock-inizor<>

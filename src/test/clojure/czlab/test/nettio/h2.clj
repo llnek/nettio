@@ -48,11 +48,11 @@
                                cc/reply-result)})
               (po/start {:port 8443}))
           _ (u/pause 888)
-          c (cc/hc-h2-conn MODULE host port {:server-cert "*"})
-          p (cc/cc-write c (cc/h1-msg<> :post "/form" nil "hello"))
+          c (cc/h2-conn MODULE host port {:server-cert "*"})
+          p (cc/write-msg c (cc/h1-msg<> :post "/form" nil "hello"))
           {:keys [^XData body]} (deref p 5000 nil)]
       (po/stop w)
-      (cc/cc-finz c)
+      (cc/finz! c)
       (u/pause 500)
       (and body (.equals "hello" (.strit body)))))
 )
@@ -66,12 +66,12 @@
                  :user-cb #(cc/reply-result %1)})
               (po/start {:port 8443}))
           _ (u/pause 888)
-          c (cc/hc-h2-conn MODULE host port {:h2-frames? true
+          c (cc/h2-conn MODULE host port {:h2-frames? true
                                              :server-cert "*"})
-          p (cc/cc-write c (cc/h2-msg<> :post "/form" nil "hello"))
+          p (cc/write-msg c (cc/h2-msg<> :post "/form" nil "hello"))
           {:keys [^XData body]} (deref p 5000 nil)]
       (po/stop w)
-      (cc/cc-finz c)
+      (cc/finz! c)
       (u/pause 500)
       (and body (.equals "hello" (.strit body)))))
 

@@ -7,27 +7,34 @@
 ;; You must not remove this notice, or any other, from this software.
 
 (ns
-  ^{:doc "Http url routing."
-    :author "Kenneth Leung"}
 
   czlab.niou.routes
 
-  (:require [clojure.string :as cs]
+  "Http url routing."
+
+  (:require [flatland.ordered.map :as om]
+            [clojure.string :as cs]
             [czlab.basal.io :as i]
             [czlab.basal.log :as l]
             [czlab.basal.core :as c]
             [czlab.basal.util :as u])
 
-  (:import [java.io
-            File]
-           [jregex
-            Matcher
-            Pattern]
-           [clojure.lang
-            APersistentVector]))
+  (:import [java.io File]
+           [java.util.regex Matcher Pattern]))
+           ;[jregex Matcher Pattern]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;(set! *warn-on-reflection* true)
+
+(c/def- a-route-spec {:name :some-name
+                      :pattern "/foo/yoo/wee/:id/"
+                      :verb :get ; or :verb #{:get :post}
+                      :groups {:x "" :y ""}
+                      :handler nil
+                      :extra {:secure? true
+                              :session? true
+                              :template "abc.html"
+                              :mount "/public/somedir"}})
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defprotocol RouteInfo
@@ -48,50 +55,66 @@
   (toString [me] (i/fmt->edn me))
   RouteInfo
   (match-path [me mtd path]
-    (let [{:keys [verb regex]} me
-          m (some-> ^Pattern
-                    regex (.matcher path))
-          ok? (and (some-> m .matches)
-                   (or (nil? verb)
-                       (= verb mtd)
-                       (and (coll? verb)
-                            (c/in? verb mtd))))
-          gc (if ok? (.groupCount m) -1)]
-      (when (pos? gc)
-        ;;first one is always the fully matched, skip it
-        (c/object<>
-          RouteMatchResult
-          :groups (c/preduce<vec>
-                    #(if (pos? %2)
-                       (conj! %1
-                              (.group m (int %2))) %1)
-                    (if (pos? gc) (range 0 gc) []))
-          :route me
-          :places (c/preduce<map>
-                    #(let [[_ r2] %2]
-                       (assoc! %1
-                               r2
-                               (str (.group m ^String r2))))
-                    (:place-holders me)))))))
+    (let [{:keys [verb regex groups]} me]
+      (when (or (nil? verb)
+                (c/in? verb mtd))
+        (let [m (-> ^Pattern
+                    regex
+                    (.matcher path))
+              ok? (.matches m)
+              gc (if ok?
+                   (.groupCount m) -1)]
+          (if ok?
+            (c/object<> RouteMatchResult
+                        :route me
+                        :params
+                        (c/preduce<map>
+                          #(let [[k v] %2]
+                             (if (> v gc)
+                               %1
+                               (assoc! %1
+                                       k
+                                       (.group m (int v))))) groups))))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defrecord RouteCrackerObj []
+(defrecord RouteCrackerObj [routes]
   RouteCracker
   (is-routable? [me gist]
     (some? (crack-route me gist)))
   (has-routes? [me]
-    (boolean (not-empty (:routes me))))
+    (boolean (not-empty routes)))
   (crack-route [me gist]
-    (letfn
-      [(r?? [m u routes]
-         (some #(match-path % m u) routes))]
-      (let [{:keys [routes]} me
-            {:keys [uri
-                    request-method]} gist]
-        (r?? request-method uri routes)))))
+    (let [{:keys [uri request-method]} gist]
+      (some #(let [[_ v] %]
+               (match-path v request-method uri)) routes))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn parse-path
+(c/def- place-holder #"^\{([\*@a-zA-Z0-9_\+\-\.]+)\}$")
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn regex-path
+
+  "Parse a route uri => [regex-path pieces params]."
+  [pattern groups]
+
+  (with-local-vars [params {} cg 0 parts 0]
+    [(c/sreduce<>
+       #(do
+          (if-not (.equals "/" %2)
+            (var-set parts (+ 1 @parts)))
+          (c/sbf+ %1
+                  (if-some [[_ k] (re-matches place-holder %2)]
+                    (let [gk (keyword k)
+                          gv (get groups gk)]
+                      (var-set cg (+ 1 @cg))
+                      (var-set params
+                               (assoc @params gk @cg))
+                      (str "(" (c/stror gv "[^/]+") ")"))
+                    %2)))
+       (c/split-str pattern "/" true)) @parts @params]))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn Xparse-path
 
   "Parse a route uri."
   [pathStr]
@@ -114,26 +137,29 @@
 (defn- mk-route
 
   "Make a route-info object from definition."
-  [cljrt {:keys [secure? session?
-                 uri handler
-                 template verb mount] :as rt}]
+  [cljrt {:keys [pattern name
+                 handler
+                 verb groups extras] :as rt}]
 
-  (let [{:keys [path] :as ro}
-        (-> {:session? (boolean session?)
-             :secure? (boolean secure?)
-             :path (c/strim uri)
-             :verb verb
-             :max-size -1
-             :handler (if handler (u/var* cljrt handler))}
-            (assoc :template
-                   (if (c/hgl? template) template))
-            (merge (if (c/hgl? mount)
-                     {:static? true :mount mount})))
-        [pp groups] (parse-path path)]
-    (l/debug "Route added: %s\ncanon'ed to: %s." path pp)
+  (let [kee (cond (keyword? name) name
+                  (string? name) (keyword name)
+                  :else (keyword (u/jid<>)))
+        verb (cond (keyword? verb) #{verb}
+                   (string? verb) #{(keyword verb)}
+                   (set? verb) (if (not-empty verb) verb))
+        handler (if handler (u/var* cljrt handler))
+        [path pieces params]
+        (regex-path (c/strim pattern) groups)]
+    (l/debug "Route input: %s." pattern)
+    (l/debug "Route regex: %s." path)
     (c/object<> RouteInfoObj
-                (merge ro {:regex (Pattern. pp)
-                           :path pp :place-holders groups}))))
+                (assoc rt
+                       :verb verb
+                       :name kee
+                       :width pieces
+                       :groups params
+                       :handler handler
+                       :regex (Pattern/compile path)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn load-routes
@@ -143,17 +169,15 @@
   {:pre [(or (nil? routes)
              (sequential? routes))]}
 
-  (let [clj (u/cljrt<>)
-        {:keys [s r]}
-        (reduce
-          #(let [ro (mk-route clj %2)]
-             (l/debug "route === %s." %2)
-             (update-in %1
-                        [(if
-                           (:static? ro)
-                           :s :r)] conj ro))
-          {:s [] :r []} routes)]
-    (vec (concat s r))))
+  (let [clj (u/cljrt<>)]
+    (reduce
+      (fn [acc r]
+        (assoc acc
+               (:name r) r))
+      (om/ordered-map)
+      (u/sortby :width
+                (c/compare-des* identity)
+                (map #(mk-route clj %) routes)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn route-cracker<>
@@ -161,8 +185,7 @@
   "Create a uri route cracker."
   [route-defs]
 
-  (c/object<> RouteCrackerObj
-              :routes (load-routes route-defs)))
+  (RouteCrackerObj. (load-routes route-defs)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF

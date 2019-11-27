@@ -76,6 +76,7 @@
            [java.net
             InetAddress
             URL
+            URI
             HttpCookie
             InetSocketAddress]
            [io.netty.handler.codec.http.cookie
@@ -753,13 +754,15 @@
 (defn match-one-route??
   [ctx msg]
   (let [c (akey?? ctx routes-key)
-        {u :uri u2 :uri2 m :request-method} msg]
-    (l/debug "match route for path: %s." u2)
+        {u2 :uri2
+         m :request-method} msg
+        path (.getPath ^URI u2)]
+    (l/debug "match route for path: %s." path)
     (or (if (and c
-                 (c/hgl? u2)
+                 (c/hgl? path)
                  (cr/has-routes? c))
           (cr/crack-route c
-                          {:uri u
+                          {:uri path
                            :request-method m})) :passthru)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

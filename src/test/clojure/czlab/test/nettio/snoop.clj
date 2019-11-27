@@ -26,7 +26,7 @@
 
   (:import [czlab.basal XData]
            [czlab.niou Headers]
-           [java.net HttpCookie]
+           [java.net URI HttpCookie]
            [java.util Map$Entry]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -72,7 +72,7 @@
             (str (cc/msg-header req "host"))
             "\r\n"
             "REQUEST_URI: "
-            (:uri2 req)
+            (.getPath ^URI (:uri2 req))
             "\r\n\r\n"
             (c/sreduce<>
               #(c/sbf+ %1

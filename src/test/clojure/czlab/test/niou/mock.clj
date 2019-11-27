@@ -6,14 +6,14 @@
 ;; the terms of this license.
 ;; You must not remove this notice, or any other, from this software.
 
-(ns czlab.test.niou.mock
+(ns
 
-  (:require [czlab.basal
-             [io :as i]
-             [core :as c]]
-            [czlab.niou
-             [core :as cc]
-             [webss :as cs]])
+  czlab.test.niou.mock
+
+  (:require [czlab.basal.io :as i]
+            [czlab.basal.core :as c]
+            [czlab.niou.core :as cc]
+            [czlab.niou.webss :as cs])
 
   (:use [clojure.test])
 
@@ -28,18 +28,19 @@
   (msg-header-vals [_ h] ))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn mock-http-request [pkey mac?]
+(defn mock-http-request
+  [pkey mac?]
   (let [w (cs/wsession<> pkey
-                         {:macit? mac?
+                         {:crypt? mac?
                           :max-age-secs 11111
                           :max-idle-secs 3333})]
     (assoc (HttpMessageObj.) :session w)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn mock-http-result "" [req]
+(defn mock-http-result
+  [req]
   (assoc (HttpMessageObj.) :request req))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF
-
 

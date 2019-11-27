@@ -31,7 +31,7 @@
             CorsConfigBuilder
             CorsConfig
             CorsHandler]
-           [java.net URL InetSocketAddress]
+           [java.net URL URI InetSocketAddress]
            [czlab.nettio
             DuplexHandler
             InboundHandler]
@@ -208,11 +208,13 @@
     (let [ssl (n/get-ssl?? ctx)
           ch (n/ch?? ctx)
           hs (.headers req)
+          u (.uri req)
           ccert (c/try! (some-> ssl
                                 .engine
                                 .getSession
                                 .getPeerCertificates))
-          q (QueryStringDecoder. (.uri req))
+          q (QueryStringDecoder. u)
+          uriObj (URI. u)
           laddr (c/cast? InetSocketAddress
                          (.localAddress ch))
           out {:keep-alive? (HttpUtil/isKeepAlive req)
@@ -228,11 +230,11 @@
                :server-port (c/s->long (.get hs "server_port") 0)
                :server-name (str (.get hs "server_name"))
                :parameters (params->map (.parameters q))
-               :query-string (.rawQuery q)
+               :query-string (.getRawQuery uriObj)
+               :uri (.getRawPath uriObj)
                :body (XData. body)
                :socket ch
-               :uri2 (str (.uri req))
-               :uri (.path q)
+               :uri2 uriObj
                :charset (n/get-charset req)
                :cookies (n/crack-cookies req)
                :local-host (some-> laddr .getHostName)

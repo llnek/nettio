@@ -45,7 +45,7 @@
                  :user-cb #(println "msg = " %1)})
               (po/start {:port 5556}))
           _ (u/pause 888)
-          c (cc/hc-ws-conn MODULE host port {:uri "/crap"})]
+          c (cc/ws-conn MODULE host port {:uri "/crap"})]
       (u/pause 500)
       (po/stop w)
       (u/pause 500)
@@ -57,13 +57,13 @@
           (-> (sv/web-server-module<> #(println "msg = " %1))
               (po/start {:port 5556}))
           _ (u/pause 888)
-          c (cc/hc-ws-conn MODULE host port {:uri "/websock"})]
+          c (cc/ws-conn MODULE host port {:uri "/websock"})]
       (u/pause 500)
       (po/stop w)
-      (cc/cc-finz c)
+      (cc/finz! c)
       (u/pause 500)
       (and c (== 5556
-                 (cc/cc-remote-port c)))))
+                 (cc/remote-port c)))))
 
   (ensure??
     "websock/stop"
@@ -71,15 +71,15 @@
           (-> (sv/web-server-module<> #(println "msg = " %1))
               (po/start {:port 5556}))
           _ (u/pause 888)
-          c (cc/hc-ws-conn MODULE host port {:uri "/websock"})
+          c (cc/ws-conn MODULE host port {:uri "/websock"})
           ok? (and (c/is? czlab.niou.core.ClientConnection c)
-                   (cc/cc-is-open? c))]
+                   (cc/is-open? c))]
       (u/pause 500)
       (po/stop w)
-      (cc/cc-finz c)
+      (cc/finz! c)
       (u/pause 500)
       (and ok?
-           (not (cc/cc-is-open? c)))))
+           (not (cc/is-open? c)))))
 
   (ensure??
     "websock/text"
@@ -90,17 +90,17 @@
               (po/start {:port 8443}))
           _ (u/pause 888)
           out (atom nil)
-          c (cc/hc-ws-conn
+          c (cc/ws-conn
                 MODULE
                 host port
                 {:server-cert "*"
                  :uri "/websock"
                  :user-cb #(reset! out (:body %1))})]
-      (cc/cc-write c
-                   (cc/ws-text<> "hello"))
+      (cc/write-msg c
+                    (cc/ws-text<> "hello"))
       (u/pause 666)
       (po/stop w)
-      (cc/cc-finz c)
+      (cc/finz! c)
       (u/pause 500)
       (.equals "hello" (i/x->str @out))))
 
@@ -112,14 +112,14 @@
               (po/start {:port 5556}))
           _ (u/pause 888)
           out (atom nil)
-          c (cc/hc-ws-conn MODULE
+          c (cc/ws-conn MODULE
                            host port
                            {:uri "/websock"
                             :user-cb #(reset! out (:body %1))})]
-      (cc/cc-write c (cc/ws-bytes<> HELLO-BYTES))
+      (cc/write-msg c (cc/ws-bytes<> HELLO-BYTES))
       (u/pause 666)
       (po/stop w)
-      (cc/cc-finz c)
+      (cc/finz! c)
       (u/pause 500)
       (u/obj-eq? HELLO-BYTES (i/x->bytes @out))))
 
@@ -133,16 +133,16 @@
                     (reset! ping true)))
               (po/start {:port 5556}))
           _ (u/pause 888)
-          c (cc/hc-ws-conn MODULE
+          c (cc/ws-conn MODULE
                            host port
                            {:uri "/websock"
                             :user-cb
                             #(when (:is-pong? %1)
                                (reset! pong true))})]
-      (cc/cc-write c cc/ws-ping<>)
+      (cc/write-msg c cc/ws-ping<>)
       (u/pause 666)
       (po/stop w)
-      (cc/cc-finz c)
+      (cc/finz! c)
       (u/pause 500)
       (and (false? @ping) (true? @pong))))
 

@@ -42,14 +42,14 @@
           (-> (sn/snoop-httpd<>)
               (po/start {:port 5555}))
           _ (u/pause 888)
-          c (cc/hc-h1-conn MODULE host port nil)
-          r (cc/cc-write c
+          c (cc/h1-conn MODULE host port nil)
+          r (cc/write-msg c
                          (cc/h1-get<>
                            "/test/snooper?a=1&b=john%20smith"))
           {:keys [^XData body]} (deref r 3000 nil)]
       ;(l/debug "bbb = %s" (.strit body))
       (po/stop w)
-      (cc/cc-finz c)
+      (cc/finz! c)
       (u/pause 500)
       (and body (c/hgl? (i/x->str body)))))
 
@@ -59,13 +59,13 @@
           (-> (dc/discard-httpd<> rand)
               (po/start {:port 5555}))
           _ (u/pause 888)
-          c (cc/hc-h1-conn MODULE host port nil)
-          r (cc/cc-write c
+          c (cc/h1-conn MODULE host port nil)
+          r (cc/write-msg c
                          (cc/h1-get<>
                            "/test/discarder?a=1&b=john%27smith"))
           {:keys [body]} (deref r 3000 nil)]
       (po/stop w)
-      (cc/cc-finz c)
+      (cc/finz! c)
       (u/pause 500)
       (zero? (if body (.size ^XData body) -1))))
 
@@ -78,12 +78,12 @@
           s "test content"
           tn (u/jid<>)
           _ (spit (i/tmpfile tn) s)
-          c (cc/hc-h1-conn MODULE host port nil)
-          r (cc/cc-write c (cc/h1-get<> (str "/" tn)))
+          c (cc/h1-conn MODULE host port nil)
+          r (cc/write-msg c (cc/h1-get<> (str "/" tn)))
           {:keys [^XData body]} (deref r 5000 nil)]
       (l/debug "bbbb = %s" (.strit body))
       (po/stop w)
-      (cc/cc-finz c)
+      (cc/finz! c)
       (u/pause 500)
       (and body
            (pos? (.size ^XData body))
@@ -99,12 +99,12 @@
           s "test content"
           tn (u/jid<>)
           _ (spit src s)
-          c (cc/hc-h1-conn MODULE host port nil)
-          r (cc/cc-write c (cc/h1-post<> (str "/" tn) src))
+          c (cc/h1-conn MODULE host port nil)
+          r (cc/write-msg c (cc/h1-post<> (str "/" tn) src))
           {:keys [body]} (deref r 5000 nil)
           des (i/tmpfile tn)]
       (po/stop w)
-      (cc/cc-finz c)
+      (cc/finz! c)
       (u/pause 500)
       (and body
            (zero? (.size ^XData body))
