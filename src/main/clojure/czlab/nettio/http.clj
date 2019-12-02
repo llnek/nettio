@@ -395,8 +395,9 @@
   (let [end? (n/last-part? part)
         cc (n/cache?? ctx)
         impl (c/mget cc :adder)]
-    (l/debug "received%schunk: %s."
-             (if end? " last " " ") part)
+    (if false
+      (l/debug "received%schunk: %s."
+               (if end? " last " " ") part))
     (cond (n/ihprd? impl)
           (n/offer! impl part)
           (n/mp-attr? impl)
@@ -616,7 +617,7 @@
     (onHandlerAdded [ctx]
       (n/akey+ ctx n/cache-key (HashMap.)))
     (onRead [ctx ch msg]
-      (l/debug "onRead === msg = %s" msg)
+      ;;(l/debug "onRead === msg = %s" msg)
       (if (n/h1msg? msg)
         (on-read ctx msg) (n/fire-msg ctx msg)))))
 

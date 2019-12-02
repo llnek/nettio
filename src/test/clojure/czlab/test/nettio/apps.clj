@@ -24,13 +24,42 @@
             [czlab.basal.core :as c
              :refer [ensure?? ensure-thrown??]])
 
-  (:import [czlab.basal XData]))
+  (:import [czlab.basal XData]
+           [java.io File]
+           [czlab.niou Headers]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (c/defonce- MODULE (cl/web-client-module<>))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (c/deftest test-apps
+
+  (ensure??
+    "apps/big-file"
+    (let [src (XData. (i/res->file
+                        "czlab/test/niou/net/big.pdf"))
+          out (atom nil)
+          sz (.size src)
+          {:keys [host port] :as w}
+          (-> (sv/web-server-module<>
+                 #(do (-> (cc/http-result %1) cc/reply-result)
+                      (reset! out (.fileRef ^XData (:body %1)))))
+              (po/start {:port 5555}))
+          _ (u/pause 888)
+          c (cc/h1-conn MODULE host port nil)
+          h (-> (Headers.)
+                (.add "content-type" "application/pdf"))
+          rc (cc/write-msg c (cc/h1-msg<> :post
+                                          "/bigfile" h src))
+          {:keys [status]} (deref rc 9000 nil)
+          ^File f @out]
+      (po/stop w)
+      (po/finz c)
+      (u/pause 500)
+      (and f
+           (== 200 status)
+           (== sz (.length f))
+           (c/do#true (i/fdelete f)))))
 
   (ensure??
     "snoop-httpd<>"
@@ -106,7 +135,6 @@
            (zero? (.size ^XData body))
            (.exists des)
            (.equals s (slurp des)))))
-
 
   (ensure?? "test-end" (== 1 1)))
 

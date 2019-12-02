@@ -120,7 +120,7 @@
    (c/object<> czlab.niou.core.Http2xMsg
                :status status
                :body (or (c/cast? XData body)
-                         (XData. body))
+                         (XData. body false))
                :headers (or headers (Headers.))))
 
   ([method uri headers body]
@@ -134,7 +134,7 @@
      (c/object<> czlab.niou.core.Http2xMsg
                  :request-method method
                  :body (or (c/cast? XData body)
-                           (XData. body))
+                           (XData. body false))
                  :query-string (.getRawQuery uriObj)
                  :uri (.getRawPath uriObj)
                  :uri2 uriObj
@@ -156,7 +156,7 @@
     (c/object<> czlab.niou.core.Http1xMsg
                 :request-method method
                 :body (or (c/cast? XData body)
-                          (XData. body))
+                          (XData. body false))
                 :query-string (.getRawQuery uriObj)
                 :uri (.getRawPath uriObj)
                 :uri2 uriObj
