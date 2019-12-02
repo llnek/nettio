@@ -20,7 +20,6 @@ import java.nio.charset.Charset;
 
 
 /**
- * @author Kenneth Leung
  */
 public class H1DataFactory extends DefaultHttpDataFactory {
 

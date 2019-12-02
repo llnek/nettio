@@ -6,11 +6,7 @@
 ;; the terms of this license.
 ;; You must not remove this notice, or any other, from this software.
 
-(ns
-  ^{:doc ""
-    :author "Kenneth Leung"}
-
-  czlab.test.nettio.h2
+(ns czlab.test.nettio.h2
 
   (:require [clojure.java.io :as io]
             [clojure.test :as ct]
@@ -52,7 +48,7 @@
           p (cc/write-msg c (cc/h1-msg<> :post "/form" nil "hello"))
           {:keys [^XData body]} (deref p 5000 nil)]
       (po/stop w)
-      (cc/finz! c)
+      (po/finz c)
       (u/pause 500)
       (and body (.equals "hello" (.strit body)))))
 )
@@ -71,7 +67,7 @@
           p (cc/write-msg c (cc/h2-msg<> :post "/form" nil "hello"))
           {:keys [^XData body]} (deref p 5000 nil)]
       (po/stop w)
-      (cc/finz! c)
+      (po/finz c)
       (u/pause 500)
       (and body (.equals "hello" (.strit body)))))
 

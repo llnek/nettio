@@ -6,11 +6,7 @@
 ;; the terms of this license.
 ;; You must not remove this notice, or any other, from this software.
 
-(ns
-  ^{:doc ""
-    :author "Kenneth Leung"}
-
-  czlab.nettio.ranges
+(ns czlab.nettio.ranges
 
   (:require [czlab.nettio.core :as n]
             [clojure.java.io :as io]
@@ -18,6 +14,7 @@
             [czlab.basal.util :as u]
             [czlab.basal.log :as l]
             [czlab.basal.io :as i]
+            [czlab.basal.xpis :as po]
             [czlab.basal.core :as c :refer [n# is?]])
 
   (:import [io.netty.channel ChannelHandlerContext]
@@ -52,10 +49,6 @@
 (defprotocol HttpHeadersAPI
   (fmt-error [_ body] "")
   (fmt-success [_ rgObj] ""))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defprotocol RangeObjAPI
-  (finz! [_] ""))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (def ^String DEF-BD "21458390-ebd6-11e4-b80c-0800200c9a66")
@@ -158,8 +151,8 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defrecord HttpRangesObj []
-  RangeObjAPI
-  (finz! [rgObj]
+  po/Finzable
+  (finz [rgObj]
     (assoc rgObj :finz? true))
   ChunkedInput
   (readChunk [_ ^ChannelHandlerContext ctx]
@@ -200,7 +193,9 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- brange-chunk<>
+
   [src cType start end]
+
   (let [[s ln] (cond (xfile? src) (xfiles?? src)
                      (bytes? src) [(doto (i/istream src)
                                      (.mark 0)) (c/n# src)]
@@ -215,7 +210,9 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- brange-chunk<+>
+
   [src ctype start end]
+
   (let [{:as C
          :keys [ctype start end length]}
         (brange-chunk<> src ctype start end)]
@@ -232,7 +229,9 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- range-init
+
   [rgObj rangeStr]
+
   (l/debug "range= %s\nrg-obj= %s."
            rangeStr (i/fmt->edn rgObj))
   (letfn
@@ -327,9 +326,12 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn http-ranges<>
+
   "Maybe handle http byte ranges."
+
   ([range source]
    (http-ranges<> range "application/octet-stream" source))
+
   ([range cType source]
    (l/debug "range= %s, type= %s, source= %s." range cType source)
    (when (c/matches? range "^\\s*bytes=[0-9,-]+")

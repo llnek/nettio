@@ -26,7 +26,6 @@ import io.netty.util.ReferenceCountUtil;
 /**
  * Refer to http://www.adobe.com/devnet/articles/crossdomain_policy_file_spec.html
  *
- * @author Kenneth Leung
  */
 public class FlashHandler extends InboundHandler {
 

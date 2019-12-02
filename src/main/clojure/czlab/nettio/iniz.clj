@@ -6,12 +6,7 @@
 ;; the terms of this license.
 ;; You must not remove this notice, or any other, from this software.
 
-(ns
-
-  ^{:doc ""
-      :author "Kenneth Leung"}
-
-  czlab.nettio.iniz
+(ns czlab.nettio.iniz
 
   (:require [clojure.java.io :as io]
             [clojure.string :as cs]
@@ -93,16 +88,17 @@
 (defonce ^AttributeKey rsp-key  (n/akey<> :client-rsp-results))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(c/defonce- ^{:tag ChannelHandler}
+(c/defonce-
+  ^{:tag ChannelHandler}
   client-hdlr
   (proxy [InboundHandler][]
     (onRead [ctx ch msg]
-      (let [^List pl (n/akey?? ctx rsp-key)
-            p (.remove pl 0)]
+      (let [pl (n/akey?? ctx rsp-key)
+            p (.remove ^List pl 0)]
         (some-> p (deliver msg))))
     (onError [ctx err]
-      (let [^List pl (n/akey?? ctx rsp-key)
-            p (.remove pl 0)]
+      (let [pl (n/akey?? ctx rsp-key)
+            p (.remove ^List pl 0)]
         (some-> p (deliver err))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -181,7 +177,9 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- hshaker
+
   ^WebSocketClientHandshaker [^URI uri]
+
   (l/debug "wsc handshake uri= %s." (.toString uri))
   (WebSocketClientHandshakerFactory/newHandshaker
     uri WebSocketVersion/V13 nil true (DefaultHttpHeaders.)))

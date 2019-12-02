@@ -6,9 +6,7 @@
 ;; the terms of this license.
 ;; You must not remove this notice, or any other, from this software.
 
-(ns
-
-  czlab.test.niou.mock
+(ns czlab.test.niou.mock
 
   (:require [czlab.basal.io :as i]
             [czlab.basal.core :as c]

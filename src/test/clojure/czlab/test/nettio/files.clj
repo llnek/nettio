@@ -6,11 +6,9 @@
 ;; the terms of this license.
 ;; You must not remove this notice, or any other, from this software.
 
-(ns
-  ^{:doc "Sample netty file server."
-    :author "Kenneth Leung"}
+(ns czlab.test.nettio.files
 
-  czlab.test.nettio.files
+  "Sample netty file server."
 
   (:gen-class)
 

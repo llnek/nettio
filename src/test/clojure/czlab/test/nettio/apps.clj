@@ -6,11 +6,7 @@
 ;; the terms of this license.
 ;; You must not remove this notice, or any other, from this software.
 
-(ns
-  ^{:doc ""
-    :author "Kenneth Leung"}
-
-  czlab.test.nettio.apps
+(ns czlab.test.nettio.apps
 
   (:require [clojure.java.io :as io]
             [clojure.test :as ct]
@@ -49,7 +45,7 @@
           {:keys [^XData body]} (deref r 3000 nil)]
       ;(l/debug "bbb = %s" (.strit body))
       (po/stop w)
-      (cc/finz! c)
+      (po/finz c)
       (u/pause 500)
       (and body (c/hgl? (i/x->str body)))))
 
@@ -65,7 +61,7 @@
                            "/test/discarder?a=1&b=john%27smith"))
           {:keys [body]} (deref r 3000 nil)]
       (po/stop w)
-      (cc/finz! c)
+      (po/finz c)
       (u/pause 500)
       (zero? (if body (.size ^XData body) -1))))
 
@@ -83,7 +79,7 @@
           {:keys [^XData body]} (deref r 5000 nil)]
       (l/debug "bbbb = %s" (.strit body))
       (po/stop w)
-      (cc/finz! c)
+      (po/finz c)
       (u/pause 500)
       (and body
            (pos? (.size ^XData body))
@@ -104,7 +100,7 @@
           {:keys [body]} (deref r 5000 nil)
           des (i/tmpfile tn)]
       (po/stop w)
-      (cc/finz! c)
+      (po/finz c)
       (u/pause 500)
       (and body
            (zero? (.size ^XData body))

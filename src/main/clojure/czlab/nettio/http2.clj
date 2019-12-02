@@ -6,11 +6,7 @@
 ;; the terms of this license.
 ;; You must not remove this notice, or any other, from this software.
 
-(ns
-  ^{:doc ""
-    :author "Kenneth Leung"}
-
-  czlab.nettio.http2
+(ns czlab.nettio.http2
 
   (:require [clojure.java.io :as io]
             [clojure.string :as cs]
@@ -79,11 +75,18 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defmacro h2xhdr*
-  [name] `(.toString (.text ~(symbol (str "HttpConversionUtil$ExtensionHeaderNames/"  (str name))))))
+
+  [name]
+  `(.toString
+     (.text ~(symbol
+               (str "HttpConversionUtil$ExtensionHeaderNames/"  (str name))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- std->headers
-  ^DefaultHttp2Headers [^Headers hds]
+
+  ^DefaultHttp2Headers
+  [^Headers hds]
+
   (reduce
     #(let [^Http2Headers acc %1
            ^String n %2
@@ -91,12 +94,13 @@
        (if (c/one? vs)
          (.set acc n (first vs))
          (doseq [v vs] (.add acc n v))) acc)
-    (DefaultHttp2Headers.)
-    (.keySet hds)))
+    (DefaultHttp2Headers.) (.keySet hds)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- headers->std
+
   [^Http2Headers hds]
+
   (reduce
     (fn [^Headers acc ^String n]
       (let [arr (HeadersUtils/getAllAsString hds n)]
@@ -105,11 +109,11 @@
           (doseq [v arr]
             (.add acc n v)))
         acc))
-    (Headers.)
-    (HeadersUtils/namesAsString hds)))
+    (Headers.) (HeadersUtils/namesAsString hds)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (def h2-settings<>
+
   (proxy [InboundHandler][]
     (onRead [ctx ch msg]
       (cond (c/is? Http2Settings msg)
@@ -121,7 +125,6 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- on-h2-write
 
-  ""
   [^H2Handler self
    ^ChannelHandlerContext ctx msg ^ChannelPromise cp]
 
@@ -168,7 +171,9 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn h2-handler<>
+
   [rcp max-mem-size]
+
   (letfn
     [(finz [ctx sid]
        (let [hh (n/akey?? ctx h2msgHkey)
@@ -222,7 +227,9 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn hx-pipeline
+
   [p args]
+
   (let [{:keys [user-cb
                 cors-cfg max-frame-size]} args
         co (DefaultHttp2Connection. true)
@@ -243,7 +250,9 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn h2-pipeline
+
   [p args]
+
   (let [{:keys [user-cb
                 max-mem-size]} args]
     (n/pp->last p "svr-h2f" (h2-handler<> nil max-mem-size))

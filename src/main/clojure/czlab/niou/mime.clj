@@ -6,9 +6,7 @@
 ;; the terms of this license.
 ;; You must not remove this notice, or any other, from this software.
 
-(ns
-
-  czlab.niou.mime
+(ns czlab.niou.mime
 
   "MIME helpers."
 
@@ -44,6 +42,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (c/defmacro- is-pkcs7-mime?
+
   [s] `(c/embeds? ~s "application/x-pkcs7-mime"))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -129,7 +128,9 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- setup
+
   [file]
+
   (let [p (u/load-java-props file)]
     (reset! _mime-cache (u/pmap<> p))
     (c/wo* [inp (->> (.entrySet p)

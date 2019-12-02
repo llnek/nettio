@@ -22,7 +22,6 @@ import io.netty.handler.codec.http2.Http2ConnectionDecoder;
 import io.netty.handler.codec.http2.Http2ConnectionEncoder;
 
 /**
- * @author Kenneth Leung
  *
  */
 public abstract class H2HandlerBuilder

@@ -18,7 +18,6 @@ import java.util.Locale;
 import java.util.TimeZone;
 
 /**
- * @author Kenneth Leung
  */
 public enum DateUtil {
 ;
@@ -69,6 +68,4 @@ public enum DateUtil {
   }
 
 }
-
-
 

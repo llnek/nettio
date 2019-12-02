@@ -6,11 +6,9 @@
 ;; the terms of this license.
 ;; You must not remove this notice, or any other, from this software.
 
-(ns
-  ^{:doc "Netty servers."
-    :author "Kenneth Leung"}
+(ns czlab.nettio.server
 
-  czlab.nettio.server
+  "Netty servers."
 
   (:require [clojure.java.io :as io]
             [clojure.string :as cs]
@@ -42,7 +40,9 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- stop-server
+
   [{:keys [channel] :as server}]
+
   (let [^Channel ch (nth channel 0)]
     (when (some-> ch .isOpen)
       (c/try! (.close ch)
@@ -52,7 +52,9 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- build<tcp>
+
   [server]
+
   (l/debug "about to build a web-server...")
   (let [{:as args'
          :keys [threads
@@ -122,7 +124,9 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- start<tcp>
+
   [server options]
+
   (letfn
     [(ssvr [^ServerBootstrap bs host port]
        (let [^H1DataFactory
@@ -154,7 +158,9 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- build<udp>
+
   [server]
+
   (let [{:as args'
          :keys [inizor threads options]}
         (merge {:threads 0
@@ -183,7 +189,9 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- start<udp>
+
   [server options]
+
   (letfn
     [(ssvr [^Bootstrap bs host port]
        (let [ip (if (c/nichts? host)
@@ -222,16 +230,18 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn udp-server-module<>
-  ""
+
   ([] (udp-server-module<> nil))
+
   ([args]
    (-> (if (fn? args) {:user-cb args} args)
        (assoc :inizor z/udp-inizor<>) NettyUdpServer. )))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn web-server-module<>
-  ""
+
   ([] (web-server-module<> nil))
+
   ([args]
    (-> (if (fn? args) {:user-cb args} args)
        (assoc :inizor z/web-inizor<>) NettyTcpServer. )))

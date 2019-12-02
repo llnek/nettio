@@ -6,11 +6,9 @@
 ;; the terms of this license.
 ;; You must not remove this notice, or any other, from this software.
 
-(ns
-  ^{:doc "Http client using netty."
-    :author "Kenneth Leung"}
+(ns czlab.nettio.client
 
-  czlab.nettio.client
+  "Http client using netty."
 
   (:require [clojure.java.io :as io]
             [clojure.string :as cs]
@@ -20,10 +18,11 @@
             [czlab.basal.io :as i]
             [czlab.basal.core :as c]
             [czlab.basal.util :as u]
+            [czlab.basal.xpis :as po]
             [czlab.nettio.core :as n]
             [czlab.nettio.http :as h1]
-            [czlab.nettio.http2 :as h2]
-            [czlab.nettio.iniz :as iz])
+            [czlab.nettio.iniz :as iz]
+            [czlab.nettio.http2 :as h2])
 
   (:import [io.netty.handler.codec.http.websocketx.extensions.compression
             WebSocketClientCompressionHandler]
@@ -121,7 +120,9 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- boot!
+
   [args]
+
   (l/info "client bootstrap ctor().")
   (let [{:as ARGS
          :keys [max-msg-size max-mem-size
@@ -150,18 +151,21 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- hx-conn
+
   "Set up connection for various protocols - h1, wsock, h2."
   [module host port hint]
+
   (letfn
     [(connect [bs ssl?]
-       (let [port' (if (neg? port)
-                     (if ssl? 443 80) port)
+       (let [port' (if-not (neg? port)
+                     port (if ssl? 443 80))
              _ (l/debug "connecting to: %s@%s." host port')
              ^ChannelFuture
              cf (some-> (.connect ^Bootstrap bs
                                   (InetSocketAddress. (str host)
                                                       (int port'))) .sync)
-             rc (try (or (and (.isSuccess cf) (.channel cf))
+             rc (try (or (and (.isSuccess cf)
+                              (.channel cf))
                          (.cause cf))
                      (catch Throwable _ _))]
          ;add generic key to hold response promises
@@ -178,13 +182,14 @@
          (is-ssl? [_] ssl?)
          (is-open? [_] (.isOpen channel))
          (channel [_] channel)
-         (finz! [_] (n/nobs! bs channel))
          (write-msg [_ msg] (cc/write-msg _ msg nil))
          (write-msg [_ msg args]
            (c/condp?? instance? hint
              H2Inizor (cc/h2-send module _ msg args)
              H1Inizor (cc/h1-send module _ msg args)
-             WSInizor (cc/ws-send module _ msg args)))))
+             WSInizor (cc/ws-send module _ msg args)))
+         po/Finzable
+         (finz [_] (n/nobs! bs channel))))
      (h1c-finz [bs info]
        ;prepare for shutdown upon CLOSE
        (n/cf-cb (.closeFuture ^Channel (:channel info))
@@ -228,14 +233,19 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- http-req<>
+
   ^HttpRequest [mt uri]
+
   (DefaultHttpRequest. HttpVersion/HTTP_1_1
                        (HttpMethod/valueOf (c/ucase (name mt))) (str uri)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- http-req<+>
+
   {:tag FullHttpRequest}
+
   ([mt uri] (http-req<+> mt uri nil))
+
   ([mt uri ^ByteBuf body]
    (let [op (HttpMethod/valueOf (c/ucase (name mt)))]
      (if (nil? body)
@@ -246,15 +256,18 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- http-post<+>
+
   ^FullHttpRequest
   [^String uri ^ByteBuf body] (http-req<+> :post uri body))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- http-post<>
+
   ^HttpRequest [uri] (http-req<> :post uri))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- http-get<>
+
   ^FullHttpRequest [uri] (http-req<+> :get uri nil))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -288,8 +301,8 @@
        Http2xMsg
        (let [ch (cc/channel conn)]
          (c/do-with [out (promise)]
-           (let [^List plist (n/akey?? ch iz/rsp-key)
-                 _ (.add plist out)]
+           (let [pl (n/akey?? ch iz/rsp-key)]
+             (.add ^List pl out)
              (n/write-msg ch msg))))
        Http1xMsg
        (let [{:keys [^Headers headers]} msg]
@@ -348,8 +361,8 @@
       (l/debug (str "about to flush out req (headers), "
                     "isKeepAlive= %s, content-length= %s") keep-alive? clen)
       (c/do-with [out (promise)]
-        (let [^List plist (n/akey?? ch iz/rsp-key)
-              _ (.add plist out)
+        (let [pl (n/akey?? ch iz/rsp-key)
+              _ (.add ^List pl out)
               cf (n/write-msg* ch req)
               cf (condp instance? body
                    File
@@ -363,8 +376,9 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn web-client-module<>
-  ""
+
   ([] (web-client-module<> nil))
+
   ([args] (c/object<> NettyClientModule args)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

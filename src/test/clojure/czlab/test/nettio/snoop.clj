@@ -6,11 +6,9 @@
 ;; the terms of this license.
 ;; You must not remove this notice, or any other, from this software.
 
-(ns
-  ^{:doc "Sample netty app - snoops on the request."
-    :author "Kenneth Leung"}
+(ns czlab.test.nettio.snoop
 
-  czlab.test.nettio.snoop
+  "Sample netty app - snoops on the request."
 
   (:gen-class)
 

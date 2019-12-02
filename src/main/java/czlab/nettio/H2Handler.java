@@ -36,12 +36,16 @@ import io.netty.util.CharsetUtil;
 import static io.netty.buffer.Unpooled.copiedBuffer;
 import static io.netty.buffer.Unpooled.unreleasableBuffer;
 import static io.netty.handler.codec.http.HttpResponseStatus.OK;
+import static org.slf4j.LoggerFactory.getLogger;
+import org.slf4j.Logger;
+import czlab.basal.CU;
 
 /**
- * @author Kenneth Leung
  *
  */
 public abstract class H2Handler extends Http2ConnectionHandler implements Http2FrameListener {
+
+  public static final Logger TLOG = getLogger(ChannelInizer.class);
 
   public H2Handler(Http2ConnectionDecoder decoder, Http2ConnectionEncoder encoder,
                    Http2Settings initialSettings) {
@@ -49,13 +53,13 @@ public abstract class H2Handler extends Http2ConnectionHandler implements Http2F
   }
 
   public void onError(ChannelHandlerContext ctx, boolean outbound, Throwable cause) {
-    cause.printStackTrace();
-    super.onError(ctx, outbound,cause);
+    super.onError(ctx, outbound, cause);
+    if (CU.canLog())
+      TLOG.error("", cause);
   }
 
   public void parWrite(ChannelHandlerContext ctx,
       Object msg, ChannelPromise promise) throws java.lang.Exception {
-    System.out.println("dude : inside parWrite...." + ctx.channel());
     super.write(ctx, msg, promise);
   }
 
@@ -66,8 +70,9 @@ public abstract class H2Handler extends Http2ConnectionHandler implements Http2F
 
   @Override
   public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
-    cause.printStackTrace();
     super.exceptionCaught(ctx, cause);
+    if (CU.canLog())
+      TLOG.error("", cause);
     ctx.close();
   }
 

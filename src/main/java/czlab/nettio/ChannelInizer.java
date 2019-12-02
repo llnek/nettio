@@ -19,7 +19,6 @@ import org.slf4j.Logger;
 import czlab.basal.CU;
 
 /**
- * @author Kenneth Leung
  */
 public abstract class ChannelInizer extends ChannelInitializer {
 

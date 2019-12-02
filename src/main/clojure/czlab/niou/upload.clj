@@ -6,11 +6,9 @@
 ;; the terms of this license.
 ;; You must not remove this notice, or any other, from this software.
 
-(ns
-  ^{:doc "Functions to handle form uploads."
-    :author "Kenneth Leung"}
+(ns czlab.niou.upload
 
-  czlab.niou.upload
+  "Functions to handle form uploads."
 
   (:require [clojure.java.io :as io]
             [czlab.basal.util :as u]
@@ -99,7 +97,7 @@
         (c/sbf+ b
                 "name="
                 (.getFieldName n)
-                " ,data="
+                ",data="
                 (if (.isFormField n)
                   (.toString n) (.getName n))))
       (get-all-items me)))
@@ -124,6 +122,7 @@
   "Create a new URLFormItemsObj."
 
   ([] (form-items<> nil))
+
   ([items]
    (c/object<> ULFormItemsObj :items (vec items))))
 
@@ -173,6 +172,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- hconv
+
   [^FileItemHeaders hds]
 
   (let [h (Headers.)
@@ -187,7 +187,8 @@
 (defn- eval-field
 
   "Process a file-item."
-  ^FileItem [^FileItemStream item]
+  ^FileItem
+  [^FileItemStream item]
 
   (let [res (XData.)
         ffld? (.isFormField item)]
@@ -245,3 +246,4 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF
+

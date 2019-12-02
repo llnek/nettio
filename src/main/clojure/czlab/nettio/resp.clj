@@ -6,11 +6,7 @@
 ;; the terms of this license.
 ;; You must not remove this notice, or any other, from this software.
 
-(ns
-  ^{:doc ""
-    :author "Kenneth Leung"}
-
-  czlab.nettio.resp
+(ns czlab.nettio.resp
 
   (:require [clojure.java.io :as io]
             [clojure.string :as cs]
@@ -22,6 +18,7 @@
             [czlab.basal.io :as i]
             [czlab.basal.core :as c]
             [czlab.basal.dates :as d]
+            [czlab.basal.xpis :as po]
             [czlab.nettio.core :as n]
             [czlab.nettio.http :as h1]
             [czlab.nettio.ranges :as nr])
@@ -62,10 +59,6 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;(set! *warn-on-reflection* false)
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- rs-headers??
-  ^Headers [msg] (:headers msg))
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (c/def- conds-hds
   [[:if-unmod-since (str (n/h1hdr* IF_UNMODIFIED_SINCE))]
@@ -80,18 +73,6 @@
    [[:last-mod (str (n/h1hdr* LAST_MODIFIED))]
     [:etag (str (n/h1hdr* ETAG))]
     [:ctype (str (n/h1hdr* CONTENT_TYPE))]])
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(extend-protocol cc/HttpMsgGist
-  HttpResultMsg
-  (msg-header-keys [msg]
-    (into #{} (.keySet (rs-headers?? msg))))
-  (msg-header-vals [msg h]
-    (into [] (.get (rs-headers?? msg) (str h))))
-  (msg-header [msg h]
-   (.getFirst (rs-headers?? msg) (str h)))
-  (msg-header? [msg h]
-    (.containsKey (rs-headers?? msg) (str h))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (declare replyer<> result<>)
@@ -141,26 +122,31 @@
     (assoc res :body body))
   (res-header-add [res name value]
     (c/do-with [res]
-      (.add (rs-headers?? res) ^String name value)))
+      (.add (n/ghdrs res) ^String name value)))
   (res-header-set [res name value]
     (c/do-with [res]
-      (.set (rs-headers?? res) ^String name value)))
+      (.set (n/ghdrs res) ^String name value)))
   (res-header-del [res name]
     (c/do-with [res]
-      (.remove (rs-headers?? res) ^String name))))
+      (.remove (n/ghdrs res) ^String name))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn etag-file
-  "ETag based on a file object" ^String [in]
+
+  "ETag based on a file object."
+  ^String [in]
+
   (if-some [f (io/file in)]
     (format "\"%s-%s\"" (.lastModified f) (.hashCode f))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (c/defmacro- code-ok?
+
   [c] `(let [c# ~c] (and (>= c# 200)(< c# 300))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (c/defmacro- cond-err-code
+
   [m] `(let [m# ~m]
          (if (or (= m# :get) (= m# :head))
            (n/scode* ~'NOT_MODIFIED)
@@ -168,9 +154,11 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- if-none-match?
+
   "Condition fails if the reply eTag
   matches, or if filter is a wildcard."
   [method eTag code body conds]
+
   (let [{:keys [value has?]} (:if-none-match conds)
         value (c/strim value)
         ec (cond-err-code method)]
@@ -181,9 +169,11 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- if-match?
+
   "Condition fails if reply eTag doesn't
   match, or if filter is wildcard and no eTag."
   [method eTag code body conds]
+
   (let [{:keys [value has?]} (:if-match conds)
         value (c/strim value)
         ec (cond-err-code method)]
@@ -195,9 +185,11 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- if-unmod-since?
+
   "Condition fails if the last-modified
   timestamp is greater than the given date."
   [method lastMod code body conds]
+
   (let [{:keys [value has?]} (:if-unmod-since conds)
         value (c/strim value)
         rc (cond-err-code method)
@@ -208,9 +200,11 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- if-mod-since?
+
   "Condition fails if the last-modified
   time-stamp is less than the given date."
   [method lastMod code body conds]
+
   (let [{:keys [value has?]} (:if-mod-since conds)
         value (c/strim value)
         rc (cond-err-code method)
@@ -221,9 +215,11 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- if-range?
+
   "Sort out the range if any, then apply
   the if-range condition."
   [eTag lastMod code cType body conds]
+
   (let [ec (n/scode* REQUESTED_RANGE_NOT_SATISFIABLE)
         pc (n/scode* PARTIAL_CONTENT)
         ^String hd (get-in conds [:if-range :value])
@@ -245,7 +241,9 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- encode-cookies
+
   [cookies]
+
   (c/preduce<vec>
     #(let [^Cookie c
            (condp instance? %2
@@ -256,7 +254,9 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- replyer<>
+
   [res sessionObj]
+
   (l/debug "replyer called with res = %s.\nsessionObj = %s." res sessionObj)
   (letfn
     [(zmap-headers [msg headers]
@@ -311,7 +311,7 @@
             [status nil] [status body])
           rangeRef
           (if-some
-            [ro (c/cast? HttpRangesObj body)] (nr/finz! ro))
+            [ro (c/cast? HttpRangesObj body)] (po/finz ro))
           [body clen]
           (cond (c/is? InputStream body)
                 [(HttpChunkedInput.

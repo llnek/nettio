@@ -6,9 +6,7 @@
 ;; the terms of this license.
 ;; You must not remove this notice, or any other, from this software.
 
-(ns
-
-  czlab.test.niou.core
+(ns czlab.test.niou.core
 
   (:require [czlab.test.niou.mock :as m]
             [czlab.niou.webss :as ws]
@@ -31,7 +29,7 @@
            [org.apache.commons.fileupload FileItem]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(def ^:private phone-agents
+(c/def- phone-agents
   {:winphone
   " Mozilla/5.0 (compatible; MSIE 10.0; Windows Phone 8.0; Trident/6.0; IEMobile/10.0; ARM; Touch; NOKIA; Lumia 920) "
    :safari_osx
@@ -55,9 +53,9 @@
    :android_galaxy
   " Mozilla/5.0 (Linux; U; Android 4.1.1; en-us; SAMSUNG-SGH-I747 Build/JRO03L) AppleWebKit/534.30 (KHTML, like Gecko) Version/4.0 Mobile Safari/534.30 "})
 
-(def ^:private pkeybytes (i/x->bytes "mocker"))
+(c/def- pkeybytes (i/x->bytes "mocker"))
 
-(def ^:private ROUTES
+(c/def- ROUTES
   [{:XXXhandler "p1"
     :pattern "/{a}/{b}"
     :groups {:a "[a-z]+" :b "[0-9]+"}
@@ -81,7 +79,7 @@
 
    {:pattern "/4"}])
 
-(def ^:private RC (r/route-cracker<> ROUTES))
+(c/def- RC (r/route-cracker<> ROUTES))
 ;(println "routes = " (i/fmt->edn RC))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

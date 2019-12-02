@@ -6,11 +6,7 @@
 ;; the terms of this license.
 ;; You must not remove this notice, or any other, from this software.
 
-(ns
-  ^{:doc ""
-    :author "Kenneth Leung"}
-
-  czlab.nettio.http
+(ns czlab.nettio.http
 
   (:require [clojure.java.io :as io]
             [clojure.string :as cs]
@@ -91,8 +87,9 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn config->cors
-  ""
+
   ^CorsConfig [args]
+
   (let [{:keys [enabled?
                 allow-credentials?
                 allowed-req-headers
@@ -126,7 +123,8 @@
                                 #^"[Ljava.lang.String;"
                                 (into-array String allowed-req-headers)))
       (when (not-empty allowed-req-methods)
-        (->> (map #(HttpMethod/valueOf (cs/upper-case %1)) allowed-req-methods)
+        (->> allowed-req-methods
+             (map #(HttpMethod/valueOf (cs/upper-case %1)))
              (into-array HttpMethod)
              (.allowedRequestMethods b)))
       (if (not-empty expose-headers)
@@ -153,12 +151,16 @@
 ;reusables
 (c/defonce- ^HttpResponse expected-ok
   (n/http-reply<+> (n/scode* CONTINUE)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (c/defonce- ^HttpResponse expected-failed
   (n/http-reply<+> (n/scode* EXPECTATION_FAILED)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (c/defmacro- decoder<>
+
   [ctx msg]
+
   `(HttpPostRequestDecoder.
      (czlab.nettio.core/dfac?? ~ctx)
      ~(with-meta msg {:tag 'HttpRequest})
@@ -166,7 +168,10 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn std->headers
-  ^HttpHeaders [^Headers hds]
+
+  ^HttpHeaders
+  [^Headers hds]
+
   (reduce
     (fn [^HttpHeaders acc ^String n]
       (let [lst (.get hds n)]
@@ -177,7 +182,10 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- headers->std
-  ^Headers [^HttpHeaders hds]
+
+  ^Headers
+  [^HttpHeaders hds]
+
   (reduce
     (fn [^Headers acc ^String n]
       (doseq [v (.getAll hds n)]
@@ -185,7 +193,9 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- headers->map
+
   [^HttpHeaders hds]
+
   (c/preduce<map>
     (fn [acc ^String n]
       (assoc acc
@@ -194,7 +204,9 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- params->map
+
   [^Map params]
+
   (c/preduce<map>
     (fn [acc ^String n]
       (assoc! acc
@@ -262,6 +274,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (def ws-monolith<>
+
   (proxy [DuplexHandler][true]
     (preWrite [ctx msg]
       (if-not (c/is? WsockMsg msg)
@@ -310,7 +323,9 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- cfg-websock
+
   [^ChannelHandlerContext ctx ^HttpRequest req]
+
   (let [cc (n/cache?? ctx)
         uri (.uri req)
         path (.path (QueryStringDecoder. uri))
@@ -340,7 +355,7 @@
                   "WSACC" (WebSocketFrameAggregator. max-frame-size))
       (n/pp->next pp "WSACC" "wsock" ws-monolith<>)
 
-      (n/safe-remove-handler* pp
+      (n/remove-handler* pp
                               [HttpContentDecompressor
                                HttpContentCompressor
                                CorsHandler
@@ -351,7 +366,9 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- clear-adder!
+
   [ctx]
+
   (let [impl (c/mdel! (n/cache?? ctx) :adder)]
     (c/try!
       (some-> (c/cast? Attribute impl) .release))
@@ -360,8 +377,10 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- assert-decoded-ok!
+
   "Make sure message is structurally ok."
   [ctx msg]
+
   (when (n/decoder-err? msg)
     (->> (n/scode* BAD_REQUEST)
          (n/reply-status ctx))
@@ -370,7 +389,9 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- do-read-part
+
   [ctx ^HttpContent part]
+
   (let [end? (n/last-part? part)
         cc (n/cache?? ctx)
         impl (c/mget cc :adder)]
@@ -383,7 +404,9 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- do-last-part
+
   [ctx ^LastHttpContent part]
+
   (let [cc (n/cache?? ctx)
         ^HttpMessage
         msg (c/mget cc :msg)
@@ -401,23 +424,25 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- on-content
-  [ctx part]
-  (try
 
+  [ctx part]
+
+  (try
     (let [cc (n/cache?? ctx)
           cur (c/mget cc :msg)]
       (when-not (nil? cur)
         (assert-decoded-ok! ctx part)
         (do-read-part ctx part)))
-
     (catch Throwable e
-      (if (c/!is? FailFast e) (throw e)))
+      (or (c/is? FailFast e) (throw e)))
     (finally
       (n/ref-del part))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- do-100-cont
+
   [ctx req]
+
   (letfn
     [(cont-100? []
        (let [{:keys [max-msg-size]}
@@ -436,7 +461,9 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- do-cache-req
+
   [ctx req]
+
   (let [m (n/get-method req)
         post? (n/put-post? m)
         ct (->> (n/h1hdr* CONTENT_TYPE)
@@ -465,7 +492,9 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- do-cache-rsp
+
   [ctx msg]
+
   (let [{:keys [max-mem-size]}
         (n/chcfg?? ctx)
         cc (n/cache?? ctx)]
@@ -474,45 +503,47 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- do-read-msg
+
   [ctx msg]
   (if (c/is? HttpContent msg) (on-content ctx msg)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- on-response
-  [ctx rsp]
-  (try
 
+  [ctx rsp]
+
+  (try
     (assert-decoded-ok! ctx rsp)
     (do-cache-rsp ctx rsp)
     (do-read-msg ctx rsp)
-
     (catch Throwable e
       (n/ref-del rsp)
       (c/mdel! (n/cache?? ctx) :msg)
-      (if (c/!is? FailFast e) (throw e)))))
+      (or (c/is? FailFast e) (throw e)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- on-request
+
   [ctx req]
+
   (try
-
     (l/debug "REQ: %s." req)
-
     (assert-decoded-ok! ctx req)
     (do-100-cont ctx req)
     (do-cache-req ctx req)
     (do-read-msg ctx req)
-
     (catch Throwable e
       (n/ref-del req)
       (some-> ctx
               n/cache??
               (c/mdel! :msg))
-      (if (c/!is? FailFast e) (throw e)))))
+      (or (c/is? FailFast e) (throw e)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- read-complete
+
   [ctx part]
+
   (let [cc (n/cache?? ctx)
         msg (c/mget cc :msg)
         mode (c/mget cc :mode)
@@ -522,11 +553,13 @@
       (n/fire-msg ctx gist)
       (try (cfg-websock ctx msg)
            (catch Throwable e
-             (if (c/!is? FailFast e) (throw e)))))))
+             (or (c/is? FailFast e) (throw e)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- on-read
+
   [ctx msg]
+
   (c/condp?? instance? msg
     HttpResponse (on-response ctx msg)
     HttpRequest (on-request ctx msg)
@@ -538,12 +571,16 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (c/defmacro- !cont-100?
+
   [msg]
+
   `(not= HttpResponseStatus/CONTINUE
          (some-> (c/cast? FullHttpResponse ~msg) .status)))
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- on-write
+
   [ctx msg]
+
   (letfn
     [(delhead [^List q] (if-not
                           (.isEmpty q)
@@ -574,6 +611,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (def h1-simple<>
+
   (proxy [DuplexHandler][]
     (onHandlerAdded [ctx]
       (n/akey+ ctx n/cache-key (HashMap.)))
@@ -584,6 +622,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (def h1-complex<>
+
   (proxy [DuplexHandler][]
     (onRead [ctx ch msg]
       (let [cc (n/cache?? ctx)

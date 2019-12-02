@@ -6,9 +6,7 @@
 ;; the terms of this license.
 ;; You must not remove this notice, or any other, from this software.
 
-(ns
-
-  czlab.niou.core
+(ns czlab.niou.core
 
   (:require [clojure.java.io :as io]
             [clojure.string :as cs]
@@ -45,7 +43,6 @@
              [_ msg args] "")
   (channel [_] "")
   (module [_] "")
-  (finz! [_] "")
   (remote-host [_] "")
   (remote-port [_] ""))
 
@@ -85,32 +82,29 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn encoded-paths
-  ""
-  [u]
-  (cond
-    (c/is? URL u)
-    (encoded-paths (.toURI ^URL u))
-    (c/is? URI u)
-    (let [p (.getRawPath ^URI u)
-          q (.getRawQuery ^URI u)]
-      [p (if (c/hgl? q)
-           (str p "?" q) p)])))
+
+  [u] (cond
+        (c/is? URL u)
+        (encoded-paths (.toURI ^URL u))
+        (c/is? URI u)
+        (let [p (.getRawPath ^URI u)
+              q (.getRawQuery ^URI u)]
+          [p (if-not (c/hgl? q) p (str p "?" q))])))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn decoded-paths
-  ""
-  [u]
-  (cond
-    (c/is? URL u)
-    (decoded-paths (.toURI ^URL u))
-    (c/is? URI u)
-    (let [p (.getPath ^URI u)
-          q (.getQuery ^URI u)]
-      [p (if (c/hgl? q)
-           (str p "?" q) p)])))
+
+  [u] (cond
+        (c/is? URL u)
+        (decoded-paths (.toURI ^URL u))
+        (c/is? URI u)
+        (let [p (.getPath ^URI u)
+              q (.getQuery ^URI u)]
+          [p (if-not (c/hgl? q) p (str p "?" q))])))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn encode-uri
+
   ^String [uri]
   (cs/join "/" (map #(u/url-encode %) (cs/split uri #"/"))))
 
@@ -125,7 +119,8 @@
               (c/is? Headers headers))]}
    (c/object<> czlab.niou.core.Http2xMsg
                :status status
-               :body (XData. body)
+               :body (or (c/cast? XData body)
+                         (XData. body))
                :headers (or headers (Headers.))))
 
   ([method uri headers body]
@@ -138,7 +133,8 @@
                     (URI. uri))]
      (c/object<> czlab.niou.core.Http2xMsg
                  :request-method method
-                 :body (XData. body)
+                 :body (or (c/cast? XData body)
+                           (XData. body))
                  :query-string (.getRawQuery uriObj)
                  :uri (.getRawPath uriObj)
                  :uri2 uriObj
@@ -154,11 +150,13 @@
              (c/is? URI uri))
          (or (nil? headers)
              (c/is? Headers headers))]}
+
   (let [uriObj (or (c/cast? URI uri)
                    (URI. uri))]
     (c/object<> czlab.niou.core.Http1xMsg
                 :request-method method
-                :body (XData. body)
+                :body (or (c/cast? XData body)
+                          (XData. body))
                 :query-string (.getRawQuery uriObj)
                 :uri (.getRawPath uriObj)
                 :uri2 uriObj

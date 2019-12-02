@@ -20,7 +20,7 @@
 
   :plugins [[cider/cider-nrepl "0.22.4"]
             [lein-javadoc "0.3.0"]
-            [lein-cprint "1.3.1"]
+            [lein-cprint "1.3.2"]
             [lein-codox "0.10.7"]]
 
   :test-selectors {:niou :test-niou

@@ -18,7 +18,6 @@ import io.netty.handler.codec.http2.InboundHttp2ToHttpAdapter;
 
 
 /**
- * @author Kenneth Leung
  */
 //@ChannelHandler.Sharable
 public class InboundH2ToH1 extends InboundHttp2ToHttpAdapter {

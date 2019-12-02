@@ -20,7 +20,6 @@ import java.util.Set;
  * Mimic com.sun.net.httpserver.Headers, just in case openjdk
  * doesn't support it.
  *
- * @author Kenneth Leung
  */
 public class Headers implements Map<String, List<String>> {
 
@@ -117,6 +116,4 @@ public class Headers implements Map<String, List<String>> {
   }
 
 }
-
-
 

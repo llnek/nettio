@@ -6,9 +6,7 @@
 ;; the terms of this license.
 ;; You must not remove this notice, or any other, from this software.
 
-(ns
-
-  czlab.niou.routes
+(ns czlab.niou.routes
 
   "Http url routing."
 
@@ -21,7 +19,6 @@
 
   (:import [java.io File]
            [java.util.regex Matcher Pattern]))
-           ;[jregex Matcher Pattern]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;(set! *warn-on-reflection* true)
@@ -29,6 +26,8 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (c/def- place-holder #"^\{([\*@a-zA-Z0-9_\+\-\.]+)\}$")
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;example
 (c/def- a-route-spec {:name :some-name
                       :pattern "/foo/yoo/wee/{id}/"
                       :verb :get ; or :verb #{:get :post}
@@ -66,8 +65,8 @@
                     regex
                     (.matcher path))
               ok? (.matches m)
-              gc (if ok?
-                   (.groupCount m) -1)]
+              gc (if-not ok?
+                   -1 (.groupCount m))]
           (if ok?
             (c/object<> RouteMatchResult
                         :route me

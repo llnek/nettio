@@ -21,7 +21,6 @@ import org.slf4j.Logger;
 import czlab.basal.CU;
 
 /**
- * @author Kenneth Leung
  */
 @ChannelHandler.Sharable
 public abstract class DuplexHandler extends ChannelDuplexHandler {
@@ -99,6 +98,7 @@ public abstract class DuplexHandler extends ChannelDuplexHandler {
 
   @Override
   public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
+    //super.exceptionCaught(ctx,cause);
     if (CU.canLog())
       TLOG.error("", cause);
     onError(ctx,cause);
@@ -124,5 +124,6 @@ public abstract class DuplexHandler extends ChannelDuplexHandler {
   public void handlerAdded(ChannelHandlerContext ctx) throws Exception {
     onHandlerAdded(ctx);
   }
+
 }
 

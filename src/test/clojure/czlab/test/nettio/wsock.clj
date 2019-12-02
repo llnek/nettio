@@ -6,11 +6,7 @@
 ;; the terms of this license.
 ;; You must not remove this notice, or any other, from this software.
 
-(ns
-  ^{:doc ""
-    :author "Kenneth Leung"}
-
-  czlab.test.nettio.wsock
+(ns czlab.test.nettio.wsock
 
   (:require [clojure.java.io :as io]
             [clojure.test :as ct]
@@ -60,7 +56,7 @@
           c (cc/ws-conn MODULE host port {:uri "/websock"})]
       (u/pause 500)
       (po/stop w)
-      (cc/finz! c)
+      (po/finz c)
       (u/pause 500)
       (and c (== 5556
                  (cc/remote-port c)))))
@@ -76,7 +72,7 @@
                    (cc/is-open? c))]
       (u/pause 500)
       (po/stop w)
-      (cc/finz! c)
+      (po/finz c)
       (u/pause 500)
       (and ok?
            (not (cc/is-open? c)))))
@@ -100,7 +96,7 @@
                     (cc/ws-text<> "hello"))
       (u/pause 666)
       (po/stop w)
-      (cc/finz! c)
+      (po/finz c)
       (u/pause 500)
       (.equals "hello" (i/x->str @out))))
 
@@ -119,7 +115,7 @@
       (cc/write-msg c (cc/ws-bytes<> HELLO-BYTES))
       (u/pause 666)
       (po/stop w)
-      (cc/finz! c)
+      (po/finz c)
       (u/pause 500)
       (u/obj-eq? HELLO-BYTES (i/x->bytes @out))))
 
@@ -142,7 +138,7 @@
       (cc/write-msg c cc/ws-ping<>)
       (u/pause 666)
       (po/stop w)
-      (cc/finz! c)
+      (po/finz c)
       (u/pause 500)
       (and (false? @ping) (true? @pong))))
 

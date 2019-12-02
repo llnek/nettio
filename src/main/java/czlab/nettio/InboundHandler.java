@@ -21,7 +21,6 @@ import org.slf4j.Logger;
 import czlab.basal.CU;
 
 /**
- * @author Kenneth Leung
  */
 @ChannelHandler.Sharable
 public abstract class InboundHandler extends ChannelInboundHandlerAdapter {
@@ -79,6 +78,7 @@ public abstract class InboundHandler extends ChannelInboundHandlerAdapter {
 
   @Override
   public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
+    //super.exceptionCaught(ctx,cause);
     if (CU.canLog())
       TLOG.error("", cause);
     onError(ctx, cause);

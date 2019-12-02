@@ -6,11 +6,9 @@
 ;; the terms of this license.
 ;; You must not remove this notice, or any other, from this software.
 
-(ns
-  ^{:doc "Net helpers."
-    :author "Kenneth Leung"}
+(ns czlab.niou.util
 
-  czlab.niou.util
+  "Net helpers."
 
   (:require [czlab.basal.util :as u]
             [czlab.basal.log :as l]
@@ -62,14 +60,17 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (c/defmacro- clean-str
+
   [s] `(czlab.basal.core/strim-any ~s ";,"))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn generate-nonce
+
   ^String [] (u/uid<>))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn generate-csrf
+
   ^String [] (u/uid<>))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -117,7 +118,8 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn parse-kindle
 
-  "Looking for Kindle in UA." [line]
+  "Looking for Kindle in UA."
+  [line]
 
   (let [p1 #".*(Silk/(\S+)).*"
         m1 (re-matches p1 line)
@@ -133,7 +135,8 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn parse-android
 
-  "Looking for Android in UA." [line]
+  "Looking for Android in UA."
+  [line]
 
   (let [p1 #".*(Android\s*(\S+)\s*).*"
         m1 (re-matches p1 line)
@@ -149,7 +152,8 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn parse-ffox
 
-  "Looking for Firefox in UA." [line]
+  "Looking for Firefox in UA."
+  [line]
 
   (let [p1 #".*(Firefox/(\S+)\s*).*"
         m1 (re-matches p1 line)
@@ -164,7 +168,8 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn parse-safari
 
-  "Looking for Safari in UA." [line]
+  "Looking for Safari in UA."
+  [line]
 
   (let [p1 #".*(Version/(\S+)\s*).*"
         m1 (re-matches p1 line)

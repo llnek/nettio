@@ -6,11 +6,7 @@
 ;; the terms of this license.
 ;; You must not remove this notice, or any other, from this software.
 
-(ns
-  ^{:doc ""
-    :author "Kenneth Leung"}
-
-  czlab.test.nettio.h1
+(ns czlab.test.nettio.h1
 
   (:require [clojure.java.io :as io]
             [clojure.test :as ct]
@@ -69,7 +65,7 @@
                           {:keep-alive? false})
           r2 (deref p2 5000 nil)]
       (po/stop w)
-      (cc/finz! c)
+      (po/finz c)
       (u/pause 500)
       (and r1 r2
            (.equals "/blah" (i/x->str (:body r1)))
@@ -92,7 +88,7 @@
           rc2 (deref r2 5000 nil)
           rc3 (deref r3 5000 nil)]
       (po/stop w)
-      (cc/finz! c)
+      (po/finz c)
       (u/pause 500)
       (and rc1 rc2 rc3
            (.equals "/r1/r2/r3"
@@ -127,7 +123,7 @@
                               (.getFieldName i)
                               (.getString i)))) items)]
       (po/stop w)
-      (cc/finz! c)
+      (po/finz c)
       (u/pause 500)
       (and (.equals "hello joe" (i/x->str body))
            (.equals "b" (rmap "a"))
@@ -164,7 +160,7 @@
                                  (.getName i))
                             (i/x->str (.get i)))) (cu/get-all-files items))]
       (po/stop w)
-      (cc/finz! c)
+      (po/finz c)
       (u/pause 500)
       (and body
            (nil? (.content ^XData body))
@@ -189,7 +185,7 @@
           rc (cc/write-msg c (cc/h1-msg<> :options "/cors" h nil))
           p (deref rc 3000 nil)]
       (po/stop w)
-      (cc/finz! c)
+      (po/finz c)
       (u/pause 500)
       (and p (== 403 (:status p)))))
 
@@ -212,7 +208,7 @@
           rc (cc/write-msg c (cc/h1-msg<> :options "/cors" h nil))
           p (deref rc 3000 nil)]
       (po/stop w)
-      (cc/finz! c)
+      (po/finz c)
       (u/pause 500)
       (and p
            (.equals origin
@@ -242,7 +238,7 @@
           {:keys [^XData body]} (deref p 5000 nil)
           s (some-> body .strit)]
       (po/stop w)
-      (cc/finz! c)
+      (po/finz c)
       (u/pause 500)
       (and (c/hgl? s) (= 0 (c/count-str s nr/DEF-BD)))))
 
@@ -267,7 +263,7 @@
           {:keys [^XData body]} (deref p 5000 nil)
           s (some-> body .strit)]
       (po/stop w)
-      (cc/finz! c)
+      (po/finz c)
       (u/pause 500)
       (and (c/hgl? s)
            (== 2 (c/count-str s nr/DEF-BD)))))

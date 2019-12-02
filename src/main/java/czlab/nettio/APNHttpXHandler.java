@@ -17,7 +17,6 @@ import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 
 /**
- * @author Kenneth Leung
  */
 @ChannelHandler.Sharable
 public abstract class APNHttpXHandler
@@ -30,13 +29,13 @@ public abstract class APNHttpXHandler
   @Override
   protected void configurePipeline(ChannelHandlerContext ctx, String protocol)
   throws Exception {
-    System.out.println("APNHttpXHandler: configPipeline: protocol = " + protocol);
+    //System.out.println("APNHttpXHandler: configPipeline: protocol = " + protocol);
     if (ApplicationProtocolNames.HTTP_2.equals(protocol)) {
       cfgH2(ctx.pipeline());
     } else if (ApplicationProtocolNames.HTTP_1_1.equals(protocol)) {
       cfgH1(ctx.pipeline());
     } else {
-      throw new IllegalStateException("unknown protocol: " + protocol);
+      throw new IllegalStateException("Unknown protocol: " + protocol);
     }
   }
 

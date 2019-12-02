@@ -6,11 +6,9 @@
 ;; the terms of this license.
 ;; You must not remove this notice, or any other, from this software.
 
-(ns
-  ^{:doc "Sample netty app - accepts and discards the request."
-    :author "Kenneth Leung"}
+(ns czlab.test.nettio.discard
 
-  czlab.test.nettio.discard
+  "Sample netty app - accepts and discards the request."
 
   (:gen-class)
 

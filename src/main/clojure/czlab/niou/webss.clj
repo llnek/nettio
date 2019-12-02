@@ -6,11 +6,9 @@
 ;; the terms of this license.
 ;; You must not remove this notice, or any other, from this software.
 
-(ns
-  ^{:doc "A Http Web Session."
-    :author "Kenneth Leung"}
+(ns czlab.niou.webss
 
-  czlab.niou.webss
+  "A Http Web Session."
 
   (:require [czlab.twisty.core :as t]
             [clojure.java.io :as io]
@@ -33,6 +31,8 @@
 (def ^String session-cookie "__xs117")
 (def ^String csrf-cookie "__xc117")
 (def ^String nv-sep "&")
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (c/def- ssid-flag :__xf01es)
 (c/def- user-flag :__u982i)
 (c/def- ct-flag :__xf184n ) ;; creation time
@@ -57,8 +57,8 @@
                 ct-flag now
                 lt-flag now
                 is-flag max-idle-secs
-                et-flag (if (c/spos? max-age-secs)
-                          (+ now (* max-age-secs 1000)) -1)})))
+                et-flag (if-not (c/spos? max-age-secs)
+                          -1 (+ now (* max-age-secs 1000)))})))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- test-cookie
@@ -113,14 +113,17 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn is-session-new?
+
   [wss] (boolean (get-in @wss [:impls :$new?])))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn is-session-null?
+
   [wss] (empty? (:impls @wss)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn set-max-idle-secs
+
   [wss idleSecs]
   (swap! wss
          #(update-in %
@@ -129,27 +132,34 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn last-accessed-time
+
   [wss] (c/num?? (lt-flag (:attrs @wss)) -1))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn max-idle-secs
+
   [wss] (c/num?? (is-flag (:attrs @wss)) -1))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn creation-time
+
   [wss] (c/num?? (ct-flag (:attrs @wss)) -1))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn expiry-time
+
   [wss] (c/num?? (et-flag (:attrs @wss)) -1))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn session-signer
+
   [wss] (:$pkey @wss))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn validate??
+
   [wss]
+
   (let [ts (last-accessed-time wss)
         mi (max-idle-secs wss)
         es (expiry-time wss)
@@ -162,41 +172,49 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn remove-session-attr
+
   [wss k]
   (swap! wss
          #(update-in % [:attrs] dissoc k)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn set-session-attr
+
   [wss k v]
   (swap! wss
          #(update-in % [:attrs] assoc k v)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn session-attr
+
   [wss k] (get-in @wss [:attrs k]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn remove-session-attrs
+
   [wss] (c/assoc!! wss :attrs {}))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn session-attrs
+
   [wss] (:attrs @wss))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn invalidate!
+
   [wss]
   (c/assoc!! wss :impls {} :attrs {}))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn set-principal
+
   [wss p]
   (swap! wss
          #(update-in % [:impls] assoc user-flag p)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn principal
+
   [wss] (get-in @wss [:impls user-flag]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -212,17 +230,21 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn session-error
+
   [wss] (get-in @wss [:impls :$error]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn set-session-error
+
   [wss t]
   (swap! wss
          #(update-in % [:impls] assoc :$error t)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn encode-attrs
+
   [wss]
+
   (c/sreduce<>
     #(let [[k v] %2]
        (c/sbf-join %1
@@ -234,6 +256,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn session-id
+
   [wss] (get-in @wss [:impls ssid-flag]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -259,7 +282,9 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- macit??
+
   [pkey data secure?]
+
   (if secure? (str (t/gen-mac pkey data) "|" data) data))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -306,5 +331,4 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF
-
 
