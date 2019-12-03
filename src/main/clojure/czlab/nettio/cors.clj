@@ -67,7 +67,9 @@
   (c/when-some+ [hds (:preflight-response-headers
                        (n/akey?? ctx n/corscfg-key))]
     (doseq [[k v] hds]
-      (.add (.headers rsp) ^String k ^Iterable v))))
+      (if (string? v)
+        (.set (.headers rsp) ^String k ^String v)
+        (.add (.headers rsp) ^String k ^Iterable v)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- echo-request-origin

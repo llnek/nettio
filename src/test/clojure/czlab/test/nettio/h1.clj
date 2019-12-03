@@ -195,7 +195,10 @@
           (-> (sv/web-server-module<>
                 {:cors-cfg {:allow-creds? true
                             :any-origin? true
-                            :null-origin? false}
+                            :null-origin? false
+                            :allowed-headers ["yoo" "foo"]
+                            :preflight-response-headers
+                            {"r1" "v7" "r2" ["v2"]}}
                  :user-cb #(-> (cc/http-result %1) cc/reply-result)})
               (po/start {:port 5555}))
           _ (u/pause 888)
