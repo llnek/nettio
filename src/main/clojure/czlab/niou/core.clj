@@ -81,6 +81,46 @@
   (res-header-set [_ name value] "Set a header"))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn gist-param?
+
+  [gist pm]
+
+  (let [{:keys [parameters]} gist]
+    (if (map? parameters)
+      (contains? parameters pm)
+      (.containsKey ^Map parameters pm))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn gist-param
+
+  [gist pm]
+
+  (let [{:keys [parameters]} gist]
+    (c/_1 (if (map? parameters)
+            (get parameters pm)
+            (.get ^Map parameters pm)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn gist-param-keys
+
+  [gist]
+
+  (let [{:keys [parameters]} gist]
+    (if (map? parameters)
+      (keys parameters)
+      (c/set-> (.keySet ^Map parameters)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn gist-param-vals
+
+  [gist pm]
+
+  (let [{:keys [parameters]} gist]
+    (if (map? parameters)
+      (get parameters pm)
+      (c/vec-> (.get ^Map parameters pm)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn encoded-paths
 
   [u] (cond
