@@ -175,7 +175,7 @@
     (let [{:keys [host port] :as w}
           (-> (sv/web-server-module<>
                 {:cors-cfg {:short-circuit? true
-                            :for-origins ["blah.com"]}
+                            :origins ["blah.com"]}
                  :user-cb #(-> (cc/http-result %1) cc/reply-result)})
               (po/start {:port 5555}))
           _ (u/pause 888)
@@ -193,9 +193,9 @@
     "preflight"
     (let [{:keys [host port] :as w}
           (-> (sv/web-server-module<>
-                {:cors-cfg {:allow-credentials? true
-                            :for-any-origin? true
-                            :allow-null-origin? false}
+                {:cors-cfg {:allow-creds? true
+                            :any-origin? true
+                            :null-origin? false}
                  :user-cb #(-> (cc/http-result %1) cc/reply-result)})
               (po/start {:port 5555}))
           _ (u/pause 888)
@@ -215,7 +215,6 @@
                     (cc/msg-header p "access-control-allow-origin"))
            (.equals "true"
                     (cc/msg-header p "access-control-allow-credentials")))))
-
 
   (ensure??
     "file-range/all"

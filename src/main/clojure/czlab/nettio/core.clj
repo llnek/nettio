@@ -488,6 +488,8 @@
 (defonce ^AttributeKey dfac-key (akey<> :data-factory))
 (defonce ^AttributeKey cc-key  (akey<> :wsock-client))
 (defonce ^AttributeKey routes-key (akey<> :cracker))
+(defonce ^AttributeKey corscfg-key (akey<> :corscfg))
+(defonce ^AttributeKey origin-key (akey<> :origin))
 (defonce ^AttributeKey chcfg-key (akey<> :ch-config))
 (defonce ^AttributeKey cache-key (akey<> :ch-cache))
 (defonce ^String body-id "--body--")
@@ -908,6 +910,7 @@
 
   (c/condp?? instance? arg
     Channel arg
+    ChannelPipeline (.channel ^ChannelPipeline arg)
     ChannelHandlerContext (.channel ^ChannelHandlerContext arg)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

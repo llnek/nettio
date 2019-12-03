@@ -17,7 +17,8 @@
             [czlab.nettio.core :as n]
             [czlab.niou.core :as cc]
             [czlab.niou.upload :as cu]
-            [czlab.niou.routes :as cr])
+            [czlab.niou.routes :as cr]
+            [czlab.nettio.cors :as cors])
 
   (:import [io.netty.handler.stream ChunkedWriteHandler]
            [java.util ArrayList HashMap Map List]
@@ -91,32 +92,32 @@
   ^CorsConfig [args]
 
   (let [{:keys [enabled?
-                allow-credentials?
+                allow-creds?
                 allowed-req-headers
                 allowed-req-methods
-                allow-null-origin?
+                null-origin?
                 expose-headers
-                for-any-origin?
-                for-origins
+                any-origin?
+                origins
                 max-age
                 preflight-rsp-headers?
                 preflight-rsp-header
                 short-circuit?]} args]
     (let [^CorsConfigBuilder
           b (cond
-              for-any-origin?
+              any-origin?
               (CorsConfigBuilder/forAnyOrigin)
-              (not-empty for-origins)
-              (if (c/one? for-origins)
-                (CorsConfigBuilder/forOrigin (c/_1 for-origins))
-                (CorsConfigBuilder/forOrigins (into-array String for-origins)))
+              (not-empty origins)
+              (if (c/one? origins)
+                (CorsConfigBuilder/forOrigin (c/_1 origins))
+                (CorsConfigBuilder/forOrigins (into-array String origins)))
               :else
               (u/throw-BadArg "cors-config must define any-origin or some origins."))]
       (if (number? max-age)
         (.maxAge b (long max-age)))
-      (if allow-credentials?
+      (if allow-creds?
         (.allowCredentials b))
-      (if allow-null-origin?
+      (if null-origin?
         (.allowNullOrigin b))
       (if (not-empty allowed-req-headers)
         (.allowedRequestHeaders b
@@ -252,11 +253,11 @@
                :local-host (some-> laddr .getHostName)
                :local-port (some-> laddr .getPort)
                :local-addr (some-> laddr .getAddress .getHostAddress)}]
-    (c/object<> czlab.niou.core.Http1xMsg
-                (assoc out
-                       :route
-                       (n/match-one-route?? ctx out)))))
-
+      (n/akey+ ctx n/origin-key (.get hs (n/h1hdr* ORIGIN)))
+      (c/object<> czlab.niou.core.Http1xMsg
+                  (assoc out
+                         :route
+                         (n/match-one-route?? ctx out)))))
   HttpResponse
   (netty->ring [res ctx body]
     (let [s (.status res)]
@@ -549,12 +550,14 @@
         msg (c/mget cc :msg)
         mode (c/mget cc :mode)
         gist (do-last-part ctx part)]
-    (c/mput! cc :cur msg)
-    (if (not= :wsock mode)
-      (n/fire-msg ctx gist)
-      (try (cfg-websock ctx msg)
-           (catch Throwable e
-             (or (c/is? FailFast e) (throw e)))))))
+    (try
+      (cors/cors-read ctx gist)
+      (c/mput! cc :cur msg)
+      (if (not= :wsock mode)
+        (n/fire-msg ctx gist)
+        (cfg-websock ctx msg))
+      (catch Throwable e
+        (or (c/is? FailFast e) (throw e))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- on-read
@@ -616,6 +619,8 @@
   (proxy [DuplexHandler][]
     (onHandlerAdded [ctx]
       (n/akey+ ctx n/cache-key (HashMap.)))
+    (preWrite [ctx msg]
+      (cors/cors-write ctx msg))
     (onRead [ctx ch msg]
       ;;(l/debug "onRead === msg = %s" msg)
       (if (n/h1msg? msg)
@@ -640,6 +645,8 @@
           (if (n/h1msg? msg)
             (on-read ctx msg)
             (n/fire-msg ctx msg)))))
+    (preWrite [ctx msg]
+      (cors/cors-write ctx msg))
     (onWrite [ctx msg _]
       (on-write ctx msg))
     (onHandlerAdded [ctx]
@@ -657,9 +664,9 @@
                 cors-cfg user-cb]} args]
     (l/info "h1-pipelining mode = %s" (boolean pipelining?))
     (n/pp->last p "codec" (HttpServerCodec.))
-    (when (not-empty cors-cfg)
-      (->> (config->cors cors-cfg)
-           CorsHandler. (n/pp->last p "cors")))
+    (if (not-empty cors-cfg)
+      (n/akey+ (n/ch?? p)
+               n/corscfg-key cors-cfg))
     (n/pp->last p
                 "h1"
                 (if pipelining? h1-complex<> h1-simple<>))
