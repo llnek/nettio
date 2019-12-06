@@ -19,7 +19,6 @@
             [czlab.basal.log :as l]
             [czlab.basal.io :as i]
             [czlab.basal.util :as u]
-            [czlab.basal.xpis :as po]
             [czlab.basal.core :as c
              :refer [ensure?? ensure-thrown??]])
 
@@ -42,13 +41,13 @@
                  :user-cb #(-> (cc/http-result %1)
                                (cc/res-body-set "hello")
                                cc/reply-result)})
-              (po/start {:port 8443}))
+              (c/start {:port 8443}))
           _ (u/pause 888)
           c (cc/h2-conn MODULE host port {:server-cert "*"})
           p (cc/write-msg c (cc/h1-msg<> :post "/form" nil "hello"))
           {:keys [^XData body]} (deref p 5000 nil)]
-      (po/stop w)
-      (po/finz c)
+      (c/stop w)
+      (c/finz c)
       (u/pause 500)
       (and body (.equals "hello" (.strit body)))))
 )
@@ -60,14 +59,14 @@
                 {:server-key "*"
                  :h2-frames? true
                  :user-cb #(cc/reply-result %1)})
-              (po/start {:port 8443}))
+              (c/start {:port 8443}))
           _ (u/pause 888)
           c (cc/h2-conn MODULE host port {:h2-frames? true
                                              :server-cert "*"})
           p (cc/write-msg c (cc/h2-msg<> :post "/form" nil "hello"))
           {:keys [^XData body]} (deref p 5000 nil)]
-      (po/stop w)
-      (po/finz c)
+      (c/stop w)
+      (c/finz c)
       (u/pause 500)
       (and body (.equals "hello" (.strit body)))))
 

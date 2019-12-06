@@ -14,7 +14,6 @@
             [czlab.basal.util :as u]
             [czlab.basal.log :as l]
             [czlab.basal.io :as i]
-            [czlab.basal.xpis :as po]
             [czlab.basal.core :as c :refer [n# is?]])
 
   (:import [io.netty.channel ChannelHandlerContext]
@@ -151,7 +150,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defrecord HttpRangesObj []
-  po/Finzable
+  c/Finzable
   (finz [rgObj]
     (assoc rgObj :finz? true))
   ChunkedInput

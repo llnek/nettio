@@ -18,7 +18,6 @@
             [czlab.basal.io :as i]
             [czlab.basal.core :as c]
             [czlab.basal.util :as u]
-            [czlab.basal.xpis :as po]
             [czlab.nettio.core :as n]
             [czlab.nettio.http :as h1]
             [czlab.nettio.iniz :as iz]
@@ -188,7 +187,7 @@
              H2Inizor (cc/h2-send module _ msg args)
              H1Inizor (cc/h1-send module _ msg args)
              WSInizor (cc/ws-send module _ msg args)))
-         po/Finzable
+         c/Finzable
          (finz [_] (n/nobs! bs channel))))
      (h1c-finz [bs info]
        ;prepare for shutdown upon CLOSE

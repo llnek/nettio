@@ -18,7 +18,6 @@
             [czlab.basal.log :as l]
             [czlab.basal.io :as i]
             [czlab.basal.proc :as p]
-            [czlab.basal.xpis :as po]
             [czlab.niou.core :as cc]
             [czlab.nettio.server :as sv])
 
@@ -113,7 +112,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn finz-server
-  [] (when @svr (po/stop @svr) (reset! svr nil)))
+  [] (when @svr (c/stop @svr) (reset! svr nil)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn -main
@@ -124,9 +123,9 @@
     :else
     (let [{:keys [host port] :as w}
           (-> (snoop-httpd<>)
-              (po/start {:host (nth args 0)
+              (c/start {:host (nth args 0)
                          :port (c/s->int (nth args 1) 8080)}))]
-      (p/exit-hook #(po/stop w))
+      (p/exit-hook #(c/stop w))
       (reset! svr w)
       (u/block!))))
 

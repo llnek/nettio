@@ -17,7 +17,6 @@
             [czlab.basal.util :as u]
             [czlab.basal.log :as l]
             [czlab.basal.io :as i]
-            [czlab.basal.xpis :as po]
             [czlab.nettio.ranges :as nr]
             [czlab.nettio.client :as cl]
             [czlab.nettio.server :as sv]
@@ -55,7 +54,7 @@
                 {:server-key "*"
                  :user-cb #(-> (cc/http-result %1)
                                (cc/res-body-set (:uri %1)) cc/reply-result)})
-              (po/start {:port 8443}))
+              (c/start {:port 8443}))
           _ (u/pause 888)
           c (cc/h1-conn MODULE host port {:server-cert "*"})
           p1 (cc/write-msg c (cc/h1-get<> (URI. "/blah")))
@@ -64,8 +63,8 @@
                               (URI. "/Yoyo"))
                           {:keep-alive? false})
           r2 (deref p2 5000 nil)]
-      (po/stop w)
-      (po/finz c)
+      (c/stop w)
+      (c/finz c)
       (u/pause 500)
       (and r1 r2
            (.equals "/blah" (i/x->str (:body r1)))
@@ -78,7 +77,7 @@
                 {:server-key "*"
                  :pipelining? true
                  :user-cb echo-back})
-              (po/start {:port 8443}))
+              (c/start {:port 8443}))
           _ (u/pause 888)
           c (cc/h1-conn MODULE host port {:server-cert "*"})
           r1 (cc/write-msg c (cc/h1-get<> "/r1"))
@@ -87,8 +86,8 @@
           rc1 (deref r1 5000 nil)
           rc2 (deref r2 5000 nil)
           rc3 (deref r3 5000 nil)]
-      (po/stop w)
-      (po/finz c)
+      (c/stop w)
+      (c/finz c)
       (u/pause 500)
       (and rc1 rc2 rc3
            (.equals "/r1/r2/r3"
@@ -104,7 +103,7 @@
                  #(do (reset! out (:body %1))
                       (-> (cc/http-result %1)
                           (cc/res-body-set "hello joe") cc/reply-result)))
-              (po/start {:port 5555}))
+              (c/start {:port 5555}))
           _ (u/pause 888)
           c (cc/h1-conn MODULE host port nil)
           h (-> (Headers.)
@@ -122,8 +121,8 @@
                       (assoc! %1
                               (.getFieldName i)
                               (.getString i)))) items)]
-      (po/stop w)
-      (po/finz c)
+      (c/stop w)
+      (c/finz c)
       (u/pause 500)
       (and (.equals "hello joe" (i/x->str body))
            (.equals "b" (rmap "a"))
@@ -137,7 +136,7 @@
           (-> (sv/web-server-module<>
                 #(do (reset! out (:body %1))
                      (-> (cc/http-result %1) cc/reply-result)))
-              (po/start {:port 5555}))
+              (c/start {:port 5555}))
           _ (u/pause 888)
           h (-> (Headers.)
                 (.add "content-type"
@@ -159,8 +158,8 @@
                             (str (.getFieldName i)
                                  (.getName i))
                             (i/x->str (.get i)))) (cu/get-all-files items))]
-      (po/stop w)
-      (po/finz c)
+      (c/stop w)
+      (c/finz c)
       (u/pause 500)
       (and body
            (nil? (.content ^XData body))
@@ -177,15 +176,15 @@
                 {:cors-cfg {:short-circuit? true
                             :origins ["blah.com"]}
                  :user-cb #(-> (cc/http-result %1) cc/reply-result)})
-              (po/start {:port 5555}))
+              (c/start {:port 5555}))
           _ (u/pause 888)
           h (-> (Headers.)
                 (.add "origin" (str "http://" host)))
           c (cc/h1-conn MODULE host port nil)
           rc (cc/write-msg c (cc/h1-msg<> :options "/cors" h nil))
           p (deref rc 3000 nil)]
-      (po/stop w)
-      (po/finz c)
+      (c/stop w)
+      (c/finz c)
       (u/pause 500)
       (and p (== 403 (:status p)))))
 
@@ -200,7 +199,7 @@
                             :preflight-response-headers
                             {"r1" "v7" "r2" ["v2"]}}
                  :user-cb #(-> (cc/http-result %1) cc/reply-result)})
-              (po/start {:port 5555}))
+              (c/start {:port 5555}))
           _ (u/pause 888)
           origin (str "http://" host)
           h (-> (Headers.)
@@ -210,8 +209,8 @@
           c (cc/h1-conn MODULE host port nil)
           rc (cc/write-msg c (cc/h1-msg<> :options "/cors" h nil))
           p (deref rc 3000 nil)]
-      (po/stop w)
-      (po/finz c)
+      (c/stop w)
+      (c/finz c)
       (u/pause 500)
       (and p
            (.equals origin
@@ -229,7 +228,7 @@
                      (cc/res-body-set des)
                      (cc/res-header-set "content-type" "text/plain")
                      cc/reply-result))
-              (po/start {:port 5555}))
+              (c/start {:port 5555}))
           _ (u/pause 888)
           c (cc/h1-conn MODULE host port nil)
           p (cc/write-msg c
@@ -239,8 +238,8 @@
                                           (.add "range" "bytes=0-")) nil))
           {:keys [^XData body]} (deref p 5000 nil)
           s (some-> body .strit)]
-      (po/stop w)
-      (po/finz c)
+      (c/stop w)
+      (c/finz c)
       (u/pause 500)
       (and (c/hgl? s) (= 0 (c/count-str s nr/DEF-BD)))))
 
@@ -255,7 +254,7 @@
                      (cc/res-body-set des)
                      (cc/res-header-set "content-type" "text/plain")
                      cc/reply-result))
-              (po/start {:port 5555}))
+              (c/start {:port 5555}))
           _ (u/pause 888)
           c (cc/h1-conn MODULE host port nil)
           p (cc/write-msg c (cc/h1-msg<> :get
@@ -264,8 +263,8 @@
                                             (.add "range" "bytes=0-18,8-20,21-")) nil))
           {:keys [^XData body]} (deref p 5000 nil)
           s (some-> body .strit)]
-      (po/stop w)
-      (po/finz c)
+      (c/stop w)
+      (c/finz c)
       (u/pause 500)
       (and (c/hgl? s)
            (== 2 (c/count-str s nr/DEF-BD)))))

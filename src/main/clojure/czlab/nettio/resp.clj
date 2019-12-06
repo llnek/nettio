@@ -18,7 +18,6 @@
             [czlab.basal.io :as i]
             [czlab.basal.core :as c]
             [czlab.basal.dates :as d]
-            [czlab.basal.xpis :as po]
             [czlab.nettio.core :as n]
             [czlab.nettio.http :as h1]
             [czlab.nettio.ranges :as nr])
@@ -311,7 +310,7 @@
             [status nil] [status body])
           rangeRef
           (if-some
-            [ro (c/cast? HttpRangesObj body)] (po/finz ro))
+            [ro (c/cast? HttpRangesObj body)] (c/finz ro))
           [body clen]
           (cond (c/is? InputStream body)
                 [(HttpChunkedInput.

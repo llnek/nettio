@@ -19,7 +19,6 @@
             [czlab.basal.core :as c]
             [czlab.basal.util :as u]
             [czlab.basal.io :as i]
-            [czlab.basal.xpis :as po]
             [czlab.niou.core :as cc]
             [czlab.nettio.server :as sv])
 
@@ -101,7 +100,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; filesvr host port vdir
 (defn finz-server
-  [] (when @svr (po/stop @svr) (reset! svr nil)))
+  [] (when @svr (c/stop @svr) (reset! svr nil)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; filesvr host port vdir
@@ -113,9 +112,9 @@
     :else
     (let [{:keys [host port] :as w}
           (-> (file-server<> :udir (nth args 2))
-              (po/start {:host (nth args 0)
+              (c/start {:host (nth args 0)
                          :port (c/s->int (nth args 1) 8080)}))]
-      (p/exit-hook #(po/stop w))
+      (p/exit-hook #(c/stop w))
       (reset! svr w)
       (u/block!))))
 

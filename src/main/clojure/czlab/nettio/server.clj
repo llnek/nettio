@@ -16,7 +16,6 @@
             [czlab.basal.log :as l]
             [czlab.basal.util :as u]
             [czlab.basal.io :as i]
-            [czlab.basal.xpis :as po]
             [czlab.niou.routes :as cr]
             [czlab.nettio.core :as n]
             [czlab.nettio.iniz :as z])
@@ -216,14 +215,14 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defrecord NettyTcpServer [args]
-  po/Startable
+  c/Startable
   (stop [_] (stop-server _))
   (start [_] (.start _ nil))
   (start [_ options] (start<tcp> _ options)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defrecord NettyUdpServer [args]
-  po/Startable
+  c/Startable
   (stop [_] (stop-server _))
   (start [_] (.start _ nil))
   (start [_ options] (start<udp> _ options)))

@@ -15,7 +15,6 @@
             [czlab.basal.util :as u]
             [czlab.basal.log :as l]
             [czlab.basal.io :as i]
-            [czlab.basal.xpis :as po]
             [czlab.nettio.client :as cl]
             [czlab.nettio.server :as sv]
             [czlab.test.nettio.snoop :as sn]
@@ -44,7 +43,7 @@
           (-> (sv/web-server-module<>
                  #(do (-> (cc/http-result %1) cc/reply-result)
                       (reset! out (.fileRef ^XData (:body %1)))))
-              (po/start {:port 5555}))
+              (c/start {:port 5555}))
           _ (u/pause 888)
           c (cc/h1-conn MODULE host port nil)
           h (-> (Headers.)
@@ -53,8 +52,8 @@
                                           "/bigfile" h src))
           {:keys [status]} (deref rc 9000 nil)
           ^File f @out]
-      (po/stop w)
-      (po/finz c)
+      (c/stop w)
+      (c/finz c)
       (u/pause 500)
       (and f
            (== 200 status)
@@ -65,7 +64,7 @@
     "snoop-httpd<>"
     (let [{:keys [host port] :as w}
           (-> (sn/snoop-httpd<>)
-              (po/start {:port 5555}))
+              (c/start {:port 5555}))
           _ (u/pause 888)
           c (cc/h1-conn MODULE host port nil)
           r (cc/write-msg c
@@ -73,8 +72,8 @@
                            "/test/snooper?a=1&b=john%20smith"))
           {:keys [^XData body]} (deref r 3000 nil)]
       ;(l/debug "bbb = %s" (.strit body))
-      (po/stop w)
-      (po/finz c)
+      (c/stop w)
+      (c/finz c)
       (u/pause 500)
       (and body (c/hgl? (i/x->str body)))))
 
@@ -82,15 +81,15 @@
     "discard-httpd<>"
     (let [{:keys [host port] :as w}
           (-> (dc/discard-httpd<> rand)
-              (po/start {:port 5555}))
+              (c/start {:port 5555}))
           _ (u/pause 888)
           c (cc/h1-conn MODULE host port nil)
           r (cc/write-msg c
                          (cc/h1-get<>
                            "/test/discarder?a=1&b=john%27smith"))
           {:keys [body]} (deref r 3000 nil)]
-      (po/stop w)
-      (po/finz c)
+      (c/stop w)
+      (c/finz c)
       (u/pause 500)
       (zero? (if body (.size ^XData body) -1))))
 
@@ -98,7 +97,7 @@
     "file-server/get"
     (let [{:keys [host port] :as w}
           (-> (fs/file-server<>)
-              (po/start {:port 5555}))
+              (c/start {:port 5555}))
           _ (u/pause 888)
           s "test content"
           tn (u/jid<>)
@@ -107,8 +106,8 @@
           r (cc/write-msg c (cc/h1-get<> (str "/" tn)))
           {:keys [^XData body]} (deref r 5000 nil)]
       (l/debug "bbbb = %s" (.strit body))
-      (po/stop w)
-      (po/finz c)
+      (c/stop w)
+      (c/finz c)
       (u/pause 500)
       (and body
            (pos? (.size ^XData body))
@@ -118,7 +117,7 @@
     "file-server/put"
     (let [{:keys [host port] :as w}
           (-> (fs/file-server<>)
-              (po/start {:port 5555}))
+              (c/start {:port 5555}))
           _ (u/pause 888)
           src (i/temp-file)
           s "test content"
@@ -128,8 +127,8 @@
           r (cc/write-msg c (cc/h1-post<> (str "/" tn) src))
           {:keys [body]} (deref r 5000 nil)
           des (i/tmpfile tn)]
-      (po/stop w)
-      (po/finz c)
+      (c/stop w)
+      (c/finz c)
       (u/pause 500)
       (and body
            (zero? (.size ^XData body))
