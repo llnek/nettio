@@ -15,7 +15,6 @@
             [clojure.string :as cs]
             [czlab.basal.util :as u]
             [czlab.basal.io :as i]
-            [czlab.basal.log :as l]
             [czlab.basal.core :as c]
             [czlab.niou.core :as v])
 
@@ -70,7 +69,7 @@
               (c/nichts? $cleft)
               (.equals ^String $cleft
                        (t/gen-mac pkey $cright)))
-      (l/error "session cookie - broken.")
+      (c/error "session cookie - broken.")
       (c/trap! GeneralSecurityException "Bad Session Cookie."))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -84,7 +83,7 @@
                   ["" cookie]
                   [(subs cookie 0 pos)
                    (subs cookie (+ 1 pos))])]
-    (l/debug "session left=%s right=%s." p1 p2)
+    (c/debug "session left=%s right=%s." p1 p2)
     (swap! wss
            #(update-in %
                        [:impls]
@@ -102,7 +101,7 @@
             :when (c/two? ss)]
       (let [s1 (u/url-decode (c/_1 ss))
             s2 (u/url-decode (c/_2 ss))]
-        (l/debug "s-attr n=%s, v=%s." s1 s2)
+        (c/debug "s-attr n=%s, v=%s." s1 s2)
         (swap! wss
                #(update-in %
                            [:attrs]
@@ -301,7 +300,7 @@
      (if (or (nil? mvs)
              (is-session-null? mvs))
        res
-       (let [_ (l/debug "session ok, about to set-cookie!")
+       (let [_ (c/debug "session ok, about to set-cookie!")
              pkey (session-signer mvs)
              data (encode-attrs mvs)
              {{:keys [max-age-secs

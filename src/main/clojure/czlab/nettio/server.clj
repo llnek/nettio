@@ -13,7 +13,6 @@
   (:require [clojure.java.io :as io]
             [clojure.string :as cs]
             [czlab.basal.core :as c]
-            [czlab.basal.log :as l]
             [czlab.basal.util :as u]
             [czlab.basal.io :as i]
             [czlab.niou.routes :as cr]
@@ -45,7 +44,7 @@
   (let [^Channel ch (nth channel 0)]
     (when (some-> ch .isOpen)
       (c/try! (.close ch)
-              (l/debug "stopped channel: %s." ch)))
+              (c/debug "stopped channel: %s." ch)))
     (-> (dissoc server :host :port)
         (assoc :impl nil :channel nil :started? false))))
 
@@ -54,7 +53,7 @@
 
   [server]
 
-  (l/debug "about to build a web-server...")
+  (c/debug "about to build a web-server...")
   (let [{:as args'
          :keys [threads
                 boss
@@ -85,14 +84,14 @@
          [^EventLoopGroup gw _] (n/group+channel threads :tcps)]
     (n/config-disk-files true (u/fpath temp-dir))
     (if (pos? threads)
-      (l/info "threads=%s." threads)
-      (l/info "threads=0 => 2*num_of_processors."))
-    (l/debug "setting child options...")
+      (c/info "threads=%s." threads)
+      (c/info "threads=0 => 2*num_of_processors."))
+    (c/debug "setting child options...")
     (doseq [[k v] (c/chop 2 (or (:child options)
                                 [:TCP_NODELAY true
                                  :SO_RCVBUF (int rcv-buf)]))]
       (.childOption bs (n/chopt* k) v))
-    (l/debug "setting server options...")
+    (c/debug "setting server options...")
     (doseq [[k v] (c/chop 2 (or (:server options)
                                 [:SO_REUSEADDR true
                                  :SO_BACKLOG (int backlog)]))]
@@ -103,15 +102,15 @@
     (.childHandler bs ^ChannelHandler hdlr)
     (.handler bs (LoggingHandler. LogLevel/DEBUG))
 
-    (l/debug "set generic attributes for all channels...")
+    (c/debug "set generic attributes for all channels...")
     (.childAttr bs n/chcfg-key args')
     (.childAttr bs
                 n/dfac-key
                 (H1DataFactory. (int max-mem-size)))
 
-    (l/debug "routes provided: %s." (not-empty routes))
+    (c/debug "routes provided: %s." (not-empty routes))
     (when-not (empty? routes)
-      (l/debug "creating routes cracker...")
+      (c/debug "creating routes cracker...")
       (->> (cr/route-cracker<> routes)
            (.childAttr bs n/routes-key)))
 
@@ -119,7 +118,7 @@
                 :impl bs
                 :channel (object-array 1))
          (finally
-           (l/debug "web-server implemented - ok.")))))
+           (c/debug "web-server implemented - ok.")))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- start<tcp>
@@ -140,10 +139,10 @@
                                    childGroup shutdownGracefully))
                        (c/try! (.. bs config
                                    group shutdownGracefully))
-                       (l/debug "server @ip %s stopped." host))]
+                       (c/debug "server @ip %s stopped." host))]
          (c/do-with [ch (.. bs
                             (bind ip (int port)) sync channel)]
-           (l/info "web-server starting on %s:%s." host port)
+           (c/info "web-server starting on %s:%s." host port)
            (n/cf-cb (.closeFuture ch) quit))))]
     (u/assert-ISE (not (:started? server)) "server running!")
     (let [{:keys [impl channel] :as server}
@@ -169,10 +168,10 @@
         [g z] (n/group+channel threads :udps)]
 
     (if (pos? threads)
-      (l/info "threads=%s." threads)
-      (l/info "threads=0 => 2*num_of_processors"))
+      (c/info "threads=%s." threads)
+      (c/info "threads=0 => 2*num_of_processors"))
 
-    (l/debug "setting server options...")
+    (c/debug "setting server options...")
     (doseq [[k v] (c/chop 2 (or options
                                 [:SO_BROADCAST true]))]
       (.option bs (n/chopt* k) v))
@@ -184,7 +183,7 @@
     (try (assoc server
                 :impl bs
                 :channel (object-array 1))
-         (finally (l/debug "udp-server implemented - ok.")))))
+         (finally (c/debug "udp-server implemented - ok.")))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- start<udp>
@@ -198,10 +197,10 @@
                   (InetAddress/getByName host))
              quit #(c/try! %1 (.. bs config
                                   group shutdownGracefully)
-                           (l/debug "server @ip %s stopped." host))]
+                           (c/debug "server @ip %s stopped." host))]
          (c/do-with [ch (.. bs
                             (bind ip (int port)) sync channel)]
-           (l/info "udp-server starting on %s:%s." host port)
+           (c/info "udp-server starting on %s:%s." host port)
            (n/cf-cb (.closeFuture ch) quit))))]
     (u/assert-ISE (not (:started? server)) "server running!")
     (let [{:keys [impl channel] :as server}

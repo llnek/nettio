@@ -13,7 +13,6 @@
   (:require [flatland.ordered.map :as om]
             [clojure.string :as cs]
             [czlab.basal.io :as i]
-            [czlab.basal.log :as l]
             [czlab.basal.core :as c]
             [czlab.basal.util :as u])
 
@@ -163,8 +162,8 @@
         handler (if handler (u/var* cljrt handler))
         [path pieces params]
         (regex-path (c/strim pattern) groups)]
-    (l/debug "Route input: %s." pattern)
-    (l/debug "Route regex: %s." path)
+    (c/debug "Route input: %s." pattern)
+    (c/debug "Route regex: %s." path)
     (c/object<> RouteInfoObj
                 (assoc rt
                        :verb verb

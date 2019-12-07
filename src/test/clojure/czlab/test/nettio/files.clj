@@ -15,7 +15,6 @@
   (:require [clojure.java.io :as io]
             [clojure.string :as cs]
             [czlab.basal.proc :as p]
-            [czlab.basal.log :as l]
             [czlab.basal.core :as c]
             [czlab.basal.util :as u]
             [czlab.basal.io :as i]
@@ -39,7 +38,7 @@
         res (-> (cc/http-result req)
                 (cc/res-body-set (.fileRef xdata)))
         ^Headers hds (:headers res)]
-    (l/debug "flushing file of %s bytes to client." clen)
+    (c/debug "flushing file of %s bytes to client." clen)
     (.add hds "content-length" (str clen))
     (.add hds "Content-Type" "application/octet-stream")
     ;(.add hds "Transfer-Encoding" "chunked")
@@ -49,11 +48,11 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- fputter
   [req fname udir]
-  (l/debug "fPutter file= %s." (io/file udir fname))
+  (c/debug "fPutter file= %s." (io/file udir fname))
   (let [vdir (io/file udir)
         ^XData body (:body req)]
     (if (.isFile body)
-      (l/debug "fPutter orig= %s." (.fileRef body)))
+      (c/debug "fPutter orig= %s." (.fileRef body)))
     (-> (cc/http-result
           req
           (try (i/save-file vdir fname body)
@@ -63,7 +62,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- fgetter
   [req fname udir]
-  (l/debug "fGetter: file= %s." (io/file udir fname))
+  (c/debug "fGetter: file= %s." (io/file udir fname))
   (let [vdir (io/file udir)
         ^XData f (i/get-file vdir fname)]
     (if (.hasContent f)
@@ -80,8 +79,8 @@
           p (if (nil? pos)
               path (subs path (+ 1 pos)))
           nm (c/stror p (str (u/jid<>) ".dat"))]
-      (l/debug "udir= %s." udir)
-      (l/debug "%s: uri= %s, file= %s." request-method path nm)
+      (c/debug "udir= %s." udir)
+      (c/debug "%s: uri= %s, file= %s." request-method path nm)
       (condp = request-method
         :get (fgetter req nm udir)
         :post (fputter req nm udir)

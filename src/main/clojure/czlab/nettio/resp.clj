@@ -13,7 +13,6 @@
             [czlab.niou.mime :as mm]
             [czlab.niou.core :as cc]
             [czlab.niou.webss :as ss]
-            [czlab.basal.log :as l]
             [czlab.basal.util :as u]
             [czlab.basal.io :as i]
             [czlab.basal.core :as c]
@@ -256,7 +255,7 @@
 
   [res sessionObj]
 
-  (l/debug "replyer called with res = %s.\nsessionObj = %s." res sessionObj)
+  (c/debug "replyer called with res = %s.\nsessionObj = %s." res sessionObj)
   (letfn
     [(zmap-headers [msg headers]
        (zipmap (map #(let [[k v] %1] k) headers)
@@ -280,7 +279,7 @@
           cs (u/charset?? charset)
           ;code (:status res)
           body0 (converge body cs)
-          _ (l/debug "resp: body0===> %s." body0)
+          _ (c/debug "resp: body0===> %s." body0)
           conds (zmap-headers request conds-hds)
           rhds (zmap-headers res resp-hds)
           cType (get-in rhds [:ctype :value])
@@ -328,7 +327,7 @@
                 [nil 0]
                 :else
                 (u/throw-IOE "Unsupported result content"))
-          _ (l/debug "body = %s." body)
+          _ (c/debug "body = %s." body)
           [rsp body]
           (cond (bytes? body)
                 [(n/http-reply<+> status body (.alloc socket)) nil]
@@ -345,8 +344,8 @@
             (nr/fmt-error hds body0)
             rangeRef
             (nr/fmt-success hds rangeRef))
-      (l/debug "response = %s." rsp)
-      (l/debug "body-len = %s." clen)
+      (c/debug "response = %s." rsp)
+      (c/debug "body-len = %s." clen)
       (->> (boolean (and body (not (c/is? FullHttpResponse rsp))))
          (HttpUtil/setTransferEncodingChunked rsp ))
       (if-not (c/sneg? clen)
@@ -358,7 +357,7 @@
               (and (zero? clen)(nil? body)))
         (.remove hds (n/h1hdr* CONTENT_TYPE)))
       (doseq [s (encode-cookies (vals cookies))]
-        (l/debug "resp: setting cookie: %s." s)
+        (c/debug "resp: setting cookie: %s." s)
         (.add hds (n/h1hdr* SET_COOKIE) s))
       (if (and (c/spos? last-mod)
                (not (get-in rhds [:last-mod :has?])))
@@ -370,13 +369,13 @@
         (.set hds (n/h1hdr* ETAG) etag))
       (let [c? (HttpUtil/isKeepAlive rsp)
             cf (if (nil? body)
-                 (do (l/debug "reply has no chunked body, write and flush %s." rsp)
+                 (do (c/debug "reply has no chunked body, write and flush %s." rsp)
                      (.writeAndFlush socket rsp))
-                 (do (l/debug "reply has chunked body, write and flush %s." rsp)
+                 (do (c/debug "reply has chunked body, write and flush %s." rsp)
                      (.write socket rsp)
-                     (l/debug "reply body, write and flush body: %s." body)
+                     (c/debug "reply body, write and flush body: %s." body)
                      (.writeAndFlush socket body)))]
-        (l/debug "resp replied, keep-alive? = %s." c?)
+        (c/debug "resp replied, keep-alive? = %s." c?)
         (n/cf-close cf c?)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

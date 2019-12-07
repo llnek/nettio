@@ -14,7 +14,6 @@
             [clojure.string :as cs]
             [czlab.niou.util :as ct]
             [czlab.niou.core :as cc]
-            [czlab.basal.log :as l]
             [czlab.basal.io :as i]
             [czlab.basal.core :as c]
             [czlab.basal.util :as u]
@@ -122,7 +121,7 @@
 
   [args]
 
-  (l/info "client bootstrap ctor().")
+  (c/info "client bootstrap ctor().")
   (let [{:as ARGS
          :keys [max-msg-size max-mem-size
                 protocol temp-dir server-cert
@@ -138,7 +137,7 @@
         bs (Bootstrap.)
         [^EventLoopGroup g z] (n/group+channel threads :tcpc)]
     (n/config-disk-files true temp-dir)
-    (l/info "setting client options...")
+    (c/info "setting client options...")
     (doseq [[k v] (partition 2 (or options
                                    [:SO_KEEPALIVE true
                                     :TCP_NODELAY true
@@ -158,7 +157,7 @@
     [(connect [bs ssl?]
        (let [port' (if-not (neg? port)
                      port (if ssl? 443 80))
-             _ (l/debug "connecting to: %s@%s." host port')
+             _ (c/debug "connecting to: %s@%s." host port')
              ^ChannelFuture
              cf (some-> (.connect ^Bootstrap bs
                                   (InetSocketAddress. (str host)
@@ -172,7 +171,7 @@
            {:error rc}
            (try (n/akey+ rc iz/rsp-key (ArrayList.))
                 {:channel rc :host host :port port'}
-                (finally (l/debug "client connected: %s@%s." host port'))))))
+                (finally (c/debug "client connected: %s@%s." host port'))))))
      (cconn<> [bs {:keys [^Channel channel host port ssl?]}]
        (reify cc/ClientConnection
          (remote-port [_] port)
@@ -193,7 +192,7 @@
        ;prepare for shutdown upon CLOSE
        (n/cf-cb (.closeFuture ^Channel (:channel info))
                 #(do %1 (n/nobs! bs nil)
-                        (l/debug "client shutdown: netty client."))) info)
+                        (c/debug "client shutdown: netty client."))) info)
      (ret-conn [bs ssl? rcp ms info]
        ;if http just return the channel, else wait for handshake
        (let [rc (if (c/is? H1Inizor hint)
@@ -357,7 +356,7 @@
                             "application/octet-stream"))
             (if (c/spos? clen)
               (HttpUtil/setContentLength req clen))))
-      (l/debug (str "about to flush out req (headers), "
+      (c/debug (str "about to flush out req (headers), "
                     "isKeepAlive= %s, content-length= %s") keep-alive? clen)
       (c/do-with [out (promise)]
         (let [pl (n/akey?? ch iz/rsp-key)

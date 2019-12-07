@@ -12,7 +12,6 @@
             [clojure.java.io :as io]
             [clojure.string :as cs]
             [czlab.basal.util :as u]
-            [czlab.basal.log :as l]
             [czlab.basal.io :as i]
             [czlab.basal.core :as c :refer [n# is?]])
 
@@ -167,18 +166,18 @@
       (while (and (< (c/mu-int cnt) blen)
                   (< (c/mu-int cur) rlen))
         (when-some [rg (nth ranges (c/mu-int cur))]
-          (l/debug "reading-chunk: range=%s - %s." (c/mu-int cur) rg)
+          (c/debug "reading-chunk: range=%s - %s." (c/mu-int cur) rg)
           (if (pos? (ck-readable-bytes rg))
             (do (c/mu-int cnt
                           + (ck-pack rg
                                      buff (c/mu-int cnt)))
-                (l/debug "reading-chunk: count=%s." (c/mu-int cnt)))
+                (c/debug "reading-chunk: count=%s." (c/mu-int cnt)))
             (c/mu-int cur + 1))))
       (c/mu-int current (c/mu-int cur))
       (when (pos? (c/mu-int cnt))
         (c/mu-int bytes-read + (c/mu-int cnt))
-        (l/debug "reading-chunk: count=%s.", (c/mu-int cnt))
-        (l/debug "reading-chunk: read= %s." (c/mu-int bytes-read))
+        (c/debug "reading-chunk: count=%s.", (c/mu-int cnt))
+        (c/debug "reading-chunk: read= %s." (c/mu-int bytes-read))
         (Unpooled/wrappedBuffer buff 0 (int (c/mu-int cnt))))))
   (length [me] (c/mu-int (:total-bytes me)))
   (progress [me] (c/mu-int (:bytes-read me)))
@@ -188,7 +187,7 @@
   Object
   (finalize [me] (when (:finz? me)
                    (.close me)
-                   (l/debug "rangeObject finzed!"))))
+                   (c/debug "rangeObject finzed!"))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- brange-chunk<>
@@ -231,7 +230,7 @@
 
   [rgObj rangeStr]
 
-  (l/debug "range= %s\nrg-obj= %s."
+  (c/debug "range= %s\nrg-obj= %s."
            rangeStr (i/fmt->edn rgObj))
   (letfn
     [(overlap? [r1 r2]
@@ -332,13 +331,13 @@
    (http-ranges<> range "application/octet-stream" source))
 
   ([range cType source]
-   (l/debug "range= %s, type= %s, source= %s." range cType source)
+   (c/debug "range= %s, type= %s, source= %s." range cType source)
    (when (c/matches? range "^\\s*bytes=[0-9,-]+")
      (u/try!!!
        (let [[s ln] (cond (xfile? source) (xfiles?? source)
                           (bytes? source) [source (n# source)]
                           :else (u/throw-BadArg "bad source"))]
-         (l/debug "file-range-object: len = %s, source = %s." ln s)
+         (c/debug "file-range-object: len = %s, source = %s." ln s)
          (range-init (c/object<> HttpRangesObj
                                  :ranges nil
                                  :flen ln

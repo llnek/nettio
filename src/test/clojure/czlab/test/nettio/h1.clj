@@ -15,7 +15,6 @@
             [czlab.niou.upload :as cu]
             [czlab.basal.proc :as p]
             [czlab.basal.util :as u]
-            [czlab.basal.log :as l]
             [czlab.basal.io :as i]
             [czlab.nettio.ranges :as nr]
             [czlab.nettio.client :as cl]

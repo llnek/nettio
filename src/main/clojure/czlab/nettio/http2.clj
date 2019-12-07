@@ -11,7 +11,6 @@
   (:require [clojure.java.io :as io]
             [clojure.string :as cs]
             [czlab.niou.core :as cc]
-            [czlab.basal.log :as l]
             [czlab.basal.io :as i]
             [czlab.basal.util :as u]
             [czlab.basal.core :as c]
@@ -119,7 +118,7 @@
       (cond (c/is? Http2Settings msg)
             (do
               (n/ref-del msg)
-              (l/debug "just ate h2 settings!"))
+              (c/debug "just ate h2 settings!"))
             :else (n/fire-msg ctx msg)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -211,15 +210,15 @@
                   (.parWrite ^H2Handler this ctx msg cp)))
               (onSettingsRead [ctx ss]
                 (if rcp (deliver rcp (n/ch?? ctx)))
-                (l/debug "%s h2 settings: received."
+                (c/debug "%s h2 settings: received."
                          (if rcp "client" "server")))
               (onData [ctx sid data pad end?]
-                (l/debug "rec'ved h2-data: sid#%s, end?=%s." sid end?)
+                (c/debug "rec'ved h2-data: sid#%s, end?=%s." sid end?)
                 (c/do-with [b (+ pad (.readableBytes ^ByteBuf data))]
                   (read0 ctx sid)
                   (read1 ctx sid data end?)))
               (onHeaders [ctx sid hds pad end?]
-                (l/debug "rec'ved h2-headers: sid#%s, end?=%s." sid end?)
+                (c/debug "rec'ved h2-headers: sid#%s, end?=%s." sid end?)
                 (let [m (or (n/akey?? ctx h2msgHkey)
                             (n/akey+ ctx h2msgHkey (HashMap.)))]
                   (c/mput! m sid hds)
@@ -236,7 +235,7 @@
         f (proxy [InboundH2ToH1]
                  [co (int max-frame-size) false false]
             (onSettings [ctx ch msg]
-              (l/debug "server h2 settings received.")))]
+              (c/debug "server h2 settings received.")))]
     (n/pp->last p "svr-h2x" (-> (HttpToHttp2ConnectionHandlerBuilder.)
                                 (.connection co)
                                 ;(.server true) MUST NOT CALL THIS

@@ -12,7 +12,6 @@
             [clojure.string :as cs]
             [czlab.basal.core :as c]
             [czlab.basal.io :as i]
-            [czlab.basal.log :as l]
             [czlab.basal.util :as u]
             [czlab.niou.routes :as cr]
             [czlab.nettio.core :as n]
@@ -180,7 +179,7 @@
 
   ^WebSocketClientHandshaker [^URI uri]
 
-  (l/debug "wsc handshake uri= %s." (.toString uri))
+  (c/debug "wsc handshake uri= %s." (.toString uri))
   (WebSocketClientHandshakerFactory/newHandshaker
     uri WebSocketVersion/V13 nil true (DefaultHttpHeaders.)))
 
@@ -197,7 +196,7 @@
        (let [hs (hshaker uri2)]
          (proxy [InboundHandler][true]
            (onActive [ctx]
-             (l/debug "about to start wsc handshake...")
+             (c/debug "about to start wsc handshake...")
              (.handshake hs (n/ch?? ctx)))
            (onRead [ctx ch msg]
              (cond
@@ -216,7 +215,7 @@
 
                (c/is? CloseWebSocketFrame msg)
                (do (n/close! ctx)
-                   (l/debug "received close frame."))
+                   (c/debug "received close frame."))
 
                :else
                (n/fire-msg ctx (n/ref-add msg)))))))]
@@ -252,7 +251,7 @@
   [keyfile
    {:keys [passwd h2-frames?] :as args}]
 
-  (l/debug "server-ssl, h2? = %s" h2-frames?)
+  (c/debug "server-ssl, h2? = %s" h2-frames?)
   (letfn
     [(ssl-negotiator []
        (proxy [APNHttpXHandler][]

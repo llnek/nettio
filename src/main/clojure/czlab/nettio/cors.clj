@@ -13,7 +13,6 @@
   (:require [clojure.java.io :as io]
             [clojure.string :as cs]
             [czlab.basal.core :as c]
-            [czlab.basal.log :as l]
             [czlab.basal.util :as u]
             [czlab.basal.io :as i]
             [czlab.nettio.core :as n]
@@ -173,7 +172,7 @@
 
             :else
             (c/do#nil
-              (l/debug "request origin %s not configured." origin))))))
+              (c/debug "request origin %s not configured." origin))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- respond

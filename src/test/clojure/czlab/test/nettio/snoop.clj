@@ -15,7 +15,6 @@
   (:require [clojure.string :as cs]
             [czlab.basal.core :as c]
             [czlab.basal.util :as u]
-            [czlab.basal.log :as l]
             [czlab.basal.io :as i]
             [czlab.basal.proc :as p]
             [czlab.niou.core :as cc]

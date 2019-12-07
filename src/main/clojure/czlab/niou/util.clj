@@ -11,7 +11,6 @@
   "Net helpers."
 
   (:require [czlab.basal.util :as u]
-            [czlab.basal.log :as l]
             [czlab.basal.io :as i]
             [czlab.basal.core :as c])
 

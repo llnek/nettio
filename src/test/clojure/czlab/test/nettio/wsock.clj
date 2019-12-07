@@ -12,7 +12,6 @@
             [clojure.test :as ct]
             [clojure.string :as cs]
             [czlab.basal.util :as u]
-            [czlab.basal.log :as l]
             [czlab.basal.io :as i]
             [czlab.niou.core :as cc]
             [czlab.nettio.resp :as nr]

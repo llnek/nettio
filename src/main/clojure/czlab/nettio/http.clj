@@ -11,7 +11,6 @@
   (:require [clojure.java.io :as io]
             [clojure.string :as cs]
             [czlab.basal.core :as c]
-            [czlab.basal.log :as l]
             [czlab.basal.util :as u]
             [czlab.basal.io :as i]
             [czlab.nettio.core :as n]
@@ -286,7 +285,7 @@
                       is-pong?
                       is-text?
                       ^XData body]} msg]
-          (l/debug "about to write a websock-frame.")
+          (c/debug "about to write a websock-frame.")
           (cond is-close?
                 (CloseWebSocketFrame.)
                 is-ping?
@@ -295,10 +294,10 @@
                 nil;(PongWebSocketFrame.)
                 is-text?
                 (try (TextWebSocketFrame. (.strit body))
-                     (finally (l/debug "writing a text ws-frame.")))
+                     (finally (c/debug "writing a text ws-frame.")))
                 (some? body)
                 (try (BinaryWebSocketFrame. (n/bbuf?? (.getBytes body) ch))
-                     (finally (l/debug "writing a binary ws-frame.")))))))
+                     (finally (c/debug "writing a binary ws-frame.")))))))
     (onRead [ctx ch msg]
       (let [bb (cond
                  (c/is? PingWebSocketFrame msg)
@@ -311,7 +310,7 @@
                  (or (c/is? TextWebSocketFrame msg)
                      (c/is? BinaryWebSocketFrame msg))
                  (.content ^WebSocketFrame msg))]
-        (l/debug "reading a ws-frame = %s." msg)
+        (c/debug "reading a ws-frame = %s." msg)
         (some->> (some-> (cond
                            (= :pong bb) {:is-pong? true}
                            (= :ping bb) {:is-ping? true}
@@ -362,7 +361,7 @@
                                CorsHandler
                                ChunkedWriteHandler "h1" cn])
       (n/dbg-pipeline pp)
-      (l/debug "morphed server pipeline into websock pipline - ok.")
+      (c/debug "morphed server pipeline into websock pipline - ok.")
       (n/fire-msg ctx mock))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -385,7 +384,7 @@
   (when (n/decoder-err? msg)
     (->> (n/scode* BAD_REQUEST)
          (n/reply-status ctx))
-    (some-> (n/decoder-err-cause?? msg) (l/exception))
+    (some-> (n/decoder-err-cause?? msg) (c/exception))
     (u/throw-FFE "bad request.")))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -397,7 +396,7 @@
         cc (n/cache?? ctx)
         impl (c/mget cc :adder)]
     (if false
-      (l/debug "received%schunk: %s."
+      (c/debug "received%schunk: %s."
                (if end? " last " " ") part))
     (cond (n/ihprd? impl)
           (n/offer! impl part)
@@ -419,7 +418,7 @@
         gist (do (.add (.headers msg)
                        (.trailingHeaders part))
                  (netty->ring msg ctx body))]
-    ;(l/debug "gist = %s." (i/fmt->edn gist))
+    ;(c/debug "gist = %s." (i/fmt->edn gist))
     (clear-adder! ctx)
     (c/mdel! cc :msg)
     gist))
@@ -486,7 +485,7 @@
         cc (n/cache?? ctx)]
     (when ws?
       (c/mput! cc :mode :wsock)
-      (l/debug "request is detected as a websock upgrade."))
+      (c/debug "request is detected as a websock upgrade."))
     (c/mput! cc :msg req)
     (c/mput! cc :adder (if (c/or?? [rc =] :post :multipart)
                          (decoder<> ctx req)
@@ -529,7 +528,7 @@
   [ctx req]
 
   (try
-    (l/debug "REQ: %s." req)
+    (c/debug "REQ: %s." req)
     (assert-decoded-ok! ctx req)
     (do-100-cont ctx req)
     (do-cache-req ctx req)
@@ -591,7 +590,7 @@
                           (.remove q 0)))]
     (when (and (!cont-100? msg)
                (n/h1end? msg))
-      (l/debug "checking for pending requests.")
+      (c/debug "checking for pending requests.")
       ;just replied, next check to process queued requests
       (let [c (n/cache?? ctx)
             out (ArrayList.)
@@ -606,7 +605,7 @@
             :else (do (.add out m)
                       (recur (delhead q)))))
         (if-not (.isEmpty out)
-          (l/debug "**dequeue** request %s." (u/objid?? (.get out 0))))
+          (c/debug "**dequeue** request %s." (u/objid?? (.get out 0))))
         ;process the queued request & its parts
         (loop [m (delhead out)]
           (when m
@@ -622,7 +621,7 @@
     (preWrite [ctx msg]
       (cors/cors-write ctx msg))
     (onRead [ctx ch msg]
-      ;;(l/debug "onRead === msg = %s" msg)
+      ;;(c/debug "onRead === msg = %s" msg)
       (if (n/h1msg? msg)
         (on-read ctx msg) (n/fire-msg ctx msg)))))
 
@@ -640,7 +639,7 @@
           (when (not= :wsock mode)
             (.add ^List queue msg)
             (if (n/hreq? msg)
-              (l/debug "**queue** request %s." (u/objid?? msg))))
+              (c/debug "**queue** request %s." (u/objid?? msg))))
           :else
           (if (n/h1msg? msg)
             (on-read ctx msg)
@@ -662,7 +661,7 @@
 
   (let [{:keys [pipelining?
                 cors-cfg user-cb]} args]
-    (l/info "h1-pipelining mode = %s" (boolean pipelining?))
+    (c/info "h1-pipelining mode = %s" (boolean pipelining?))
     (n/pp->last p "codec" (HttpServerCodec.))
     (if (not-empty cors-cfg)
       (n/akey+ (n/ch?? p)

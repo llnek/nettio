@@ -13,7 +13,6 @@
             [clojure.string :as cs]
             [czlab.niou.core :as cc]
             [czlab.basal.util :as u]
-            [czlab.basal.log :as l]
             [czlab.basal.io :as i]
             [czlab.nettio.client :as cl]
             [czlab.nettio.server :as sv]
@@ -71,7 +70,7 @@
                          (cc/h1-get<>
                            "/test/snooper?a=1&b=john%20smith"))
           {:keys [^XData body]} (deref r 3000 nil)]
-      ;(l/debug "bbb = %s" (.strit body))
+      ;(c/debug "bbb = %s" (.strit body))
       (c/stop w)
       (c/finz c)
       (u/pause 500)
@@ -105,7 +104,7 @@
           c (cc/h1-conn MODULE host port nil)
           r (cc/write-msg c (cc/h1-get<> (str "/" tn)))
           {:keys [^XData body]} (deref r 5000 nil)]
-      (l/debug "bbbb = %s" (.strit body))
+      (c/debug "bbbb = %s" (.strit body))
       (c/stop w)
       (c/finz c)
       (u/pause 500)

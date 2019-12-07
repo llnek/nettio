@@ -17,7 +17,6 @@
             [czlab.niou.upload :as cu]
             [clojure.string :as cs]
             [clojure.test :as t]
-            [czlab.basal.log :as l]
             [czlab.basal.io :as i]
             [czlab.basal.core
              :as c

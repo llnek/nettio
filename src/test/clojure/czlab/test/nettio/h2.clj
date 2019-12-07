@@ -16,7 +16,6 @@
             [czlab.niou.core :as cc]
             [czlab.basal.proc :as p]
             [czlab.basal.util :as u]
-            [czlab.basal.log :as l]
             [czlab.basal.io :as i]
             [czlab.basal.util :as u]
             [czlab.basal.core :as c

@@ -12,7 +12,6 @@
 
   (:require [clojure.java.io :as io]
             [czlab.basal.util :as u]
-            [czlab.basal.log :as l]
             [czlab.basal.io :as i]
             [czlab.basal.core :as c]
             [czlab.niou.mime :as mm])

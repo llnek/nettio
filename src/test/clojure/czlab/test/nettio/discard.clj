@@ -13,7 +13,6 @@
   (:gen-class)
 
   (:require [czlab.basal.proc :as p]
-            [czlab.basal.log :as l]
             [czlab.basal.core :as c]
             [czlab.basal.util :as u]
             [czlab.niou.core :as cc]

@@ -13,7 +13,6 @@
   (:require [clojure.java.io :as io]
             [clojure.string :as cs]
             [czlab.basal.util :as u]
-            [czlab.basal.log :as l]
             [czlab.basal.io :as i]
             [czlab.basal.core :as c]
             [czlab.niou.core :as cc]
@@ -266,7 +265,7 @@
      ({:tcps (gandc EpollServerSocketChannel NioServerSocketChannel)
        :tcpc (gandc EpollSocketChannel NioSocketChannel)
        :udps (gandc EpollDatagramChannel NioDatagramChannel)} kind)]
-    (l/info "netty bootstraped with [%s]."
+    (c/info "netty bootstraped with [%s]."
             (if (Epoll/isAvailable) "EPoll" "Java/NIO"))
     (if-not (Epoll/isAvailable)
       [(NioEventLoopGroup. (int t)) nio]
@@ -525,7 +524,7 @@
 
   [p n h]
 
-  (l/debug "add-last %s/%s to ch-pipeline." n (u/gczn h))
+  (c/debug "add-last %s/%s to ch-pipeline." n (u/gczn h))
   (.addLast ^ChannelPipeline p ^String n ^ChannelHandler h))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -533,7 +532,7 @@
 
   [p a n h]
 
-  (l/debug "add-after %s %s/%s to ch-pipeline." a n (u/gczn h))
+  (c/debug "add-after %s %s/%s to ch-pipeline." a n (u/gczn h))
   (.addAfter ^ChannelPipeline p ^String a ^String n ^ChannelHandler h))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -590,7 +589,7 @@
    server-cert
    {:keys [scheme protocol] :as args}]
 
-  (l/info "protocol = %s, server-cert = %s." protocol server-cert)
+  (c/info "protocol = %s, server-cert = %s." protocol server-cert)
   (letfn
     [(ccerts [in]
        (let [[d? inp] (i/input-stream?? in)]
@@ -621,7 +620,7 @@
 
   [^ChannelPipeline pp keyfile passwd args]
 
-  (l/info "server-key = %s." keyfile)
+  (c/info "server-key = %s." keyfile)
   (letfn
     [(bld-ctx []
        (cond (.equals "*" keyfile)
@@ -798,7 +797,7 @@
 
   [^InterfaceHttpPostRequestDecoder deco]
 
-  (l/debug (str "parse-post, decoder= %s,"
+  (c/debug (str "parse-post, decoder= %s,"
                 " multipart= %s.") deco (.isMultipart deco))
   (loop [out (cu/form-items<>)]
     (if-not (next-body? deco)
@@ -832,7 +831,7 @@
   (set! DiskAttribute/deleteOnExitTemporaryFile false)
   (set! DiskFileUpload/baseDirectory fDir)
   (set! DiskAttribute/baseDirectory fDir)
-  (l/info "netty temp-file-repo: %s." fDir))
+  (c/info "netty temp-file-repo: %s." fDir))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defmacro last-part?
@@ -885,7 +884,7 @@
         {u2 :uri2
          m :request-method} msg
         path (.getPath ^URI u2)]
-    (l/debug "matching route for path: %s." path)
+    (c/debug "matching route for path: %s." path)
     (or (if (and c
                  (c/hgl? path)
                  (cr/has-routes? c))
@@ -1068,7 +1067,7 @@
      (let [rsp (http-reply<+> status)
            ka? (if-not (and (>= status 200)
                             (< status 300)) false keepAlive?)]
-       (l/debug "returning status [%s]." status)
+       (c/debug "returning status [%s]." status)
        (HttpUtil/setKeepAlive rsp ka?)
        (cf-close (write-msg inv rsp) ka?))))
   (reply-redirect
@@ -1080,7 +1079,7 @@
                  (if perm?
                    (scode* MOVED_PERMANENTLY)
                    (scode* TEMPORARY_REDIRECT)))]
-       (l/debug "redirecting to -> %s." location)
+       (c/debug "redirecting to -> %s." location)
        (shthds rsp (h1hdr* LOCATION) location)
        (HttpUtil/setKeepAlive rsp ka?)
        (cf-close (write-msg inv rsp) ka?))))
@@ -1095,7 +1094,7 @@
   (ctx-name [pipe h]
     (some-> (.context pipe ^ChannelHandler h) .name))
   (dbg-pipeline [pipe]
-    (l/debug "pipeline= %s"
+    (c/debug "pipeline= %s"
              (cs/join "|" (.names pipe))))
   (remove-handler* [pipe args]
     (doseq [a args]
@@ -1113,7 +1112,7 @@
   ;; screws up the Path attribute on the wire => it's quoted but
   ;; browser seems to not like it and mis-interpret it.
   ;; Netty's cookie defaults to 0, which is cool with me.
-  (l/debug "cookie->netty: %s=[%s]."
+  (c/debug "cookie->netty: %s=[%s]."
            (.getName c) (.getValue c))
   (doto (DefaultCookie. (.getName c)
                         (.getValue c))
@@ -1195,7 +1194,7 @@
   "Show ref-count of object."
   [obj] (if-some
           [r (c/cast? ReferenceCounted obj)]
-          (l/debug "object %s: has refcount: %s." obj (.refCnt r))))
+          (c/debug "object %s: has refcount: %s." obj (.refCnt r))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF
