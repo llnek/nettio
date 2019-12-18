@@ -116,6 +116,8 @@
     (update-in res
                [:cookies]
                assoc (.getName ^HttpCookie cookie) cookie))
+  (res-status-set [res s]
+    (assoc res :status s))
   (res-body-set [res body]
     (assoc res :body body))
   (res-header-add [res name value]

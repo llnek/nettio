@@ -129,17 +129,17 @@
                    (.equals "/(foo)/([^/]+)/(man)/c/(chu)" p))))
 
   (ensure?? "crack-route"
-            (let [{:as R :keys [route params]}
+            (let [{:as R :keys [info params]}
                   (r/crack-route RC
                                  {:uri "/hello/007"
                                   :request-method :post})]
               (and R
-                   (= :r1 (:name route))
+                   (= :r1 (:name info))
                    (.equals "hello" (:a params))
                    (.equals "007" (:b params)))))
 
   (ensure?? "crack-route"
-            (let [{:as R :keys [route params]}
+            (let [{:as R :keys [info params]}
                   (r/crack-route RC
                                  {:uri "/favicon.hello"
                                   :request-method :get})]
@@ -148,7 +148,7 @@
                    (.equals "favicon.hello" (:yo params)))))
 
   (ensure?? "crack-route"
-            (let [{:as R :keys [route params]}
+            (let [{:as R :keys [info params]}
                   (r/crack-route RC
                                  {:uri "/AAA/zzz/BBB/c/DDD"
                                   :request-method :get})]
@@ -158,11 +158,11 @@
                    (.equals "DDD" (:d params)))))
 
   (ensure?? "crack-route"
-            (let [{:as R :keys [route params]}
+            (let [{:as R :keys [info params]}
                   (r/crack-route RC
                                  {:uri "/4"
                                   :request-method :get})]
-              (and route
+              (and info
                    (empty? params))))
 
   (ensure?? "crack-route"

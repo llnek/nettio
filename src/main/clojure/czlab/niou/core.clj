@@ -75,6 +75,7 @@
 (defprotocol HttpResultMsgModifier
   (res-cookie-add [_ cookie] "Add a cookie.")
   (res-body-set [_ body] "Add content.")
+  (res-status-set [_ s] "Set status.")
   (res-header-del [_ name] "Remove a header")
   (res-header-add [_ name value] "Add a header")
   (res-header-set [_ name value] "Set a header"))
@@ -120,22 +121,22 @@
       (c/vec-> (.get ^Map parameters pm)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn encoded-paths
+(defn encoded-path
 
   [u] (cond
         (c/is? URL u)
-        (encoded-paths (.toURI ^URL u))
+        (encoded-path (.toURI ^URL u))
         (c/is? URI u)
         (let [p (.getRawPath ^URI u)
               q (.getRawQuery ^URI u)]
           [p (if-not (c/hgl? q) p (str p "?" q))])))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn decoded-paths
+(defn decoded-path
 
   [u] (cond
         (c/is? URL u)
-        (decoded-paths (.toURI ^URL u))
+        (decoded-path (.toURI ^URL u))
         (c/is? URI u)
         (let [p (.getPath ^URI u)
               q (.getQuery ^URI u)]
@@ -224,8 +225,7 @@
   [m]
   {:pre [(or (nil? m)(map? m))]}
 
-  (c/object<> czlab.niou.core.WsockMsg
-              (assoc m :route :pass-thru)))
+  (c/object<> czlab.niou.core.WsockMsg m))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn ws-bytes<>

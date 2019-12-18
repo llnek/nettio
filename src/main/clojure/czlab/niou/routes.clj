@@ -68,7 +68,7 @@
                    -1 (.groupCount m))]
           (if ok?
             (c/object<> RouteMatchResult
-                        :route me
+                        :info me
                         :params
                         (c/preduce<map>
                           #(let [[k v] %2]

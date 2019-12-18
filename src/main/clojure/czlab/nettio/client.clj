@@ -318,7 +318,7 @@
                    encoding override]
             :or {keep-alive? true}} args
           ^Channel ch (cc/channel conn)
-          [_ target] (cc/encoded-paths uri2)
+          [_ target] (cc/encoded-path uri2)
           ssl? (some? (n/get-ssl?? ch))
           body (n/bbuf?? body ch encoding)
           host (cc/remote-host conn)

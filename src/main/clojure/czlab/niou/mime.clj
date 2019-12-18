@@ -130,20 +130,24 @@
 
   [file]
 
-  (let [p (u/load-java-props file)]
-    (reset! _mime-cache (u/pmap<> p))
-    (c/wo* [inp (->> (.entrySet p)
-                     (c/sreduce<>
-                       (fn [b ^Map$Entry en]
-                         (c/sbf+ b
-                                 (c/strim (str (.getValue en)))
-                                 "  "
-                                 (c/strim (str (.getKey en))) "\n")))
-                     i/x->bytes
-                     io/input-stream)]
-      (try (reset! _mime-types (MimetypesFileTypeMap. inp))
-           (catch UnsupportedEncodingException _
-             (u/throw-IOE "Failed to parse mime.properties."))))))
+  (try
+    (c/let#true [p (u/load-java-props file)]
+      (reset! _mime-cache (u/pmap<> p))
+      (c/wo* [inp (->> (.entrySet p)
+                       (c/sreduce<>
+                         (fn [b ^Map$Entry en]
+                           (c/sbf+ b
+                                   (c/strim (str (.getValue en)))
+                                   "  "
+                                   (c/strim (str (.getKey en))) "\n")))
+                       i/x->bytes
+                       io/input-stream)]
+        (reset! _mime-types (MimetypesFileTypeMap. inp))))
+    (catch Throwable _
+      (reset! _mime-cache nil)
+      (reset! _mime-types nil)
+      ;(c/exception _)
+      (u/throw-IOE "Failed to parse mime.properties."))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn setup-cache
@@ -151,8 +155,8 @@
   "Load file mime-types as a map."
   [file]
 
-  (or (try (c/do#true (setup file))
-           (catch Throwable _ false))
+  (or (try (doto file setup)
+           (catch Throwable _ nil))
       (setup (i/res->url "czlab/niou/etc/mime.properties"))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

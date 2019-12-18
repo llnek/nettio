@@ -885,12 +885,13 @@
          m :request-method} msg
         path (.getPath ^URI u2)]
     (c/debug "matching route for path: %s." path)
-    (or (if (and c
+    (if-not (and c
                  (c/hgl? path)
                  (cr/has-routes? c))
-          (cr/crack-route c
+      :pass-through
+      (or (cr/crack-route c
                           {:uri path
-                           :request-method m})) :passthru)))
+                           :request-method m}) :no-match))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn cpipe??
