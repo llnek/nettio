@@ -880,18 +880,37 @@
 
   [ctx msg]
 
-  (let [c (akey?? ctx routes-key)
-        {u2 :uri2
-         m :request-method} msg
-        path (.getPath ^URI u2)]
-    (c/debug "matching route for path: %s." path)
-    (if-not (and c
-                 (c/hgl? path)
-                 (cr/has-routes? c))
-      :pass-through
-      (or (cr/crack-route c
-                          {:uri path
-                           :request-method m}) :no-match))))
+  (letfn
+    [(remapper [{:keys [remap]} params]
+       (when (c/hgl? remap)
+         (c/sreduce<>
+           #(if (.equals "/" %2)
+              (c/sbf+ %1 %2)
+              (c/sbf+ %1
+                      (if-some [[_ k]
+                                (re-matches cr/place-holder %2)]
+                        (str (get params (keyword k)))
+                        %2)))
+           (c/split-str (c/strim remap) "/" true))))]
+    (let [c (akey?? ctx routes-key)
+          {u2 :uri2
+           m :request-method} msg
+          path (.getPath ^URI u2)
+          _ (c/debug "%s for path: %s."
+                     "route matching" path)
+          rc (if-not (and c
+                          (c/hgl? path)
+                          (cr/has-routes? c))
+               :pass-through
+               (or (cr/crack-route c
+                                   {:uri path
+                                    :request-method m}) :no-match))]
+      (if-not (map? rc)
+        rc
+        (let [{:keys [info params]} rc
+              {:keys [remap]} info
+              r (remapper info params)]
+          (if (c/nichts? r) rc (assoc rc :rewrite r)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn cpipe??
