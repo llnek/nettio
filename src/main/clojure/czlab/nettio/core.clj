@@ -971,7 +971,8 @@
                         host
                         (str local-host ":" local-port)) location))]
     (-> (cc/http-result msg status)
-        (cc/res-header-set "Location" target) cc/reply-result)))
+        (cc/res-header-set "Location" target)
+        (cc/res-header-set "Connection" "close") cc/reply-result)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (extend-protocol ByteBufAPI
