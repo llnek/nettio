@@ -953,6 +953,27 @@
          (.. ^ChannelHandlerContext c channel id))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn redirector
+
+  "Send back a redirect response."
+  [{:keys [route uri2
+           scheme
+           local-host local-port] :as msg}]
+
+  (let [host (cc/msg-header msg "host")
+        {:keys [status location]}
+        (get-in route [:info :redirect])
+        target (if-not (cs/starts-with? location "/")
+                 location
+                 (str (name scheme)
+                      "://"
+                      (if (c/hgl? host)
+                        host
+                        (str local-host ":" local-port)) location))]
+    (-> (cc/http-result msg status)
+        (cc/res-header-set "Location" target) cc/reply-result)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (extend-protocol ByteBufAPI
   ByteBuf
   (slurp-bytebuf [buf o]
