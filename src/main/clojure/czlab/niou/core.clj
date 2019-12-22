@@ -81,6 +81,15 @@
   (res-header-set [_ name value] "Set a header"))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn is-ajax?
+
+  "Is this request from AJAX?"
+  [msg]
+
+  (c/eq? "xmlhttprequest"
+         (c/lcase (msg-header msg "x-requested-with"))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn gist-param?
 
   [gist pm]
