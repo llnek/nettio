@@ -133,7 +133,7 @@
                 :max-frame-size (* 32 c/MegaBytes)} args)
         threads (if (pos? threads) threads 0)
         temp-dir (u/fpath (or temp-dir
-                              i/*file-repo*))
+                              (i/file-repo)))
         bs (Bootstrap.)
         [^EventLoopGroup g z] (n/group+channel threads :tcpc)]
     (n/config-disk-files true temp-dir)

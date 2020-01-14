@@ -68,7 +68,7 @@
                 max-frame-size]}
         (merge {:max-frame-size (* 32 c/MegaBytes)
                 :max-msg-size Integer/MAX_VALUE
-                :temp-dir i/*file-repo*
+                :temp-dir (i/file-repo)
                 :backlog c/KiloBytes
                 :threads 0
                 :boss 1

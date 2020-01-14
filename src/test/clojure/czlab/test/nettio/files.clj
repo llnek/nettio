@@ -92,7 +92,7 @@
   "A file server which can get/put files."
   [& args]
   (let [{:keys [udir] :as args'}
-        (merge {:udir i/*file-repo*} (c/kvs->map args))]
+        (merge {:udir (i/file-repo)} (c/kvs->map args))]
     (sv/web-server-module<> (assoc args'
                                    :user-cb (h1proxy udir)))))
 

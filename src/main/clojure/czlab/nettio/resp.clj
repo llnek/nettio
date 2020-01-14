@@ -317,8 +317,7 @@
                 [(HttpChunkedInput.
                    (ChunkedStream. ^InputStream body)) -1]
                 rangeRef
-                [(HttpChunkedInput. ^ChunkedInput body)
-                 (.length ^ChunkedInput body)]
+                [(HttpChunkedInput. ^ChunkedInput body) -1] ;(.length ^ChunkedInput body)]
                 (bytes? body)
                 [body (count body)]
                 (c/is? File body)
@@ -348,8 +347,11 @@
             (nr/fmt-success hds rangeRef))
       (c/debug "response = %s." rsp)
       (c/debug "body-len = %s." clen)
-      (->> (boolean (and body (not (c/is? FullHttpResponse rsp))))
-         (HttpUtil/setTransferEncodingChunked rsp ))
+      (if-not (zero? clen)
+        (->> (and body
+                  (not (c/is? FullHttpResponse rsp)))
+             boolean
+             (HttpUtil/setTransferEncodingChunked rsp )))
       (if-not (c/sneg? clen)
         (HttpUtil/setContentLength rsp clen))
       (if (c/sneg? clen)

@@ -545,14 +545,14 @@
 (defn h1msg?
 
   [msg]
-  (c/or?? [msg instance?]
+  (c/or?? [instance? msg]
           HttpContent HttpRequest HttpResponse))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn h1end?
 
   [msg]
-  (c/or?? [msg instance?]
+  (c/or?? [instance? msg]
           LastHttpContent FullHttpResponse))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

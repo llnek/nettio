@@ -242,7 +242,6 @@
       (u/pause 500)
       (and (c/hgl? s) (= 0 (c/count-str s nr/DEF-BD)))))
 
-
   (ensure??
     "file-range/chunked"
     (let [des (i/tmpfile (u/jid<>))

@@ -203,7 +203,7 @@
                      (.reset res out))
                    (c/wo* [inp (.openStream item)
                            out (DeferredFileOutputStream. i/*membuf-limit*
-                                                          "czlab" "tmp" i/*file-repo*)]
+                                                          "czlab" "tmp" (i/file-repo))]
                      (Streams/copy inp out false)
                      (.flush out)
                      (.reset res (or (.getFile out) (.getData out))))))))

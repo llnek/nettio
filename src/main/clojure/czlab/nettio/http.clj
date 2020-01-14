@@ -487,7 +487,7 @@
       (c/mput! cc :mode :wsock)
       (c/debug "request is detected as a websock upgrade."))
     (c/mput! cc :msg req)
-    (c/mput! cc :adder (if (c/or?? [rc =] :post :multipart)
+    (c/mput! cc :adder (if (c/or?? [= rc] :post :multipart)
                          (decoder<> ctx req)
                          (n/data-attr<> max-mem-size)))))
 
