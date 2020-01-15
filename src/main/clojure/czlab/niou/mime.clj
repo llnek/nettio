@@ -1,4 +1,4 @@
-;; Copyright © 2013-2019, Kenneth Leung. All rights reserved.
+;; Copyright © 2013-2020, Kenneth Leung. All rights reserved.
 ;; The use and distribution terms for this software are covered by the
 ;; Eclipse Public License 1.0 (http://opensource.org/licenses/eclipse-1.0.php)
 ;; which can be found in the file epl-v10.html at the root of this distribution.
@@ -31,14 +31,6 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;(set! *warn-on-reflection* true)
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defprotocol ContentTypeChecker
-  (is-compressed? [_] "")
-  (is-signed? [_] "")
-  (is-mdn? [_] "")
-  (is-encrypted? [_] ""))
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (c/defmacro- is-pkcs7-mime?
 
@@ -57,50 +49,89 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn mime-cache<>
 
-  "Common MIME/types." [] @_mime-cache)
+  "Common MIME/types."
+  {:arglists '([])}
+  []
+  @_mime-cache)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn charset??
 
   "Charset from content-type."
-  {:tag String}
+  {:tag String
+   :arglists '([cType]
+               [cType dft])}
 
-  ([cType] (charset?? cType nil))
+  ([cType]
+   (charset?? cType nil))
 
   ([cType dft]
+   {:pre [(or (nil? cType)
+              (string? cType))]}
    (let [p (doto (ParameterParser.)
              (.setLowerCaseNames true))
-         pms (.parse p ^String cType \;)]
+         pms (.parse p (str cType) \;)]
      (c/stror* (.get pms "charset") dft iso-8859-1))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(extend-protocol ContentTypeChecker
-  String
-  (is-signed? [me]
-    (let [ct (c/lcase me)]
-      (or (c/embeds? ct "multipart/signed")
-          (and (is-pkcs7-mime? ct)
-               (c/embeds? ct "signed-data")))))
-  (is-encrypted? [me]
-    (let [ct (c/lcase me)]
-      (and (is-pkcs7-mime? ct)
-           (c/embeds? ct "enveloped-data"))))
-  (is-compressed? [me]
-    (let [ct (c/lcase me)]
-      (and (c/embeds? ct "compressed-data")
-           (c/embeds? ct "application/pkcs7-mime"))))
-  (is-mdn? [me]
-    (let [ct (c/lcase me)]
-      (and (c/embeds? ct "multipart/report")
-           (c/embeds? ct "disposition-notification")))))
+(defn is-signed?
+
+  "Does the content-type value indicate *signed*?"
+  {:arglists '([ct])}
+  [ct]
+  {:pre [(string? ct)]}
+
+  (let [ct (c/lcase ct)]
+    (or (c/embeds? ct "multipart/signed")
+        (and (is-pkcs7-mime? ct)
+             (c/embeds? ct "signed-data")))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn is-encrypted?
+
+  "Does the content-type value indicate *encrypted*?"
+  {:arglists '([ct])}
+  [ct]
+  {:pre [(string? ct)]}
+
+  (let [ct (c/lcase ct)]
+    (and (is-pkcs7-mime? ct)
+         (c/embeds? ct "enveloped-data"))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn is-compressed?
+
+  "Does the content-type value indicate *compressed*?"
+  {:arglists '([ct])}
+  [ct]
+  {:pre [(string? ct)]}
+
+  (let [ct (c/lcase ct)]
+    (and (c/embeds? ct "compressed-data")
+         (c/embeds? ct "application/pkcs7-mime"))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn is-mdn?
+
+  "Does the content-type value indicate *MDN*?"
+  {:arglists '([ct])}
+  [ct]
+  {:pre [(string? ct)]}
+
+  (let [ct (c/lcase ct)]
+    (and (c/embeds? ct "multipart/report")
+         (c/embeds? ct "disposition-notification"))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn guess-mime-type
 
   "Guess the MIME/type of file."
-  {:tag String}
+  {:tag String
+   :arglists '([file]
+               [file dft])}
 
-  ([file] (guess-mime-type file nil))
+  ([file]
+   (guess-mime-type file nil))
 
   ([file dft]
    (let [mc (.matcher _ext-regex
@@ -113,15 +144,21 @@
 (defn guess-content-type
 
   "Guess the content-type of file."
-  {:tag String}
+  {:tag String
+   :arglists '([file]
+               [file enc]
+               [file enc dft])}
 
-  ([file enc] (guess-content-type file enc nil))
+  ([file enc]
+   (guess-content-type file enc nil))
 
-  ([file] (guess-content-type file "utf-8" nil))
+  ([file]
+   (guess-content-type file nil nil))
 
   ([file enc dft]
    (let [enc (c/stror enc "utf-8")
-         ct (c/stror* (guess-mime-type file) dft _ctype-dft)]
+         ct (-> (guess-mime-type file)
+                (c/stror* dft _ctype-dft))]
      (if-not
        (cs/starts-with? ct "text/") ct (str ct "; charset=" enc)))))
 
@@ -153,6 +190,7 @@
 (defn setup-cache
 
   "Load file mime-types as a map."
+  {:arglists '([file])}
   [file]
 
   (or (try (doto file setup)
@@ -163,7 +201,9 @@
 (defn normalize-email
 
   "Check email address."
-  ^String [email]
+  {:tag String
+   :arglists '([email])}
+  [email]
 
   (let [email (str email)]
     (cond (c/nichts? email)

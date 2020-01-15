@@ -1,4 +1,4 @@
-;; Copyright © 2013-2019, Kenneth Leung. All rights reserved.
+;; Copyright © 2013-2020, Kenneth Leung. All rights reserved.
 ;; The use and distribution terms for this software are covered by the
 ;; Eclipse Public License 1.0 (http://opensource.org/licenses/eclipse-1.0.php)
 ;; which can be found in the file epl-v10.html at the root of this distribution.
@@ -37,58 +37,54 @@
                               :template "abc.html"
                               :mount "/public/somedir"}})
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defprotocol RouteInfo
-  (match-path [_ mtd path] ""))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defprotocol RouteCracker
-  (is-routable? [_ msgInfo] "")
-  (has-routes? [_] "")
-  (gen-route [_ id params] "")
-  (crack-route [_ msgInfo] ""))
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defrecord RouteCracker [routes])
 (defrecord RouteMatchResult [])
+(defrecord RouteInfo []
+  Object
+  (toString [_] (i/fmt->edn _)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defrecord RouteInfoObj []
-  Object
-  (toString [me] (i/fmt->edn me))
-  RouteInfo
-  (match-path [me mtd path]
-    (let [{:keys [verb regex groups]} me]
-      (when (or (nil? verb)
-                (c/in? verb mtd))
-        (let [m (-> ^Pattern
-                    regex
-                    (.matcher path))
-              ok? (.matches m)
-              gc (if-not ok?
-                   -1 (.groupCount m))]
-          (if ok?
-            (c/object<> RouteMatchResult
-                        :info me
-                        :params
-                        (c/preduce<map>
-                          #(let [[k v] %2]
-                             (if (> v gc)
-                               %1
-                               (assoc! %1
-                                       k
-                                       (.group m (int v))))) groups))))))))
+(defn match-path??
+
+  "Try to match the uri path.  If matched, return the result."
+  {:arglists '([ri mtd path])}
+  [ri mtd path]
+  {:pre [(c/is? RouteInfo ri)]}
+
+  (let [{:keys [verb regex groups]} ri]
+    (when (or (nil? verb)
+              (c/in? verb mtd))
+      (let [m (-> ^Pattern
+                  regex
+                  (.matcher path))
+            ok? (.matches m)
+            gc (if-not ok?
+                 -1 (.groupCount m))]
+        (if ok?
+          (c/object<> RouteMatchResult
+                      :info ri
+                      :params
+                      (c/preduce<map>
+                        #(let [[k v] %2]
+                           (if (> v gc)
+                             %1
+                             (assoc! %1
+                                     k
+                                     (.group m (int v))))) groups)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn gen-path
 
   "Generate a route uri."
+  {:arglists '([route params])}
   [route params]
 
   (let [{:keys [name
                 regex
                 pattern]} route]
     (c/sreduce<>
-      #(if (.equals "/" %2)
+      #(if (c/eq? "/" %2)
          (c/sbf+ %1 %2)
          (c/sbf+ %1
                  (if-some [[_ k] (re-matches place-holder %2)]
@@ -102,37 +98,66 @@
                    %2)))
        (c/split-str (c/strim pattern) "/" true))))
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defrecord RouteCrackerObj [routes]
-  RouteCracker
-  (is-routable? [_ gist]
-    (some? (crack-route _ gist)))
-  (has-routes? [_]
-    (boolean (not-empty routes)))
-  (gen-route [_ id params]
-    (if-some [r (get routes id)]
-      (let [s (gen-path r params)
-            v (:verb r)
-            m (.matcher ^Pattern
-                        (:regex r) s)]
-        (u/assert-BadArg (.matches m)
-                         "Cannot gen path for route %s." id)
-        (conj (into '() v) s))))
-  (crack-route [_ gist]
-    (let [{:keys [uri request-method]} gist]
-      (some #(let [[_ v] %]
-               (match-path v request-method uri)) routes))))
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn has-routes?
+
+  "Any routes defined?"
+  {:arglists '([rc])}
+  [rc]
+  {:pre [(c/is? RouteCracker rc)]}
+
+  (not (empty? (:routes rc))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn gen-route
+
+  "Generate a route given these inputs."
+  {:arglists '([rc id params])}
+  [rc id params]
+  {:pre [(c/is? RouteCracker rc)]}
+
+  (if-some [r (get (:routes rc) id)]
+    (let [s (gen-path r params)
+          v (:verb r)
+          m (.matcher ^Pattern
+                      (:regex r) s)]
+      (u/assert-BadArg (.matches m)
+                       "Cannot gen path for route %s." id)
+      (conj (into '() v) s))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn crack-route
+
+  "Best attempt to match this path with a route."
+  {:arglists '([rc gist])}
+  [rc gist]
+  {:pre [(c/is? RouteCracker rc)]}
+
+  (let [{:keys [uri request-method]} gist]
+    (some #(let [[_ v] %]
+             (match-path?? v request-method uri)) (:routes rc))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn is-routable?
+
+  "If the path matches a route?"
+  {:arglists '([rc gist])}
+  [rc gist]
+  {:pre [(c/is? RouteCracker rc)]}
+
+  (some? (crack-route rc gist)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn regex-path
 
   "Parse a route uri => [regex-path pieces params]."
+  {:arglists '([pattern groups])}
   [pattern groups]
 
   (with-local-vars [params {} cg 0 parts 0]
     [(c/sreduce<>
        #(do
-          (if-not (.equals "/" %2)
+          (if-not (c/eq? "/" %2)
             (var-set parts (+ 1 @parts)))
           (c/sbf+ %1
                   (if-some [[_ k] (re-matches place-holder %2)]
@@ -164,7 +189,7 @@
         (regex-path (c/strim pattern) groups)]
     (c/debug "Route input: %s." pattern)
     (c/debug "Route regex: %s." path)
-    (c/object<> RouteInfoObj
+    (c/object<> RouteInfo
                 (assoc rt
                        :verb verb
                        :name kee
@@ -177,6 +202,7 @@
 (defn load-routes
 
   "Path can be /host.com/abc/:id1/gg/:id2."
+  {:arglists '([routes])}
   [routes]
   {:pre [(or (nil? routes)
              (sequential? routes))]}
@@ -195,9 +221,10 @@
 (defn route-cracker<>
 
   "Create a uri route cracker."
+  {:arglists '([route-defs])}
   [route-defs]
 
-  (RouteCrackerObj. (load-routes route-defs)))
+  (RouteCracker. (load-routes route-defs)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF

@@ -1,4 +1,4 @@
-;; Copyright © 2013-2019, Kenneth Leung. All rights reserved.
+;; Copyright © 2013-2020, Kenneth Leung. All rights reserved.
 ;; The use and distribution terms for this software are covered by the
 ;; Eclipse Public License 1.0 (http://opensource.org/licenses/eclipse-1.0.php)
 ;; which can be found in the file epl-v10.html at the root of this distribution.
@@ -14,6 +14,7 @@
             [czlab.basal.util :as u]
             [czlab.basal.io :as i]
             [czlab.basal.core :as c]
+            [czlab.niou.core :as nc]
             [czlab.niou.mime :as mm])
 
   (:import [org.apache.commons.io.output DeferredFileOutputStream]
@@ -62,32 +63,9 @@
        "-----1234--\r\n"))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defprotocol ULFormItems
-  (get-all-fields [_] "")
-  (get-all-files [_] "")
-  (get-all-items [_] "")
-  (items-as-map [_] "")
-  (add-item [_ x] "")
-  (count-items [_] "")
-  (clear-items [_] ""))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defprotocol ULFileItem
-  (get-field-file [_] "")
-  (get-field-name-lc [_] ""))
-
+(declare get-all-items)
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn ul-items-finz
-
-  "Clean up all items."
-  [ul]
-
-  (doseq [n (get-all-items ul)]
-    (.delete ^FileItem n))
-  (clear-items ul))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defrecord ULFormItemsObj []
+(defrecord ULFormItems []
   Object
   (toString [me]
     (c/sreduce<>
@@ -99,37 +77,106 @@
                 ",data="
                 (if (.isFormField n)
                   (.toString n) (.getName n))))
-      (get-all-items me)))
-  ULFormItems
-  (get-all-items [me] (:items me))
-  (get-all-files [me]
-    (filter #(not (.isFormField ^FileItem %)) (:items me)))
-  (get-all-fields [me]
-    (filter #(.isFormField ^FileItem %) (:items me)))
-  (items-as-map [me]
-    (c/preduce<map>
-      #(assoc! %1
-               (.getFieldName ^FileItem %2) %2)
-      (get-all-items me)))
-  (clear-items [me] (assoc me :items []))
-  (count-items [me] (count (get-all-items me)))
-  (add-item [me x] (update-in me [:items] conj x)))
+      (get-all-items me))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn get-all-items
+
+  "Get all the form items."
+  {:arglists '([f])}
+  [f]
+  {:pre [(c/is? ULFormItems f)]}
+
+  (:items f))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn get-all-files
+
+  "Get all the file items in the form."
+  {:arglists '([f])}
+  [f]
+  {:pre [(c/is? ULFormItems f)]}
+
+  (filter #(not (.isFormField ^FileItem %)) (:items f)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn get-all-fields
+
+  "Get all the field items in the form."
+  {:arglists '([f])}
+  [f]
+  {:pre [(c/is? ULFormItems f)]}
+
+  (filter #(.isFormField ^FileItem %) (:items f)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn items-as-map
+
+  "Get all form items as a map."
+  {:arglists '([f])}
+  [f]
+  {:pre [(c/is? ULFormItems f)]}
+
+  (c/preduce<map>
+    #(assoc! %1
+             (.getFieldName ^FileItem %2) %2)
+    (get-all-items f)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn clear-items
+
+  "Remove all items."
+  {:arglists '([f])}
+  [f]
+  {:pre [(c/is? ULFormItems f)]}
+
+  (assoc f :items []))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn count-items
+
+  "Count items in the form."
+  {:arglists '([f])}
+  [f]
+  {:pre [(c/is? ULFormItems f)]}
+
+  (count (get-all-items f)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn add-item
+
+  "Add a new item to the form."
+  {:arglists '([f])}
+  [f x]
+  {:pre [(c/is? ULFormItems f)]}
+
+  (update-in f [:items] conj x))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn ul-items-finz
+
+  "Clean up all items."
+  {:arglists '([ul])}
+  [ul]
+
+  (doseq [n (get-all-items ul)]
+    (.delete ^FileItem n))
+  (clear-items ul))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn form-items<>
 
-  "Create a new URLFormItemsObj."
+  "Create a new ULFormItems."
+  {:arglists '([][items])}
 
-  ([] (form-items<> nil))
+  ([]
+   (form-items<> nil))
 
   ([items]
-   (c/object<> ULFormItemsObj :items (vec items))))
+   (c/object<> ULFormItems :items (vec items))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defrecord ULFileItemObj []
-  ULFileItem
-  (get-field-file [me] (.fileRef ^XData (:body me)))
-  (get-field-name-lc [me] (c/lcase (:field me)))
+(defrecord ULFileItem []
   FileItem
   (delete [me] (.dispose ^XData (:body me)))
   (get [me] (.getBytes ^XData (:body me)))
@@ -152,22 +199,43 @@
   (setHeaders [_ h] (u/throw-IOE "not supported")))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn get-field-file
+
+  "Get the item's file reference, if any."
+  {:arglists '([f])}
+  [f]
+  {:pre [(c/is? ULFileItem f)]}
+
+  (.fileRef ^XData (:body f)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn get-field-name-lc
+
+  "Get the item's field name in lowercase."
+  {:arglists '([f])}
+  [f]
+  {:pre [(c/is? ULFileItem f)]}
+
+  (c/lcase (:field f)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn file-item<>
 
   "Create a wrapper for this file-item."
-  ^FileItem [isField? ctype headers field fname data]
+  {:tag FileItem
+   :arglists '([isField? ctype headers field fname data])}
+  [isField? ctype headers field fname data]
 
   (assert (or (nil? data)
               (c/is? XData data)) "Bad file-item.")
-  (c/object<> ULFileItemObj
+  (c/object<> ULFileItem
               :is-field? isField?
               :headers headers
-              :body (or (c/cast? XData data)
-                        (XData. data))
               :ctype ctype
               :field field
               :fname fname
-              :enc (mm/charset?? ctype)))
+              :enc (mm/charset?? ctype)
+              :body (nc/toXData data true)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- hconv
@@ -231,10 +299,10 @@
 
   "Parses a http form post, returning the list of items in
   the post.  An item can be a simple form-field or a file-upload."
+  {:arglists '([gist body])}
   [gist body]
 
-  (let [iter (->> (if-not (c/is? XData body)
-                    (XData. body false) body)
+  (let [iter (->> (nc/toXData body)
                   (process-form gist))]
     (loop [bag (form-items<>)]
       (if-not (and iter

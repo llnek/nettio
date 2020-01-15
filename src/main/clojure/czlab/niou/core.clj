@@ -1,4 +1,4 @@
-;; Copyright © 2013-2019, Kenneth Leung. All rights reserved.
+;; Copyright © 2013-2020, Kenneth Leung. All rights reserved.
 ;; The use and distribution terms for this software are covered by the
 ;; Eclipse Public License 1.0 (http://opensource.org/licenses/eclipse-1.0.php)
 ;; which can be found in the file epl-v10.html at the root of this distribution.
@@ -24,29 +24,24 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defrecord HttpResultMsg [])
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defrecord Http1xMsg [])
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defrecord WsockMsg [])
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defrecord Http2xMsg [])
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defprotocol ClientConnection
-  (is-open? [_ ] "")
-  (is-ssl? [_] "")
+(defprotocol HClient
+  "Http client object."
+  (is-open? [_ ] "Is client connected?")
+  (is-ssl? [_] "Is a SSL connection?")
+  (channel [_] "The connection.")
+  (module [_] "The implementation.")
+  (remote-host [_] "The remote host.")
+  (remote-port [_] "The remote port.")
   (write-msg [_ msg]
-             [_ msg args] "")
-  (channel [_] "")
-  (module [_] "")
-  (remote-host [_] "")
-  (remote-port [_] ""))
+             [_ msg args] "Write message to remote."))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defprotocol HttpClientModule
+(defprotocol HClientModule
   (h1-conn [_ host port args] "Connect to server http 1.x style.")
   (h2-conn [_ host port args] "Connect to server http 2 style.")
   (ws-conn [_ host port args] "Connect to server websocket style.")
@@ -84,106 +79,157 @@
 (defn is-ajax?
 
   "Is this request from AJAX?"
+  {:arglists '([msg])}
   [msg]
 
-  (c/eq? "xmlhttprequest"
-         (c/lcase (msg-header msg "x-requested-with"))))
+  (if msg (c/eq? "xmlhttprequest"
+                 (c/lcase (msg-header msg "x-requested-with")))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn gist-param?
 
+  "If message has this parameter?"
+  {:arglists '([gist pm])}
   [gist pm]
 
   (let [{:keys [parameters]} gist]
     (if (map? parameters)
       (contains? parameters pm)
-      (.containsKey ^Map parameters pm))))
+      (some-> ^Map parameters
+              (.containsKey pm)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn gist-param
 
+  "Get parameter from message."
+  {:arglists '([gist pm])}
   [gist pm]
 
   (let [{:keys [parameters]} gist]
     (c/_1 (if (map? parameters)
             (get parameters pm)
-            (.get ^Map parameters pm)))))
+            (some-> ^Map parameters (.get pm))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn gist-param-keys
 
+  "Get the names of the parameters."
+  {:arglists '([gist])}
   [gist]
 
   (let [{:keys [parameters]} gist]
     (if (map? parameters)
       (keys parameters)
-      (c/set-> (.keySet ^Map parameters)))))
+      (c/set-> (some-> ^Map parameters .keySet)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn gist-param-vals
 
+  "Get the values for this parameter."
+  {:arglists '([gist pm])}
   [gist pm]
 
   (let [{:keys [parameters]} gist]
     (if (map? parameters)
       (get parameters pm)
-      (c/vec-> (.get ^Map parameters pm)))))
+      (c/vec-> (some-> ^Map parameters (.get pm))))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn pre-headers??
+
+  {:arglists '([h])}
+  [h]
+
+  (or (nil? h)
+      (c/is? Headers h)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn toURI
+
+  "Convert input to a URI."
+  {:tag URI
+   :arglists '([in])}
+  [in]
+
+  (cond
+    (c/is? URL in) (.toURI ^URL in)
+    (c/is? URI in) in
+    (string? in) (URI. ^String in)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn toXData
+
+  "Convert input to a XData."
+  {:arglists '([in]
+               [in del?])}
+
+  ([in]
+   (toXData in false))
+
+  ([in del?]
+   (or (c/cast? XData in) (XData. in del?))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn encoded-path
 
-  [u] (cond
-        (c/is? URL u)
-        (encoded-path (.toURI ^URL u))
-        (c/is? URI u)
-        (let [p (.getRawPath ^URI u)
-              q (.getRawQuery ^URI u)]
-          [p (if-not (c/hgl? q) p (str p "?" q))])))
+  "Get the url-encoded value of this path.
+  Returns a tuple: [path-uri full-path]"
+  {:arglists '([u])}
+  [u]
+
+  (let [u (toURI u)
+        p (.getRawPath u)
+        q (.getRawQuery u)]
+    [p (if-not (c/hgl? q) p (str p "?" q))]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn decoded-path
 
-  [u] (cond
-        (c/is? URL u)
-        (decoded-path (.toURI ^URL u))
-        (c/is? URI u)
-        (let [p (.getPath ^URI u)
-              q (.getQuery ^URI u)]
-          [p (if-not (c/hgl? q) p (str p "?" q))])))
+  "Get the url-decoded value of this path.
+  Returns a tuple: [path-uri full-path]"
+  {:arglists '([u])}
+  [u]
+
+  (let [u (toURI u)
+        p (.getPath u)
+        q (.getQuery u)]
+    [p (if-not (c/hgl? q) p (str p "?" q))]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn encode-uri
 
-  ^String [uri]
-  (cs/join "/" (map #(u/url-encode %) (cs/split uri #"/"))))
+  "Urlencode the uri."
+  {:tag String
+   :arglists '([uri])}
+  [uri]
+
+  (cs/join ""
+           (map #(if (c/eq? "/" %)
+                   % (u/url-encode %))
+                (c/split-str uri "/" true))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn h2-msg<>
 
   "Create a http-2 data-map."
+  {:arglists '([status headers body]
+               [method uri headers body])}
 
   ([status headers body]
    {:pre [(number? status)
-          (or (nil? headers)
-              (c/is? Headers headers))]}
+          (pre-headers?? headers)]}
    (c/object<> czlab.niou.core.Http2xMsg
                :status status
-               :body (or (c/cast? XData body)
-                         (XData. body false))
+               :body (toXData body)
                :headers (or headers (Headers.))))
 
   ([method uri headers body]
    {:pre [(keyword? method)
-          (or (string? uri)
-              (c/is? URI uri))
-          (or (nil? headers)
-              (c/is? Headers headers))]}
-   (let [uriObj (or (c/cast? URI uri)
-                    (URI. uri))]
+          (pre-headers?? headers)]}
+   (if-some [uriObj (toURI uri)]
      (c/object<> czlab.niou.core.Http2xMsg
                  :request-method method
-                 :body (or (c/cast? XData body)
-                           (XData. body false))
+                 :body (toXData body)
                  :query-string (.getRawQuery uriObj)
                  :uri (.getRawPath uriObj)
                  :uri2 uriObj
@@ -193,19 +239,15 @@
 (defn h1-msg<>
 
   "Create a http-1.x data-map."
+  {:arglists '([method uri headers body])}
   [method uri headers body]
   {:pre [(keyword? method)
-         (or (string? uri)
-             (c/is? URI uri))
-         (or (nil? headers)
-             (c/is? Headers headers))]}
+         (pre-headers?? headers)]}
 
-  (let [uriObj (or (c/cast? URI uri)
-                   (URI. uri))]
+  (if-some [uriObj (toURI uri)]
     (c/object<> czlab.niou.core.Http1xMsg
                 :request-method method
-                :body (or (c/cast? XData body)
-                          (XData. body false))
+                :body (toXData body)
                 :query-string (.getRawQuery uriObj)
                 :uri (.getRawPath uriObj)
                 :uri2 uriObj
@@ -215,22 +257,33 @@
 (defn h1-get<>
 
   "Simple http GET."
+  {:arglists '([uri]
+               [uri headers])}
 
-  ([uri] (h1-get<> uri nil))
-  ([uri headers] (h1-msg<> :get uri headers nil)))
+  ([uri]
+   (h1-get<> uri nil))
+
+  ([uri headers]
+   (h1-msg<> :get uri headers nil)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn h1-post<>
 
   "Simple http POST."
+  {:arglists '([uri body]
+               [uri headers body])}
 
-  ([uri body] (h1-post<> uri nil body))
-  ([uri headers body] (h1-msg<> :post uri headers body)))
+  ([uri body]
+   (h1-post<> uri nil body))
+
+  ([uri headers body]
+   (h1-msg<> :post uri headers body)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn ws-msg<>
 
   "Create a Websocket data-map."
+  {:arglists '([m])}
   [m]
   {:pre [(or (nil? m)(map? m))]}
 
@@ -240,6 +293,7 @@
 (defn ws-bytes<>
 
   "Create a Websocket binary data-map."
+  {:arglists '([b])}
   [b]
   {:pre [(bytes? b)]}
 
@@ -250,6 +304,7 @@
 (defn ws-text<>
 
   "Create a Websocket text data-map."
+  {:arglists '([s])}
   [s]
   {:pre [(string? s)]}
 

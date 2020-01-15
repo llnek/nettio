@@ -66,7 +66,7 @@
               (c/start {:port 5556}))
           _ (u/pause 888)
           c (cc/ws-conn MODULE host port {:uri "/websock"})
-          ok? (and (c/is? czlab.niou.core.ClientConnection c)
+          ok? (and (c/is? czlab.niou.core.HClient c)
                    (cc/is-open? c))]
       (u/pause 500)
       (c/stop w)

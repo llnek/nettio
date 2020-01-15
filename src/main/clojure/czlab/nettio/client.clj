@@ -115,7 +115,6 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;(set! *warn-on-reflection* false)
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- boot!
 
@@ -173,7 +172,7 @@
                 {:channel rc :host host :port port'}
                 (finally (c/debug "client connected: %s@%s." host port'))))))
      (cconn<> [bs {:keys [^Channel channel host port ssl?]}]
-       (reify cc/ClientConnection
+       (reify cc/HClient
          (remote-port [_] port)
          (remote-host [_] host)
          (module [_] module)
@@ -272,7 +271,7 @@
 (defrecord NettyClientModule [])
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(extend-protocol cc/HttpClientModule
+(extend-protocol cc/HClientModule
 
   NettyClientModule
 

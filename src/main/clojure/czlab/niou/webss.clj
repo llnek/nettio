@@ -1,4 +1,4 @@
-;; Copyright © 2013-2019, Kenneth Leung. All rights reserved.
+;; Copyright © 2013-2020, Kenneth Leung. All rights reserved.
 ;; The use and distribution terms for this software are covered by the
 ;; Eclipse Public License 1.0 (http://opensource.org/licenses/eclipse-1.0.php)
 ;; which can be found in the file epl-v10.html at the root of this distribution.
@@ -114,17 +114,28 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn is-session-new?
 
-  [wss] (boolean (get-in @wss [:impls :$new?])))
+  "If session is brand new?"
+  {:arglists '([wss])}
+  [wss]
+
+  (boolean (get-in @wss [:impls :$new?])))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn is-session-null?
 
-  [wss] (empty? (:impls @wss)))
+  "If session is a null session?"
+  {:arglists '([wss])}
+  [wss]
+
+  (empty? (:impls @wss)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn set-max-idle-secs
 
+  "Set the max idle seconds."
+  {:arglists '([wss idleSecs])}
   [wss idleSecs]
+
   (swap! wss
          #(update-in %
                      [:attrs]
@@ -133,31 +144,53 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn last-accessed-time
 
-  [wss] (c/num?? (lt-flag (:attrs @wss)) -1))
+  "Get the last accessed time."
+  {:arglists '([wss])}
+  [wss]
+
+  (c/num?? (lt-flag (:attrs @wss)) -1))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn max-idle-secs
 
-  [wss] (c/num?? (is-flag (:attrs @wss)) -1))
+  "Get the max idle seconds."
+  {:arglists '([wss])}
+  [wss]
+
+  (c/num?? (is-flag (:attrs @wss)) -1))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn creation-time
 
-  [wss] (c/num?? (ct-flag (:attrs @wss)) -1))
+  "Get the creation time."
+  {:arglists '([wss])}
+  [wss]
+
+  (c/num?? (ct-flag (:attrs @wss)) -1))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn expiry-time
 
-  [wss] (c/num?? (et-flag (:attrs @wss)) -1))
+  "Get the expiry time."
+  {:arglists '([wss])}
+  [wss]
+
+  (c/num?? (et-flag (:attrs @wss)) -1))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn session-signer
 
-  [wss] (:$pkey @wss))
+  "Get the session's signing key."
+  {:arglists '([wss])}
+  [wss]
+
+  (:$pkey @wss))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn validate??
 
+  "Validate this session."
+  {:arglists '([wss])}
   [wss]
 
   (let [ts (last-accessed-time wss)
@@ -173,53 +206,83 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn remove-session-attr
 
+  "Remove an attribute from session."
+  {:arglists '([wss k])}
   [wss k]
+
   (swap! wss
          #(update-in % [:attrs] dissoc k)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn set-session-attr
 
+  "Set a session's attribute value."
+  {:arglists '([wss k v])}
   [wss k v]
+
   (swap! wss
          #(update-in % [:attrs] assoc k v)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn session-attr
 
-  [wss k] (get-in @wss [:attrs k]))
+  "Get a session attribute."
+  {:arglists '([wss k])}
+  [wss k]
+
+  (get-in @wss [:attrs k]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn remove-session-attrs
 
-  [wss] (c/assoc!! wss :attrs {}))
+  "Clear all session attibutes."
+  {:arglists '([wss])}
+  [wss]
+
+  (c/assoc!! wss :attrs {}))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn session-attrs
 
-  [wss] (:attrs @wss))
+  "Get the session attibutes."
+  {:arglists '([wss])}
+  [wss]
+
+  (:attrs @wss))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn invalidate!
 
+  "Invalidate this session."
+  {:arglists '([wss])}
   [wss]
+
   (c/assoc!! wss :impls {} :attrs {}))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn set-principal
 
+  "Set the user id."
+  {:arglists '([wss p])}
   [wss p]
+
   (swap! wss
          #(update-in % [:impls] assoc user-flag p)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn principal
 
-  [wss] (get-in @wss [:impls user-flag]))
+  "Get the user id."
+  {:arglists '([wss])}
+  [wss]
+
+  (get-in @wss [:impls user-flag]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn set-session-new
 
+  "Set a new session with data."
+  {:arglists '([wss flag? arg])}
   [wss flag? arg]
 
   (when flag?
@@ -231,18 +294,27 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn session-error
 
-  [wss] (get-in @wss [:impls :$error]))
+  "Get the last session error."
+  {:arglists '([wss])}
+  [wss]
+
+  (get-in @wss [:impls :$error]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn set-session-error
 
+  "Set the last session error."
+  {:arglists '([wss t])}
   [wss t]
+
   (swap! wss
          #(update-in % [:impls] assoc :$error t)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn encode-attrs
 
+  "URL encode the session attributes."
+  {:arglists '([wss])}
   [wss]
 
   (c/sreduce<>
@@ -257,12 +329,19 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn session-id
 
-  [wss] (get-in @wss [:impls ssid-flag]))
+  "Get the session id."
+  {:arglists '([wss])}
+  [wss]
+
+  (get-in @wss [:impls ssid-flag]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn wsession<>
 
   "Create a Web Session."
+  {:arglists '([pkey]
+               [pkey arg]
+               [pkey cookie secure?])}
 
   ([^bytes pkey cookie secure?]
    (doto
@@ -291,8 +370,10 @@
 (defn downstream
 
   "Set session-cookie for outbound message#response."
+  {:arglists '([res][res session])}
 
-  ([res] (downstream res nil))
+  ([res]
+   (downstream res nil))
 
   ([res sessionObj]
    (let [req (:request res)
@@ -325,6 +406,7 @@
 (defn upstream
 
   "Create session from session-cookie."
+  {:arglists '([pkey cookies encrypt?])}
   [pkey cookies encrypt?]
 
   (wsession<> pkey (get cookies session-cookie) encrypt?))

@@ -1,4 +1,4 @@
-;; Copyright © 2013-2019, Kenneth Leung. All rights reserved.
+;; Copyright © 2013-2020, Kenneth Leung. All rights reserved.
 ;; The use and distribution terms for this software are covered by the
 ;; Eclipse Public License 1.0 (http://opensource.org/licenses/eclipse-1.0.php)
 ;; which can be found in the file epl-v10.html at the root of this distribution.
@@ -43,12 +43,13 @@
 
   "Parse line looking for
   basic authentication info."
+  {:arglists '([line])}
   [line]
 
   (let [[a b :as s]
         (c/split (c/strim line) "\\s+")]
     (when (and (c/two? s)
-               (.equals basic a) (c/hgl? b))
+               (c/eq? basic a) (c/hgl? b))
       (let [[x y :as rc]
             (-> (Base64/getDecoder)
                 (.decode (str b))
@@ -65,17 +66,28 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn generate-nonce
 
-  ^String [] (u/uid<>))
+  "Generate a nonce token."
+  {:tag String
+   :arglists '([])}
+  []
+
+  (u/uid<>))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn generate-csrf
 
-  ^String [] (u/uid<>))
+  "Generate a csrf token."
+  {:tag String
+   :arglists '([])}
+  []
+
+  (u/uid<>))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn parse-ie
 
-  "Looking for MSIE in UA."
+  "Looking for MSIE in UserAgent."
+  {:arglists '([line])}
   [line]
 
   (let
@@ -101,7 +113,8 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn parse-chrome
 
-  "Looking for chrome in UA."
+  "Looking for chrome in UserAgent."
+  {:arglists '([line])}
   [line]
 
   (let [p1 #".*(Chrome/(\S+)).*"
@@ -117,7 +130,8 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn parse-kindle
 
-  "Looking for Kindle in UA."
+  "Looking for Kindle in UserAgent."
+  {:arglists '([line])}
   [line]
 
   (let [p1 #".*(Silk/(\S+)).*"
@@ -134,7 +148,8 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn parse-android
 
-  "Looking for Android in UA."
+  "Looking for Android in UserAgent."
+  {:arglists '([line])}
   [line]
 
   (let [p1 #".*(Android\s*(\S+)\s*).*"
@@ -151,7 +166,8 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn parse-ffox
 
-  "Looking for Firefox in UA."
+  "Looking for Firefox in UserAgent."
+  {:arglists '([line])}
   [line]
 
   (let [p1 #".*(Firefox/(\S+)\s*).*"
@@ -167,7 +183,8 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn parse-safari
 
-  "Looking for Safari in UA."
+  "Looking for Safari in UserAgent."
+  {:arglists '([line])}
   [line]
 
   (let [p1 #".*(Version/(\S+)\s*).*"
@@ -196,7 +213,8 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn parse-user-agent-line
 
-  "Retuns browser/device attributes."
+  "Returns browser/device attributes."
+  {:arglists '([agentLine])}
   [agentLine]
 
   (let [line (c/strim agentLine)]
