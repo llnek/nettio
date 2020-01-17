@@ -45,7 +45,7 @@ import czlab.basal.CU;
  */
 public abstract class H2Handler extends Http2ConnectionHandler implements Http2FrameListener {
 
-  public static final Logger TLOG = getLogger(ChannelInizer.class);
+  public static final Logger TLOG = getLogger(H2Handler.class);
 
   public H2Handler(Http2ConnectionDecoder decoder, Http2ConnectionEncoder encoder,
                    Http2Settings initialSettings) {

@@ -105,13 +105,13 @@
             ChannelFuture
             ChannelInitializer
             ChannelHandlerContext]
+           [czlab.basal XData]
            [czlab.nettio
-            ChannelInizer
             H2Handler
             DuplexHandler
             H1DataFactory
-            InboundHandler]
-           [czlab.basal XData]))
+            InboundHandler
+            PipelineConfigurator]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;(set! *warn-on-reflection* false)

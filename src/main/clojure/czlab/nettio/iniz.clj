@@ -38,11 +38,11 @@
             HttpObjectAggregator]
            [czlab.nettio
             InboundH2ToH1
-            ChannelInizer
             InboundHandler
             DuplexHandler
             APNHttp2Handler
-            APNHttpXHandler]
+            APNHttpXHandler
+            PipelineConfigurator]
            [io.netty.handler.ssl
             SslContext
             OpenSsl
@@ -122,7 +122,7 @@
                      ;(.server false) MUST NOT CALL THIS!
                      (.frameListener f)
                      (.frameLogger (Http2FrameLogger. LogLevel/INFO))))))]
-    (proxy [ChannelInizer][]
+    (proxy [PipelineConfigurator][]
       (onActive [ctx]
         (if-not (.equals "2" protocol)
           (deliver rcp (n/ch?? ctx))))
@@ -159,13 +159,13 @@
 (defn webc-inizor<>
 
   "Initialize pipeline for a http client."
-  {:tag ChannelInizer
+  {:tag PipelineConfigurator
    :arglists '([rcp args])}
   [rcp {:keys [server-cert] :as args}]
 
   (if (c/hgl? server-cert)
     (webc-ssl-inizor<> rcp server-cert args)
-    (proxy [ChannelInizer][]
+    (proxy [PipelineConfigurator][]
       (onActive [ctx]
         (deliver rcp (n/ch?? ctx)))
       (onError [_ e]
@@ -189,7 +189,7 @@
 (defn websock-inizor<>
 
   "Initialize pipeline for a websock client."
-  {:tag ChannelInizer
+  {:tag PipelineConfigurator
    :arglists '([rcp args])}
   [rcp
    {:keys [uri2 user-cb
@@ -223,7 +223,7 @@
 
                :else
                (n/fire-msg ctx (n/ref-add msg)))))))]
-    (proxy [ChannelInizer][]
+    (proxy [PipelineConfigurator][]
       (onInitChannel [pp]
         (n/client-ssl?? pp server-cert args)
         (n/pp->last pp "1" (HttpClientCodec.))
@@ -242,11 +242,11 @@
 (defn udp-inizor<>
 
   "Initialize pipeline for UDP."
-  {:tag ChannelInizer
+  {:tag PipelineConfigurator
    :arglists '([args])}
   [{:keys [user-cb] :as args}]
 
-  (proxy [ChannelInizer][]
+  (proxy [PipelineConfigurator][]
     (onInitChannel [pp]
       (n/pp->last pp n/user-cb (n/app-handler user-cb)))))
 
@@ -267,7 +267,7 @@
            (if h2-frames?
              (h2/h2-pipeline pp args)
              (h2/hx-pipeline pp args)))))]
-    (proxy [ChannelInizer][]
+    (proxy [PipelineConfigurator][]
       (onInitChannel [pp]
         (n/server-ssl?? pp keyfile passwd args)
         (n/pp->last pp "svr-neg" (ssl-negotiator))))))
@@ -276,12 +276,12 @@
 (defn web-inizor<>
 
   "Pipeline initializer for http and ssl."
-  {:tag ChannelInizer
+  {:tag PipelineConfigurator
    :arglists '([args])}
   [{:keys [server-key] :as args}]
 
   (if (c/nichts? server-key)
-    (proxy [ChannelInizer][]
+    (proxy [PipelineConfigurator][]
       (onInitChannel [pp]
         (h1/h1-pipeline pp args)))
     (web-ssl-inizor<> server-key args)))

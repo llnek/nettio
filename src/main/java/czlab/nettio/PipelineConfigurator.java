@@ -20,13 +20,13 @@ import czlab.basal.CU;
 
 /**
  */
-public abstract class ChannelInizer extends ChannelInitializer {
+public abstract class PipelineConfigurator extends ChannelInitializer {
 
-  public static final Logger TLOG = getLogger(ChannelInizer.class);
+  public static final Logger TLOG = getLogger(PipelineConfigurator.class);
 
   /*
    */
-  protected ChannelInizer() {
+  protected PipelineConfigurator() {
     //super();
   }
 
