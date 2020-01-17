@@ -319,7 +319,7 @@
                  (c/is? PongWebSocketFrame msg)
                  :pong
                  (c/is? CloseWebSocketFrame msg)
-                 (c/do#nil (n/close! ctx))
+                 (c/do->nil (n/close! ctx))
                  (or (c/is? TextWebSocketFrame msg)
                      (c/is? BinaryWebSocketFrame msg))
                  (.content ^WebSocketFrame msg))]

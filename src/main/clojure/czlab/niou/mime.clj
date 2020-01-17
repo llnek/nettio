@@ -168,7 +168,7 @@
   [file]
 
   (try
-    (c/let#true [p (u/load-java-props file)]
+    (c/let->true [p (u/load-java-props file)]
       (reset! _mime-cache (u/pmap<> p))
       (c/wo* [inp (->> (.entrySet p)
                        (c/sreduce<>

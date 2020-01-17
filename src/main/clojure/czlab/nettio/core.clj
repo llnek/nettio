@@ -645,7 +645,7 @@
                (or (c/eq? "*" server-cert)
                    (some-> server-cert
                            (cs/starts-with? "file:"))))
-      (c/let#nil [^SslContextBuilder b (bld-ctx)
+      (c/let->nil [^SslContextBuilder b (bld-ctx)
                   ^SslContext ctx
                   (if-not (c/eq? "2" protocol)
                     (.build b)
@@ -686,7 +686,7 @@
                (.trustManager (SslContextBuilder/forServer k) t))
              :else
              (u/throw-BadArg "Invalid keyfile path: %s" keyfile)))]
-    (c/let#nil [^SslContextBuilder b (bld-ctx)]
+    (c/let->nil [^SslContextBuilder b (bld-ctx)]
       (pp->last pp
                 "ssl"
                 (-> (.build (cfg-ctx-bldr b false))

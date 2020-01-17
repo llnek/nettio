@@ -321,9 +321,7 @@
                 (bytes? body)
                 [body (count body)]
                 (c/is? File body)
-                [(HttpChunkedInput.
-                   (ChunkedNioFile. ^File body))
-                 (.length ^File body)]
+                [(HttpChunkedInput. (ChunkedNioFile. ^File body)) -1];(.length ^File body)]
                 (nil? body)
                 [nil 0]
                 :else

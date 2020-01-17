@@ -57,7 +57,7 @@
       (and f
            (== 200 status)
            (== sz (.length f))
-           (c/do#true (i/fdelete f)))))
+           (c/do->true (i/fdelete f)))))
 
   (ensure??
     "snoop-httpd<>"

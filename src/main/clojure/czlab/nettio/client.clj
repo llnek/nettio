@@ -330,7 +330,7 @@
           clen (cond (c/is? ByteBuf body)
                      (.readableBytes ^ByteBuf body)
                      (c/is? File body)
-                     (.length ^File body)
+                     -1 ;(.length ^File body)
                      (c/is? InputStream body)
                      -1
                      (nil? body)
