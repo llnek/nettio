@@ -1,4 +1,4 @@
-;; Copyright © 2013-2019, Kenneth Leung. All rights reserved.
+;; Copyright © 2013-2020, Kenneth Leung. All rights reserved.
 ;; The use and distribution terms for this software are covered by the
 ;; Eclipse Public License 1.0 (http://opensource.org/licenses/eclipse-1.0.php)
 ;; which can be found in the file epl-v10.html at the root of this distribution.
@@ -87,7 +87,7 @@
 (defonce ^AttributeKey rsp-key  (n/akey<> :client-rsp-results))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(c/defonce-
+(c/def-
   ^{:tag ChannelHandler}
   client-hdlr
   (proxy [InboundHandler][]
@@ -158,7 +158,9 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn webc-inizor<>
 
-  "Initialize pipeline for a web client."
+  "Initialize pipeline for a http client."
+  {:tag ChannelInizer
+   :arglists '([rcp args])}
   [rcp {:keys [server-cert] :as args}]
 
   (if (c/hgl? server-cert)
@@ -187,6 +189,8 @@
 (defn websock-inizor<>
 
   "Initialize pipeline for a websock client."
+  {:tag ChannelInizer
+   :arglists '([rcp args])}
   [rcp
    {:keys [uri2 user-cb
            server-cert max-frame-size] :as args}]
@@ -238,6 +242,8 @@
 (defn udp-inizor<>
 
   "Initialize pipeline for UDP."
+  {:tag ChannelInizer
+   :arglists '([args])}
   [{:keys [user-cb] :as args}]
 
   (proxy [ChannelInizer][]
@@ -270,6 +276,8 @@
 (defn web-inizor<>
 
   "Pipeline initializer for http and ssl."
+  {:tag ChannelInizer
+   :arglists '([args])}
   [{:keys [server-key] :as args}]
 
   (if (c/nichts? server-key)

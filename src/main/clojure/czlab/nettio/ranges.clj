@@ -1,4 +1,4 @@
-;; Copyright © 2013-2019, Kenneth Leung. All rights reserved.
+;; Copyright © 2013-2020, Kenneth Leung. All rights reserved.
 ;; The use and distribution terms for this software are covered by the
 ;; Eclipse Public License 1.0 (http://opensource.org/licenses/eclipse-1.0.php)
 ;; which can be found in the file epl-v10.html at the root of this distribution.
@@ -42,12 +42,6 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;(set! *warn-on-reflection* true)
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defprotocol HttpHeadersAPI
-  (fmt-error [_ body] "")
-  (fmt-success [_ rgObj] ""))
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (def ^String DEF-BD "21458390-ebd6-11e4-b80c-0800200c9a66")
 
@@ -301,31 +295,47 @@
                  :total-bytes (c/mu-int* (calc-all rgObj))))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(extend-protocol HttpHeadersAPI
-  HttpHeaders
-  (fmt-error [hds body]
-    (let [sz (cond (bytes? body) (n# body)
-                   (i/file? body) (i/fsize body) :else 0)
-          last (if (pos? sz) (- sz 1) 0)]
-      (.set hds (n/h1hdr* ACCEPT_RANGES) (n/h1hdv* BYTES))
-      (.set hds (n/h1hdr* CONTENT_RANGE) (str "bytes 0-" last "/" sz))))
-  (fmt-success [hds rgObj]
-    (let [{:keys [ranges flen]} rgObj]
-      (.set hds (n/h1hdr* ACCEPT_RANGES) (n/h1hdv* BYTES))
-      (if (c/one? ranges)
-        (let [{:keys [start end]} (c/_1 ranges)]
-          (.set hds
-                (n/h1hdr* CONTENT_RANGE)
-                (str (n/h1hdv* BYTES)
-                     " " start "-" end "/" flen))
-          (.set hds
-                (n/h1hdr* CONTENT_TYPE)
-                (str "multipart/byteranges; boundary=" DEF-BD)))))))
+(defn fmt-error
+
+  "Format headers for range error."
+  {:tag HttpHeaders
+   :arglists '([hds body])}
+  [hds body]
+  {:pre [(c/is? HttpHeaders hds)]}
+
+  (let [sz (cond (bytes? body) (alength ^bytes body)
+                 (i/file? body) (i/fsize body) :else 0)
+        last (if (pos? sz) (- sz 1) 0)]
+    (.set ^HttpHeaders hds (n/h1hdr* ACCEPT_RANGES) (n/h1hdv* BYTES))
+    (.set ^HttpHeaders hds (n/h1hdr* CONTENT_RANGE) (str "bytes 0-" last "/" sz))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn fmt-success
+
+  "Format headers for range result."
+  {:tag HttpHeaders
+   :arglists '([hds rgObj])}
+  [hds rgObj]
+  {:pre [(c/is? HttpHeaders hds)]}
+
+  (let [{:keys [ranges flen]} rgObj]
+    (.set ^HttpHeaders hds (n/h1hdr* ACCEPT_RANGES) (n/h1hdv* BYTES))
+    (if (c/one? ranges)
+      (let [{:keys [start end]} (c/_1 ranges)]
+        (.set ^HttpHeaders hds
+              (n/h1hdr* CONTENT_RANGE)
+              (str (n/h1hdv* BYTES)
+                   " " start "-" end "/" flen))
+        (.set ^HttpHeaders hds
+              (n/h1hdr* CONTENT_TYPE)
+              (str "multipart/byteranges; boundary=" DEF-BD))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn http-ranges<>
 
   "Maybe handle http byte ranges."
+  {:arglists '([range source]
+               [range cType source])}
 
   ([range source]
    (http-ranges<> range "application/octet-stream" source))

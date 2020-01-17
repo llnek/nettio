@@ -1,4 +1,4 @@
-;; Copyright © 2013-2019, Kenneth Leung. All rights reserved.
+;; Copyright © 2013-2020, Kenneth Leung. All rights reserved.
 ;; The use and distribution terms for this software are covered by the
 ;; Eclipse Public License 1.0 (http://opensource.org/licenses/eclipse-1.0.php)
 ;; which can be found in the file epl-v10.html at the root of this distribution.
@@ -79,7 +79,6 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;(set! *warn-on-reflection* true)
-
 (c/def- ct-form-url "application/x-www-form-urlencoded")
 (c/def- ct-form-mpart "multipart/form-data")
 (c/def- hd-upgrade "upgrade")
@@ -88,7 +87,10 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn config->cors
 
-  ^CorsConfig [args]
+  "Convert input to Netty's CorsConfig."
+  {:tag CorsConfig
+   :arglists '([args])}
+  [args]
 
   (let [{:keys [enabled?
                 allow-creds?
@@ -145,15 +147,16 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defprotocol Netty->RingMap
-  (netty->ring [_ ctx body] ""))
+  (netty->ring [_ ctx body]
+               "Convert a Netty message to ring compliant map."))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;reusables
-(c/defonce- ^HttpResponse expected-ok
+(c/def- ^HttpResponse expected-ok
   (n/http-reply<+> (n/scode* CONTINUE)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(c/defonce- ^HttpResponse expected-failed
+(c/def- ^HttpResponse expected-failed
   (n/http-reply<+> (n/scode* EXPECTATION_FAILED)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -169,16 +172,21 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn std->headers
 
-  ^HttpHeaders
-  [^Headers hds]
+  "Convert internal Headers to Netty Headers."
+  {:tag HttpHeaders
+   :arglists '([hds])}
+  [hds]
+  {:pre [(c/is? Headers hds)]}
 
   (reduce
     (fn [^HttpHeaders acc ^String n]
-      (let [lst (.get hds n)]
+      (let [lst (.get ^Headers hds n)]
         (if (== 1 (.size lst))
           (.set acc n ^String (.get lst 0))
           (doseq [v lst]
-            (.add acc n ^String v))) acc)) (DefaultHttpHeaders.) (.keySet hds)))
+            (.add acc n ^String v))) acc))
+    (DefaultHttpHeaders.)
+    (.keySet ^Headers hds)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn- headers->std
@@ -273,7 +281,12 @@
                   :headers (headers->std (.headers res))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(def ws-monolith<>
+(def
+
+  ^{:tag ChannelHandler
+    :doc "A WebSocket Handler."}
+
+  ws-monolith<>
 
   (proxy [DuplexHandler][true]
     (preWrite [ctx msg]
@@ -613,7 +626,12 @@
             (recur (delhead out))))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(def h1-simple<>
+(def
+
+  ^{:tag ChannelHandler
+    :doc "A Http 1.x handler without pipelining."}
+
+  h1-simple<>
 
   (proxy [DuplexHandler][]
     (onHandlerAdded [ctx]
@@ -626,7 +644,12 @@
         (on-read ctx msg) (n/fire-msg ctx msg)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(def h1-complex<>
+(def
+
+  ^{:tag ChannelHandler
+    :doc "A Http 1.x handler supporting pipelining."}
+
+  h1-complex<>
 
   (proxy [DuplexHandler][]
     (onRead [ctx ch msg]
@@ -656,8 +679,11 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn h1-pipeline
 
-  "Pipeline for http server."
+  "Pipeline for http 1.x server."
+  {:tag ChannelPipeline
+   :arglists '([p args])}
   [p args]
+  {:pre [(c/is? ChannelPipeline p)]}
 
   (let [{:keys [pipelining?
                 cors-cfg user-cb]} args]

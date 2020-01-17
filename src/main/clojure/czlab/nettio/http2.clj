@@ -1,4 +1,4 @@
-;; Copyright © 2013-2019, Kenneth Leung. All rights reserved.
+;; Copyright © 2013-2020, Kenneth Leung. All rights reserved.
 ;; The use and distribution terms for this software are covered by the
 ;; Eclipse Public License 1.0 (http://opensource.org/licenses/eclipse-1.0.php)
 ;; which can be found in the file epl-v10.html at the root of this distribution.
@@ -36,6 +36,7 @@
             ChannelHandler
             ChannelPromise
             Channel
+            ChannelPipeline
             ChannelHandlerContext]
            [io.netty.handler.codec
             HeadersUtils]
@@ -75,7 +76,10 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defmacro h2xhdr*
 
+  "Coerce to a H2 extension header."
+  {:arglists '([name])}
   [name]
+
   `(.toString
      (.text ~(symbol
                (str "HttpConversionUtil$ExtensionHeaderNames/"  (str name))))))
@@ -111,7 +115,12 @@
     (Headers.) (HeadersUtils/namesAsString hds)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(def h2-settings<>
+(def
+
+  ^{:tag ChannelHandler
+    :doc "Handler to deal with propagation of H2 settings."}
+
+  h2-settings<>
 
   (proxy [InboundHandler][]
     (onRead [ctx ch msg]
@@ -171,6 +180,9 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn h2-handler<>
 
+  "Create a H2 handler."
+  {:tag H2Handler
+   :arglists '([rcp max-mem-size])}
   [rcp max-mem-size]
 
   (letfn
@@ -227,7 +239,10 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn hx-pipeline
 
+  "Configure a H2->H1 pipeline."
+  {:arglists '([p args])}
   [p args]
+  {:pre [(c/is? ChannelPipeline p)]}
 
   (let [{:keys [user-cb
                 cors-cfg max-frame-size]} args
@@ -250,11 +265,16 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn h2-pipeline
 
+  "Configure a H2 pipeline."
+  {:arglists '([p args])}
   [p args]
+  {:pre [(c/is? ChannelPipeline p)]}
 
   (let [{:keys [user-cb
                 max-mem-size]} args]
-    (n/pp->last p "svr-h2f" (h2-handler<> nil max-mem-size))
+    (n/pp->last p
+                "svr-h2f"
+                (h2-handler<> nil max-mem-size))
     (n/pp->last p "user-func" (n/app-handler user-cb))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
