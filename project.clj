@@ -1,26 +1,24 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defproject io.czlab/nettio "2.0.1"
 
-  :license {:name "Eclipse Public License"
-            :url "http://www.eclipse.org/legal/epl-v10.html"}
+  :license {:url "https://www.apache.org/licenses/LICENSE-2.0.txt"
+            :name "Apache License"}
 
   :description "Http client and server library using netty."
   :url "https://github.com/llnek/nettio"
 
-  ;WARNING
-  ;io.netty/netty-tcnative-boringssl-static "2.0.27.Final" crashes jvm
-  :dependencies [[io.netty/netty-tcnative-boringssl-static "2.0.28.Final"]
+  :dependencies [[io.netty/netty-tcnative-boringssl-static "2.0.49.Final"]
                  [commons-fileupload/commons-fileupload "1.4"]
                  ;[net.sourceforge.jregex/jregex "1.2_01"]
                  [javax.servlet/javax.servlet-api "4.0.1"]
-                 [org.javassist/javassist "3.26.0-GA"]
-                 [io.netty/netty-all "4.1.45.Final"]
-                 [io.czlab/basal "2.0.1"]
-                 [io.czlab/twisty "2.0.1"]]
+                 [org.javassist/javassist "3.28.0-GA"]
+                 [io.netty/netty-all "4.1.76.Final"]
+                 [io.czlab/basal "2.1.0"]
+                 [io.czlab/twisty "2.1.0"]]
 
-  :plugins [[cider/cider-nrepl "0.22.4"]
-            [lein-javadoc "0.3.0"]
-            [lein-codox "0.10.7"]]
+  :plugins [[cider/cider-nrepl "0.28.3"]
+            [lein-codox "0.10.8"]
+            [lein-cljsbuild "1.1.8"]]
 
   :test-selectors {:niou :test-niou
                    :h1 :test-h1
@@ -30,7 +28,7 @@
                    :nettio :test-nettio}
 
   :profiles {:provided {:dependencies
-                        [[org.clojure/clojure "1.10.1" :scope "provided"]]}
+                        [[org.clojure/clojure "1.11.1" :scope "provided"]]}
              :uberjar {:aot :all}}
 
   :javadoc-opts {:package-names ["czlab.nettio"]
@@ -49,8 +47,8 @@
   :resource-paths ["src/main/resources"]
 
   :jvm-opts ["-Dlog4j.configurationFile=file:attic/log4j2.xml"]
-  :javac-options ["-source" "11"
-                  "-target" "11"
+  :javac-options ["-source" "16"
+                  "-target" "16"
                   "-Xlint:unchecked" "-Xlint:-options" "-Xlint:deprecation"])
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
