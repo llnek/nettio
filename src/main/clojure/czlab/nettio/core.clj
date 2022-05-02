@@ -1637,6 +1637,23 @@
     [r (c/cast? ReferenceCounted obj)]
     (c/debug "object %s: has refcount: %s." obj (.refCnt r))))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(extend-protocol cc/ChannelAttrs
+  io.netty.channel.Channel
+  (setattr [me a v]
+    (akey+ me (akey* a) v))
+  (delattr [me a]
+    (akey- me (akey* a)))
+  (getattr [me a]
+    (akey?? me (akey* a)))
+  io.netty.channel.ChannelHandlerContext
+  (setattr [me a v]
+    (akey+ me (akey* a) v))
+  (delattr [me a]
+    (akey- me (akey* a)))
+  (getattr [me a]
+    (akey?? me (akey* a))))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;EOF
 

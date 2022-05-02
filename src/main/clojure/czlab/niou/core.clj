@@ -81,6 +81,13 @@
   (res-header-add [_ name value] "Add a header")
   (res-header-set [_ name value] "Set a header"))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defprotocol ChannelAttrs
+  ""
+  (setattr [_ a v] "Tag an attribute")
+  (delattr [_ a] "Remove an attribute")
+  (getattr [_ a] "Get an attribute"))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn is-ajax?
 
