@@ -1620,7 +1620,7 @@
   (HttpUtil/setContentLength msg (long len)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defn- akey*
+(defn akey*
 
   [k] (let [s (c/sname k)]
         (if-not (AttributeKey/exists s)
