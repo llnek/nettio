@@ -10,7 +10,7 @@
 ;; See the License for the specific language governing permissions and
 ;; limitations under the License.
 ;;
-;; Copyright © 2013-2022, Kenneth Leung. All rights reserved.
+;; Copyright © 2013-2024, Kenneth Leung. All rights reserved.
 
 (ns czlab.nettio.http
 
@@ -173,7 +173,7 @@
   `(HttpPostRequestDecoder.
      (czlab.nettio.core/dfac?? ~ctx)
      ~(with-meta msg {:tag 'HttpRequest})
-     (czlab.nettio.core/get-charset ~msg)))
+     (czlab.nettio.core/get-charset ~msg) -1 -1))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn std->headers

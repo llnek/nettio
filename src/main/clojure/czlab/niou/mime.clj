@@ -10,7 +10,7 @@
 ;; See the License for the specific language governing permissions and
 ;; limitations under the License.
 ;;
-;; Copyright © 2013-2022, Kenneth Leung. All rights reserved.
+;; Copyright © 2013-2024, Kenneth Leung. All rights reserved.
 
 (ns czlab.niou.mime
 
@@ -27,7 +27,7 @@
             IOException
             InputStream
             UnsupportedEncodingException]
-           [javax.activation
+           [jakarta.activation
             MimetypesFileTypeMap]
            [java.net URL URLEncoder URLDecoder]
            [clojure.lang APersistentMap]
