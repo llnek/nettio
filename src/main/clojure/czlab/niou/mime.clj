@@ -27,7 +27,7 @@
             IOException
             InputStream
             UnsupportedEncodingException]
-           [jakarta.activation
+           [javax.activation
             MimetypesFileTypeMap]
            [java.net URL URLEncoder URLDecoder]
            [clojure.lang APersistentMap]
